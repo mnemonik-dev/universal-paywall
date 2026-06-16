@@ -2,7 +2,7 @@
 feature: x402-agent-payment
 created: 2026-06-16
 updated: 2026-06-16
-status: draft
+status: approved
 size: L
 branch: dev
 ---
@@ -519,7 +519,7 @@ All deviations were resolved by rewriting user-spec in lockstep with this tech-s
 - **Multi-instance NonceStore explicitly out of scope.**
 - **Auto-refill relayer wallet explicitly out of scope.**
 
-→ **[PENDING USER APPROVAL]** — entire user-spec + tech-spec set, post-rewrite.
+→ **[APPROVED 2026-06-16]** — entire user-spec + tech-spec set, post-rewrite.
 
 ## Acceptance Criteria (technical complement)
 

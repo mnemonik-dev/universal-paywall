@@ -1,6 +1,6 @@
 ---
 feature: x402-agent-payment
-status: draft
+status: approved
 size: L
 created: 2026-06-16
 updated: 2026-06-16
