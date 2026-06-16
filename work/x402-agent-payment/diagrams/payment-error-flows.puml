@@ -1,75 +1,82 @@
 @startuml payment-error-flows
-title x402 Payment — Error Flows (standard x402 v1)
+title x402 Payment — Error Flows (Path 2: per-developer vault)
 
 skinparam sequenceMessageAlign center
 skinparam backgroundColor #FAFAFA
 
 actor "AI Agent" as Agent
 participant "withPaywall\nMiddleware + Facilitator" as MW
-participant "PaymentSplitter" as Splitter
 participant "USDC" as USDC
 
-note across : All errors return HTTP 402 with x402 v1 JSON body:\n  { x402Version: 1, accepts: [...], error: <reason>, ...details }
+note across : Body = x402 v1 JSON: { x402Version:1, accepts:[…], error:<reason>, ...details }\nHTTP code: 400 for protocol violations (malformed/too-large), 402 for payment-required.
 
-== Error 1: Missing X-PAYMENT header ==
-
+== E1: Missing X-PAYMENT header ==
 Agent -> MW : GET /api/data\n(no header)
-MW -> Agent : 402 application/json\n{\n  "x402Version": 1,\n  "accepts": [{scheme,network,...}],\n  "error": "payment_required"  /* optional */\n}
+MW -> Agent : 402 application/json\n{ "x402Version":1, "accepts":[…],\n  "error":"payment_required" }
 
-== Error 2: Malformed header / base64 ==
+== E2: Header too large (>4 KB) ==
+Agent -> MW : GET /api/data\nX-PAYMENT: <very long blob>
+MW -> Agent : **HTTP 400**\n{ "error": "header_too_large" }
 
-Agent -> MW : GET /api/data\nX-PAYMENT: invalid-base64-blob
-MW -> MW : decodeXPayment throws X402DecodeError
-MW -> Agent : 402 ... "error": "malformed_payment_header"
+== E3: Malformed base64 / JSON ==
+Agent -> MW : GET /api/data\nX-PAYMENT: not-valid-base64
+MW -> Agent : **HTTP 400**\n{ "error": "malformed_payment_header" }
 
-== Error 3: Invalid signature (EIP-712 mismatch) ==
-
+== E4: Invalid signature (tampered chainId / domain / message) ==
 Agent -> MW : GET /api/data\nX-PAYMENT: base64(...)
-MW -> MW : recoverTypedDataAddress(sig, message)\n  → recovered != authorization.from
+MW -> MW : recoverTypedDataAddress(sig, message)\n→ recovered != authorization.from
 MW -> Agent : 402 ... "error": "invalid_signature"
 
-== Error 4: Insufficient amount ==
-
-Agent -> MW : GET /api/data\nX-PAYMENT: { authorization.value = 5000 }
-MW -> MW : 5000 < required 10000
+== E5: Insufficient amount ==
+Agent -> MW : X-PAYMENT: { authorization.value = 5000 }\n(required: 10000)
 MW -> Agent : 402 ...\n  "error": "insufficient_amount",\n  "required": "10000",\n  "received": "5000"
 
-== Error 5: Expired authorization ==
-
-Agent -> MW : GET /api/data\nX-PAYMENT: { validBefore = now - 1 }
-MW -> MW : validBefore <= now + 5s
+== E6: Authorization expired ==
+Agent -> MW : X-PAYMENT: { validBefore < now + 5s }
 MW -> Agent : 402 ... "error": "authorization_expired"
 
-== Error 6: Replay (same nonce, same agent) ==
+== E7: Authorization not yet valid ==
+Agent -> MW : X-PAYMENT: { validAfter > now }
+MW -> Agent : 402 ... "error": "authorization_not_yet_valid"
 
-Agent -> MW : GET /api/data\nX-PAYMENT: { ...same (from, nonce) as before... }
+== E8: Replay (same nonce, same agent) ==
+Agent -> MW : X-PAYMENT: { ...same (from, nonce) as before... }
 MW -> MW : NonceStore.has({from, nonce}) == true
 MW -> Agent : 402 ... "error": "nonce_already_used"
 
-== Error 7: Network mismatch ==
-
-Agent -> MW : GET /api/data\nX-PAYMENT: { network: "arc-mainnet" }\n(config.network = "arc-testnet")
-MW -> MW : payload.network != config.network
+== E9: Network mismatch ==
+Agent -> MW : X-PAYMENT: { network: "eip155:8453" }\n(config: "arc-testnet")
+MW -> MW : payload.network != config.network (after normalize)
 MW -> Agent : 402 ... "error": "network_mismatch"
 
-== Error 8: Developer not registered (contract revert) ==
+== E10: Factory paused (off-chain check) ==
+Agent -> MW : valid X-PAYMENT
+MW -> MW : factory.paused() == true (cached)
+MW -> Agent : 402 ... "error": "paused"
 
-Agent -> MW : GET /api/data\nX-PAYMENT: { developerId: 0xUnknown }
-MW -> MW : verify passes
-MW -> Splitter : payWithAuthorization(0xUnknown, ...)
-Splitter -> Splitter : !developers[0xUnknown].registered → revert
-Splitter --> MW : revert "developer_not_registered"
-MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "developer_not_registered"
+== E11: Vault not deployed ==
+Agent -> MW : valid X-PAYMENT,\nbut developerEoa never called register()
+MW -> MW : factory.vaults[developerEoa] == 0x0
+MW -> Agent : 402 ... "error": "vault_not_deployed"\n+ hint: developer must call factory.register()
 
-== Error 9: On-chain nonce already used (USDC layer) ==
+== E12: Settlement failure (USDC nonce on-chain replay) ==
+Agent -> MW : valid X-PAYMENT,\nbut nonce already used at USDC level\n(e.g. middleware restart wiped NonceStore)
+MW -> USDC : transferWithAuthorization(...)
+USDC --> MW : revert "FiatTokenV2: authorization is used"
+MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "authorization_already_used_onchain"\nNonceStore entry KEPT so agent retries\nwith fresh nonce, not the same one.
 
-Agent -> MW : GET /api/data\nX-PAYMENT: { authorization with nonce X }
-MW -> MW : NonceStore miss (e.g. process restart)\nverify passes
-MW -> Splitter : payWithAuthorization(...)
-Splitter -> USDC : transferWithAuthorization(...)
-USDC -> USDC : authorizationState[from][nonce] == true → revert
-USDC --> Splitter : revert "FiatTokenV2: authorization is used"
-Splitter --> MW : bubble up
-MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "authorization_already_used_onchain"
+== E13: Settlement failure (other classified) ==
+Agent -> MW : valid X-PAYMENT
+MW -> USDC : transferWithAuthorization(...)
+note right of MW
+  Classification:
+  - rpc_timeout       — RPC request hung
+  - rpc_5xx           — RPC server error
+  - gas_estimate_revert — pre-flight revert
+  - mine_timeout      — tx submitted, no receipt in 30s
+  - receipt_reverted  — receipt.status == 'reverted'
+  - relayer_no_balance — relayer wallet drained
+end note
+MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "<classified>"
 
 @enduml

@@ -51,19 +51,20 @@ Reference `.env.example` for full list. Critical variables:
 |---|---|
 | `STRIPE_SECRET_KEY` | Stripe Connect platform key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
-| `BASE_RPC_URL` | Alchemy/Infura endpoint for Base |
-| `PLATFORM_WALLET_ADDRESS` | Our wallet that receives 0.5% x402 fees |
-| `PAYMENT_SPLITTER_ADDRESS` | Deployed PaymentSplitter contract on Base |
+| `ARC_RPC_URL` | Arc Testnet RPC endpoint (default: `https://rpc.testnet.arc.network`, fallback: `https://5042002.rpc.thirdweb.com`) |
+| `PAYWALL_RELAYER_KEY` | Private key (`0x…`) for the facilitator relayer that submits `transferWithAuthorization` and pays gas in USDC |
+| `PLATFORM_TREASURY_ADDRESS` | Address that receives platform fees from per-developer vaults on `withdraw()` |
+| `PAYMENT_SPLITTER_FACTORY_ADDRESS` | Deployed `PaymentSplitterFactory` contract on Arc Testnet |
 | `JWT_SECRET` | API key signing |
 | `GOOGLE_CLIENT_ID/SECRET` | OAuth |
 | `DATABASE_PATH` | SQLite file path (default: `/data/paywall.db`) |
 
 ## Smart Contract Deployment
 
-- Contracts deployed to **Base mainnet** via Hardhat + deploy script
-- Contract address pinned in environment variables after deploy
-- Audit required before mainnet deployment
-- Base Sepolia used for staging/testing
+- `PaymentSplitterFactory` + `PaymentVaultImpl` deployed to **Arc Testnet** via Hardhat for MVP. Arc Mainnet — when Circle launches.
+- Factory address pinned in `PAYMENT_SPLITTER_FACTORY_ADDRESS` after deploy.
+- Audit required before any mainnet deployment.
+- Recommend `Ownable2Step` + multisig (e.g. Safe) as factory owner at deploy time; not enforced in contract.
 
 ## Monitoring
 

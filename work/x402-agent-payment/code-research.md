@@ -1,6 +1,7 @@
 ---
 feature: x402-agent-payment
 created: 2026-06-16
+updated: 2026-06-16
 status: draft
 ---
 
@@ -12,45 +13,44 @@ status: draft
 universal-paywall/
   .claude/                 # global skills/methodology setup
   .gitignore
-  CLAUDE.md                # top-level project instructions (REQUIRES UPDATE: still says Base)
+  CLAUDE.md                # top-level project instructions (updated for Arc Network)
   work/x402-agent-payment/ # this feature
 ```
 
-No `packages/`, `apps/`, `contracts/` directories exist yet. **All implementation is greenfield.** No prior code to integrate with, refactor, or reuse. Project structure declared in `architecture.md` is target, not actual.
+No `packages/`, `apps/`, `contracts/` directories exist yet. **All implementation is greenfield.**
 
 ## External references (verified 2026-06-16)
 
 ### x402 protocol — official sources
 
-- Spec: `https://github.com/coinbase/x402` (specs/schemes/exact/scheme_exact_evm.md)
+- Spec: `https://github.com/coinbase/x402` (`specs/schemes/exact/scheme_exact_evm.md`, `specs/x402-specification.md`)
 - Network support (CDP facilitator): `https://docs.cdp.coinbase.com/x402/network-support`
-- Verified wire format details:
-  - 402 body: `{ x402Version: 1, accepts: [PaymentRequirements], error?: string }` (content-type `application/json`)
+- Verified wire format:
+  - 402 body (content-type `application/json`): `{ x402Version: 1, accepts: [PaymentRequirements], error?: string }`
   - `PaymentRequirements`: `{ scheme: "exact", network, maxAmountRequired, resource, description, mimeType, payTo, maxTimeoutSeconds, asset, outputSchema?, extra }`
   - For EIP-3009 exact: `extra: { assetTransferMethod: "eip3009", name, version }`
-  - `X-PAYMENT` header: `base64(JSON({ x402Version: 1, scheme, network, payload: { signature, authorization: { from, to, value, validAfter, validBefore, nonce } } }))`
+  - `X-PAYMENT` header (canonical case): `base64(JSON({ x402Version: 1, scheme, network, payload: { signature, authorization: { from, to, value, validAfter, validBefore, nonce } } }))` — `payload` is strictly `{signature, authorization}`, no extra fields (off-the-shelf clients won't add them).
   - `X-PAYMENT-RESPONSE` header: `base64(JSON({ success, transaction, network, payer }))`
-  - Network ID: canonical CAIP-2 strings — e.g. `eip155:8453` (Base), `eip155:84532` (Base Sepolia). x402 community also accepts named aliases (`base`, `base-sepolia`). For Arc: no canonical CAIP-2 string published; we use `arc-testnet` consistently.
-- Settlement model: **facilitator pattern**. Client signs EIP-3009 authorization off-chain (no gas). Server (facilitator) calls `transferWithAuthorization` on token contract on client's behalf and pays gas. The facilitator can be CDP (Coinbase-hosted) or self-hosted.
-- **CDP facilitator does NOT support Arc.** Supported: Base, Base Sepolia, Polygon, Arbitrum, World, World Sepolia, Solana Mainnet, Solana Devnet. For Arc we self-host.
+  - Network ID: canonical **CAIP-2** strings — `eip155:8453` (Base), `eip155:84532` (Base Sepolia), `eip155:5042002` (Arc Testnet). x402 community also accepts named aliases (`base`, `base-sepolia`); for Arc we publish both `eip155:5042002` and `arc-testnet` for client convenience.
+- Settlement model: **facilitator pattern**. Client signs EIP-3009 authorization off-chain (no gas). Server (facilitator) calls `USDC.transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, v, r, s)` directly on the USDC token contract and pays gas. CDP facilitator does NOT support Arc — we self-host.
 
 ### Arc Network (Circle Arc) — verified
 
-- Sources: `developers.circle.com/stablecoins/usdc-contract-addresses`, `https://thirdweb.com/arc-testnet`, `https://faucet.circle.com`
-- **Arc Mainnet — not launched as of 2026-06.** Testnet-only ecosystem. MVP targets Testnet exclusively; Mainnet support is a post-launch task once Circle ships.
+- Sources: `developers.circle.com/stablecoins/usdc-contract-addresses`, `thirdweb.com/arc-testnet`, `faucet.circle.com`
+- **Arc Mainnet — not launched** as of 2026-06. MVP targets Testnet only.
 - Arc Testnet:
-  - Chain ID: `5042002`
-  - RPC: `https://rpc.testnet.arc.network` (official) and `https://5042002.rpc.thirdweb.com` (thirdweb mirror)
-  - USDC: `0x3600000000000000000000000000000000000000` — **system contract address**, USDC is native gas token on Arc (paid in USDC, not ETH).
+  - Chain ID: `5042002` (CAIP-2: `eip155:5042002`)
+  - RPC: `https://rpc.testnet.arc.network` (official). Fallback mirror: `https://5042002.rpc.thirdweb.com`.
+  - USDC: `0x3600000000000000000000000000000000000000` — **system contract**, native gas token. Decimals: 6 (ERC-20 interface). **Foot-gun:** Arc USDC exposes a dual interface — 18-decimal native (for gas accounting) and 6-decimal ERC-20 (for transfers). All facilitator math uses the 6-decimal ERC-20 view.
   - Block explorer: `https://testnet.arcscan.app`
   - Faucet: `https://faucet.circle.com` (select Arc Testnet, 1 USDC/day)
-  - **EIP-3009 support: assumed (Circle-native USDC implements it universally). Must be confirmed at integration time.** If missing, fallback is `permit2` or to switch chain.
+  - **EIP-712 domain** for USDC must be read from chain at deploy time (Wave 1 spike). Likely values: `name = "USD Coin"` (Circle FiatTokenV2 standard returns `"USD Coin"`, not `"USDC"`), `version = "2"`, `chainId = 5042002`, `verifyingContract = 0x3600...`.
+  - EIP-3009 support: assumed (Circle-native USDC implements it universally). **Wave 1 Task 3 verifies on chain.**
 
 ### EIP-3009
 
 - Spec: `https://eips.ethereum.org/EIPS/eip-3009`
-- Function: `transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, v, r, s)`
-- EIP-712 domain (USDC v2 standard): `name="USDC", version="2", chainId, verifyingContract=<USDC address>`
+- Function: `transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s)` — `from` is an explicit argument; USDC does NOT ecrecover `from` from the signature but uses it as the verification target.
 - EIP-712 message type:
   ```
   TransferWithAuthorization(
@@ -62,108 +62,92 @@ No `packages/`, `apps/`, `contracts/` directories exist yet. **All implementatio
     bytes32 nonce
   )
   ```
-- `nonce` is 32-byte client-generated random — token contract maintains `authorizationState[from][nonce]` mapping. Replay-protected at token layer.
-- Signature ecrecovered against `from`. Anyone can submit (msg.sender unconstrained).
+- `nonce` is 32-byte client-generated random. Token contract maintains `authorizationState[from][nonce]` mapping. Replay-protected at token layer.
+- Signature recovers to `from`. Anyone can submit (`msg.sender` unconstrained).
 
-## Architecture implications
+## Architecture implications — Path 2 (per-developer vault factory)
 
-### Why facilitator-on-the-server changes everything
+### Why the contract changed (security-driven)
 
-The original tech-spec design (agent submits tx, passes tx_hash to middleware) does not match the x402 standard. Standard model:
+Earlier draft proposed a shared `PaymentSplitter.payWithAuthorization(developerId, …)`. Multiple validators independently flagged that this design has a cross-developer payment-attribution attack: when a single shared splitter is the `payTo` address, an adversary intercepting a signed X-PAYMENT can race-submit it to a different developer's middleware (with a different `developerId` argument) and credit the wrong developer.
 
-1. Agent gets 402 with `payTo = PaymentSplitter contract address`.
-2. Agent signs EIP-3009 authorization off-chain: `from=agent, to=splitter, value=amount, nonce=random, validBefore=now+60s`.
-3. Agent retries with `X-PAYMENT` containing base64(signature + authorization).
-4. Middleware (acting as facilitator) verifies signature off-chain (no RPC needed) + ensures `to==splitterAddress`, `value>=required`, `validBefore > now`.
-5. Middleware calls `splitter.payWithAuthorization(developerId, authorization, signature)` — middleware pays gas.
-6. Inside contract: `splitter.payWithAuthorization()` calls `USDC.transferWithAuthorization(from, splitter, value, ...)`. USDC verifies signature (re-check at chain layer), transfers USDC from agent to splitter. Splitter then accounts: `developers[devId].balance += value - fee`, `platformBalance += fee`.
-7. Middleware responds 200 with `X-PAYMENT-RESPONSE: base64({success, transaction: txHash, network, payer: from})`.
+**Fix:** per-developer vault model. Each developer's `payTo` is a unique address (deterministic clone), so the EIP-3009 `to` field cryptographically binds the payment to the correct recipient. No `developerId` argument is needed anywhere because the address itself encodes it. As a side benefit:
+- Open-registration griefing dissolved — vaults are deployed with `msg.sender` as the immutable developer; an attacker pre-registering someone else's address yields a vault they cannot withdraw from.
+- The `usedTxSigs` / `payWithAuthorization` wrapper contract calls go away — middleware calls `USDC.transferWithAuthorization` directly.
 
-This requires:
-- Middleware holds a relayer private key (configured via env var) — gas-paying account.
-- Middleware has Arc-Testnet RPC URL + USDC ABI for signature verification.
-- Splitter contract has new function `payWithAuthorization(developerId, value, validAfter, validBefore, nonce, v, r, s)` that delegates to USDC.transferWithAuthorization then accounts.
-
-### Replay protection — solved naturally
-
-- On-chain: USDC's own `authorizationState[from][nonce]` prevents the same EIP-3009 authorization being settled twice.
-- API-level (same X-PAYMENT replayed against many API calls): middleware tracks consumed `nonce` per agent. Option (a) — in-memory `Set<nonce>`. Option (b) — derive nonce from the URL+timestamp at agent side. For MVP, option (a) is sufficient (sized eviction by validBefore expiry).
-
-### Framework adapter strategy
-
-`withPaywall()` cannot be both framework-agnostic AND use Express/Fastify/Next signature. Resolution:
-
-- Core: `paywall(req: HttpRequest, options) -> Promise<PaywallResult>` — pure function. `HttpRequest` is a minimal shape `{ headers, method, url }`. Returns `{ status: 200, paymentResponseHeader }` or `{ status: 402, body, headers }`.
-- Adapters (thin wrappers per framework):
-  - `withPaywall(handler)` for Node http (`(req, res) => void`)
-  - `fastifyPaywall(handler)` for Fastify (`(request, reply)`)
-  - `nextPaywall(handler)` for Next.js App Router
-- MVP ships: Node http + Fastify (matches `architecture.md` API stack). Others post-MVP.
-
-### Developer registry semantics
-
-Registry trade-off:
-- Open (anyone can register any address): simple, gas-efficient. UX problem: registration is "claim" not "verify". Mitigation: documented as "any address can be registered, but only `msg.sender` of `withdraw()` controls the funds — so registration is permissionless opt-in, withdrawal is wallet-gated." Accept for MVP.
-- Authenticated (`require(msg.sender == wallet)`): cleaner semantics but unusable from a hardware wallet onboarding flow with delegation. Defer to post-MVP.
-
-### Wallet rotation
-
-Not supported in MVP. If wallet compromised, funds at risk. Documented in `## Out of scope` of user-spec. Post-MVP: `rotateWallet(newWallet)` with signed challenge.
-
-### Platform fee destination
-
-Two ledgers in contract: `developers[id].balance` (per-developer) and `platformBalance` (single). `withdrawPlatformFees(to)` (owner-only) transfers `platformBalance` to address chosen at call time. Decouples contract-owner role from platform-treasury address. Removes the contradiction with `deployment.md PLATFORM_WALLET_ADDRESS`.
-
-### Emergency stop
-
-Add `Pausable` (OpenZeppelin). `pause()` and `unpause()` are owner-only. Paused: blocks `payWithAuthorization`, allows `withdraw` (so users not locked out of funds).
-
-## Target file layout (greenfield)
+### Contracts
 
 ```
-packages/
-  middleware/
-    src/
-      core.ts            # framework-agnostic paywall(req, options)
-      adapters/
-        node-http.ts     # withPaywall(handler)
-        fastify.ts       # fastifyPaywall(handler)
-      x402.ts            # 402 body builder + X-PAYMENT/X-PAYMENT-RESPONSE codec
-      verify.ts          # off-chain EIP-712 signature verify (viem)
-      settle.ts          # on-chain settle via splitter.payWithAuthorization
-      networks.ts        # NETWORKS map: rpcUrl, usdcAddress, splitterAddress, chainId
-      replay-store.ts    # in-memory consumed-nonce store with TTL eviction
-      errors.ts          # structured x402 error response builders
-      types.ts           # PaymentRequirements, PaymentPayload, exported types
-    test/                # vitest
-    package.json
-    tsconfig.json
+PaymentSplitterFactory.sol  (Ownable2Step, Pausable)
+  + immutable usdc
+  + platformTreasury  (settable by owner)
+  + feeBps  (uint16, 0..1000, settable by owner)
+  + vaultImpl  (PaymentVaultImpl deployed in constructor)
+  + vaults: mapping(address => address)
+  + register() returns (address vault):
+      require !vaults[msg.sender], require !paused
+      vault = Clones.cloneDeterministic(vaultImpl, bytes32(uint256(uint160(msg.sender))))
+      IPaymentVault(vault).initialize(msg.sender)
+      vaults[msg.sender] = vault
+      emit VaultDeployed(msg.sender, vault)
+  + computeVaultAddress(address developer) view returns (address):
+      return Clones.predictDeterministicAddress(vaultImpl, …, address(this))
+  + setFeeBps(uint16): owner-only, require bps <= 1000, emit FeeBpsUpdated
+  + setPlatformTreasury(address): owner-only, require addr != 0, emit PlatformTreasuryUpdated
+  + pause() / unpause(): owner-only
 
-contracts/
-  contracts/
-    PaymentSplitter.sol
-    interfaces/
-      IPaymentSplitter.sol
-  test/
-    PaymentSplitter.test.ts
-  deploy/
-    01_deploy_splitter.ts
-  hardhat.config.ts
-  package.json
-
-scripts/
-  register.ts            # CLI to call splitter.register(wallet) for developers
+PaymentVaultImpl.sol  (Initializable, ReentrancyGuard)
+  + developer: address  (set on initialize, no setter)
+  + factory: address    (back-pointer: read usdc, feeBps, platformTreasury)
+  + initialize(address _developer):
+      initializer modifier; require _developer != 0;
+      developer = _developer; factory = msg.sender
+  + withdraw() nonReentrant:
+      require msg.sender == developer
+      IFactory f = IFactory(factory)
+      IERC20 usdc = IERC20(f.usdc())
+      uint256 gross = usdc.balanceOf(address(this))
+      require gross > 0, "no_balance"
+      uint16 feeBps = f.feeBps()
+      uint256 fee = gross * feeBps / 10000
+      uint256 net = gross - fee
+      SafeERC20.safeTransfer(usdc, developer, net)
+      if (fee > 0) SafeERC20.safeTransfer(usdc, f.platformTreasury(), fee)
+      emit Withdrawal(developer, gross, fee)
 ```
 
-## Open verification items (for implementation)
+`paused` is observed off-chain by the middleware (`factory.paused()` read), not enforced at vault level — vaults remain usable for `withdraw` even when paused (developers never locked out of accumulated USDC).
 
-- Confirm EIP-3009 `transferWithAuthorization` is implemented on Arc Testnet system USDC at `0x3600...0000` — check explorer or call `versionString()` / EIP-712 domain separator.
-- Confirm Arc Testnet supports standard EIP-712 chain ID encoding (it should, since EVM).
-- Confirm RPC endpoint stability — thirdweb mirror is fallback if `rpc.testnet.arc.network` is rate-limited.
-- Confirm `@circle-fin/x402-batching` (or successor) client SDK semantics for self-hosted facilitator URL injection.
+### Middleware (self-hosted facilitator)
 
-## Known unknowns (deferred or accepted)
+1. **402 build**: `payTo = factory.computeVaultAddress(developerEOA)` (pure function, off-chain, no RPC); `asset = usdcAddress`; `network` as both CAIP-2 (`eip155:5042002`) and alias (`arc-testnet`). Verify on startup that `factory.vaults[developerEOA] != 0` — if vault not deployed yet, the 402 includes `error: "vault_not_deployed"` plus instructions.
+2. **Verify (off-chain)**: viem `recoverTypedDataAddress` with domain `{ name: USDC.name(), version: USDC.version(), chainId: NETWORKS[id].chainId, verifyingContract: usdcAddress }`. Reject if recovered ≠ `authorization.from`. Check `to == expectedVaultAddress`, `value >= maxAmountRequired`, `validBefore > now + 5s`, `validAfter <= now`, payload.network matches config.network, and `(from, nonce)` not in NonceStore (synchronous has + insert).
+3. **Settle (on-chain)**: WalletClient with relayer key calls `USDC.transferWithAuthorization(from, to, value, validAfter, validBefore, nonce, v, r, s)` directly on USDC contract. `waitForTransactionReceipt({hash, timeout: 30s})`.
+4. **Settlement failure taxonomy**: distinct error reasons surfaced to the agent — `rpc_timeout`, `rpc_5xx`, `gas_estimate_revert`, `mine_timeout`, `receipt_reverted`, `relayer_no_balance`.
+5. **Response**: 200 + `X-PAYMENT-RESPONSE: base64({success: true, transaction, network, payer: from})`.
 
-- Arc Mainnet chain ID and USDC address (project pre-launch by Circle, not actionable in MVP).
-- Reorg depth on Arc Testnet — assume 1 block finality; document the assumption in `Verification Plan`.
-- Behavior when USDC is paid as gas — settle tx itself costs USDC, not ETH. Relayer wallet must be funded in USDC, not native token.
+### NonceStore (in-memory, single-process)
+
+- `Map<from, Set<nonce>>` with parallel `Map<from-nonce-key, validBeforeMs>` for eviction. On every `has` call, lazily evict expired entries (`validBefore < now`).
+- **TOCTOU**: `has` + `insert` are a single synchronous block in `verify.ts` — no `await` between them.
+- **Size cap**: 100 000 entries max per process to bound memory. If exceeded, evict oldest by `validBefore` (FIFO).
+- Multi-instance scope: post-MVP (Redis-backed). Documented limitation.
+
+### Network ID convention
+
+All public artifacts (402 body `network`, X-PAYMENT `network`) accept BOTH CAIP-2 (`eip155:5042002`) and the alias (`arc-testnet`). Middleware normalizes on read to the canonical CAIP-2 form for chainId lookup. Spec compliance: x402 v1 requires CAIP-2; alias is a convenience.
+
+### Open verification items (for implementation, Wave 1 Task 3 spike)
+
+- USDC at `0x3600000000000000000000000000000000000000` exposes `transferWithAuthorization` (4-byte selector `0xef55bec6`) and `authorizationState(address,bytes32)`.
+- EIP-712 domain values: read `name()`, `version()`, expected `chainId = 5042002`, `verifyingContract = 0x3600…`.
+- `decimals()` returns `6` on the ERC-20 interface.
+- Live read of `factory.vaults[developer]` works through standard RPC.
+
+### Known unknowns (deferred or accepted)
+
+- Arc Mainnet chainId, USDC address, RPC — not actionable in MVP (chain not launched).
+- Reorg depth on Arc Testnet — assume 1 block finality; document.
+- Relayer wallet gas in USDC (Arc gas is USDC). Out of scope: auto-refill. Monitoring documented in README.
+- Multi-instance NonceStore (Redis) — post-MVP.
+- Wallet rotation — post-MVP.

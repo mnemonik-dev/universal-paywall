@@ -1,0 +1,118 @@
+{
+  "verdict": "fail",
+  "summary": "Verified 14 categories of external/internal claims against x402 v1 spec, Arc docs, OpenZeppelin 5.x docs, viem npm, and project-knowledge files. Tech-spec is mostly accurate but contains one blocker (custom non-standard `developerId` field inside `payload` breaks the interop promise made in D1), one major spec deviation (network identifier convention vs CAIP-2), and several minor inaccuracies and cross-doc inconsistencies.",
+  "findings": [
+    {
+      "severity": "blocker",
+      "category": "x402_spec_mismatch",
+      "location": "tech-spec.md §Data Models, `ExactEvmPayload` type (lines 275-286); §Architecture step 6 wire format (line 81); user-spec.md §Флоу step 4 (lines 76-85)",
+      "claim": "`ExactEvmPayload` shape: `{ signature, authorization, developerId }` — i.e. the `payload` of `X-PAYMENT` carries a third field `developerId: 0xDev...` next to `signature` and `authorization`. D1 also promises interop: 'любой x402 v1-совместимый клиент работает'.",
+      "reality": "Per x402 v1 spec (github.com/coinbase/x402/specs/schemes/exact/scheme_exact_evm.md) and reference implementations, `ExactEvmPayload` is exactly `{ signature: string, authorization: ExactEIP3009Authorization }` — no `developerId`. Every x402 v1 client (CDP SDK, Circle SDK, hand-rolled) constructs only these two fields. A required, custom `developerId` inside `payload` is non-standard; standard clients will not send it, and strict-shape decoders will reject it as a foreign field. The cross-cutting claim 'any x402 v1-compatible client works' is therefore not achievable as designed.",
+      "recommendation": "Pick a wire-format path that does not break interop: (a) put `developerId` into `PaymentRequirements.extra.developerId` in the 402 response, and have the facilitator read it from server-side config — clients then need no awareness of it; or (b) bind `developerId` 1:1 to the splitter address (one splitter per developer) — eliminates the field entirely; or (c) inject `developerId` via a non-x402 header (e.g. `X-PAYWALL-DEVELOPER-ID`) that is server-injected, not client-supplied. Update D1, the `ExactEvmPayload` type, the diagrams, and the user-spec accordingly."
+    },
+    {
+      "severity": "major",
+      "category": "x402_spec_mismatch",
+      "location": "tech-spec.md §Data Models `NetworkConfig.id: 'arc-testnet' | 'arc-mainnet'` (lines 240-247); types use plain string for `network`; user-spec.md AC lists `arc-testnet` as the wire value",
+      "claim": "`network: 'arc-testnet'` is used as the value of the `network` field in `PaymentRequirements`, `X-PAYMENT.network`, and `X-PAYMENT-RESPONSE.network`.",
+      "reality": "x402 v1 normative form for EVM is CAIP-2 (`eip155:<chainId>` — e.g. `eip155:84532` for Base Sepolia, as documented at docs.x402.org/core-concepts/network-and-token-support and shown in build.avax.network reference). The spec also accepts a small registry of named aliases (`base`, `base-sepolia`), but `arc-testnet` is not in that registry. code-research.md acknowledges 'no canonical CAIP-2 string published; we use arc-testnet consistently' — but for a self-hosted facilitator that is the only signer/settler this works internally, while still violating interop with clients that follow the named-alias whitelist.",
+      "recommendation": "Use `eip155:5042002` as the canonical network identifier; accept `arc-testnet` as a server-side alias only. Add a CAIP-2 entry to `NetworkConfig`. Note in D1 that the wire `network` value is `eip155:5042002` and the registry key is `arc-testnet`."
+    },
+    {
+      "severity": "major",
+      "category": "openzeppelin_version_claim",
+      "location": "tech-spec.md §Decisions D9 (lines 179-183)",
+      "claim": "OZ 5.x 'Modern Solidity ships safer defaults (custom errors, transient storage for `nonReentrant`).'",
+      "reality": "In `@openzeppelin/contracts` 5.x the standard `ReentrancyGuard` (`contracts/utils/ReentrancyGuard.sol`) still uses SSTORE-based locking, not transient storage. There is a separate opt-in contract `ReentrancyGuardTransient` (`contracts/utils/ReentrancyGuardTransient.sol`) that uses EIP-1153 transient storage. The diagram (`contract-architecture.puml`) and Task 4 both inherit `ReentrancyGuard`, not the transient variant — so the rationale's claim about 'transient storage default' is inaccurate. Custom-errors-by-default part is correct.",
+      "recommendation": "Either (a) correct D9's rationale to state the SSTORE-based guard is used and remove the transient claim; or (b) switch the contract to inherit `ReentrancyGuardTransient` and verify Arc Testnet supports EIP-1153 (post-Cancun). Confirm on Arc explorer that the chain is at Cancun fork level before opting in."
+    },
+    {
+      "severity": "major",
+      "category": "arc_testnet_native_currency_nuance",
+      "location": "tech-spec.md §Risks row 'Relayer wallet exhausts USDC gas mid-settle' (line 362); Task 13 README spec",
+      "claim": "Relayer wallet pays gas in USDC, and the implementation uses `parseUnits(price, 6)` for USDC amounts.",
+      "reality": "Arc USDC has a documented two-interface design (per docs.arc.io and Circle's `use-arc` skill): native gas balance uses 18 decimals, while the ERC-20 interface at `0x3600000000000000000000000000000000000000` uses 6 decimals. Both decimals refer to the same underlying USDC, kept in parity by a precompile, but failure to distinguish them at the relayer-gas-funding layer is a documented foot-gun on Arc. Tech-spec uses 6 decimals (correct for `transferWithAuthorization`), but neither the Risks table nor Task 13 README mentions the 18-decimal native interface used for gas. Relayer balance checks in the Pre-deploy QA AC (Risks: 'verify relayer has ≥ 1 USDC balance') need to specify which interface they read.",
+      "recommendation": "Add a Risks-table note + README section: 'Relayer-side gas balance is read via the native (18-dec) interface; ERC-20 transfers and `transferWithAuthorization` values are 6-dec. Mixing these gives wrong balance handling.' Cite docs.arc.io contract addresses."
+    },
+    {
+      "severity": "major",
+      "category": "internal_docs_inconsistency",
+      "location": ".claude/skills/project-knowledge/references/deployment.md (lines 53-66); .claude/skills/project-knowledge/references/project.md (lines 22-24, 31)",
+      "claim": "Tech-spec relies on project-knowledge as the source of truth for environment vars and deployment flow. Tech-spec also references `architecture.md`/`patterns.md` as authoritative for OZ deps and `Pausable`.",
+      "reality": "`deployment.md` still hard-codes Base: env vars `BASE_RPC_URL`, smart-contract section 'Contracts deployed to Base mainnet via Hardhat + deploy script', 'Base Sepolia used for staging/testing'. `project.md` still says 'Base chain, USDC, non-custodial split' and 'Free tier: TypeScript middleware on npm. Self-hosted x402 on Base'. The tech-spec narrative is Arc-Testnet-only, but the upstream project-knowledge docs are unmodified. code-research.md flagged `CLAUDE.md` as needing an update but missed these two files.",
+      "recommendation": "Update `deployment.md` and `project.md` to reflect Arc Testnet for the x402 path (or add a note that Arc replaces Base for the x402 MVP and Base is post-MVP). Add a tech-spec line under 'User-Spec Deviations' or a new 'Project-Knowledge Deviations' subsection listing the affected files."
+    },
+    {
+      "severity": "minor",
+      "category": "x402_spec_strictness",
+      "location": "tech-spec.md §Decisions D1 (lines 121-125)",
+      "claim": "D1 'Verified against `github.com/coinbase/x402/specs/schemes/exact/scheme_exact_evm.md`' — implies the wire format claimed in tech-spec was checked verbatim.",
+      "reality": "The cited spec was independently checked: 402 body `{ x402Version, accepts: [PaymentRequirements], error? }` matches; `PaymentRequirements` fields (`scheme`, `network`, `maxAmountRequired`, `resource`, `description`, `mimeType`, `payTo`, `maxTimeoutSeconds`, `asset`, `extra`) match; `X-PAYMENT` base64-JSON envelope `{x402Version, scheme, network, payload}` matches; `X-PAYMENT-RESPONSE` base64-JSON `{success, transaction, network, payer}` matches; `extra.assetTransferMethod: 'eip3009'` is correct. The single deviation is the `developerId` field — see blocker finding above.",
+      "recommendation": "After resolving the `developerId` placement (blocker), D1 will be accurate. No standalone change needed beyond removing/relocating `developerId`."
+    },
+    {
+      "severity": "minor",
+      "category": "name_in_eip712_domain",
+      "location": "tech-spec.md §Decisions D2 (line 130) + §Architecture sequence step 5 (line 77) + Task 6 (`extra.name`)",
+      "claim": "EIP-712 domain `{ name: 'USDC', version: '2' }` is used for the TransferWithAuthorization signature; `extra` field announces the same `name: 'USDC', version: '2'` to clients.",
+      "reality": "The EIP-712 `name` and `version` values are whatever the actual USDC contract returns from `name()` / `version()` (or its EIP-712 domain getter). Circle's standard FiatTokenV2 returns name `'USD Coin'` (NOT `'USDC'`) and version `'2'` — verified across Base, Ethereum, Polygon deployments. Arc's system USDC at `0x3600...0000` may differ — the spike task (Task 3) is designed to confirm. Hard-coding `name: 'USDC'` in `extra` and the EIP-712 domain is likely wrong; if the actual contract returns `'USD Coin'`, every signature will fail to ecrecover.",
+      "recommendation": "Make `name` and `version` in `extra` and the verifier read from `NETWORKS[network].usdcName` / `usdcVersion`, populated from on-chain reads at deploy time (or hard-coded after Task 3 confirms). Tech-spec Risks already flags this risk but the inline string `'USDC'` should be removed from the type-level defaults."
+    },
+    {
+      "severity": "minor",
+      "category": "typo_property_name",
+      "location": "tech-spec.md Task 9 description (line 468)",
+      "claim": "Verifier reads `NETWORKS[network].usdc-name`.",
+      "reality": "TypeScript identifiers cannot contain hyphens. The actual property must be `usdcName` (or similar). Cosmetic typo in the task description.",
+      "recommendation": "Rename to `usdcName` in Task 9 and Task 6 (NETWORKS registry definition)."
+    },
+    {
+      "severity": "minor",
+      "category": "diagram_consistency",
+      "location": "work/x402-agent-payment/diagrams/agent-payment-happy-path.puml line 21 (USDC domain in agent-side signing)",
+      "claim": "Diagram shows agent signs EIP-712 domain `{name:'USDC', version:'2', chainId:5042002, verifyingContract:0x3600...}`.",
+      "reality": "Same issue as the `name: 'USDC'` finding — actual contract `name()` value on Arc has not been confirmed by Task 3. Diagram is consistent with tech-spec but inherits the unverified assumption.",
+      "recommendation": "After Task 3 confirms the value, update both tech-spec and diagram to use the confirmed string (likely `'USD Coin'`). If keeping the diagram as illustrative, add a footnote: 'name/version values shown are placeholders; actual values resolved at runtime from NETWORKS.'"
+    },
+    {
+      "severity": "minor",
+      "category": "pause_semantics_mismatch",
+      "location": "tech-spec.md §Decisions D13 (lines 202-204); user-spec.md AC 'pause()/unpause()' (line 169)",
+      "claim": "When `paused()`: `register` continues to work; only `payWithAuthorization` reverts.",
+      "reality": "Semantically reasonable, but the `register` function has no `whenNotPaused` modifier in either tech-spec or diagram, so the 'continues to work' claim is just default behavior. This is not a defect but should be stated as such — making 'register paused' explicit (or explicitly NOT applied) prevents reviewers from thinking it's a missing modifier.",
+      "recommendation": "Add a comment in Task 4 description: 'No `whenNotPaused` on register/withdraw/withdrawAll/withdrawPlatformFees — only `payWithAuthorization` carries it.'"
+    },
+    {
+      "severity": "minor",
+      "category": "package_version_unverified",
+      "location": "tech-spec.md §Dependencies (line 299-306)",
+      "claim": "`viem` (2.x implied by D8), `vitest`, `tsup`, `@openzeppelin/contracts` 5.x, `hardhat`, `@nomicfoundation/hardhat-toolbox`, `@nomicfoundation/hardhat-verify`.",
+      "reality": "All packages verified to exist on npm: `viem` current major is 2.x (latest 2.52.x); `vitest` is current and active; `tsup` is current and active; `@openzeppelin/contracts@5.x` is the current major; `hardhat`, `@nomicfoundation/hardhat-toolbox`, `@nomicfoundation/hardhat-verify` are all official Nomic Foundation packages. No version mismatch.",
+      "recommendation": "No change — verified accurate."
+    },
+    {
+      "severity": "minor",
+      "category": "openzeppelin_import_path",
+      "location": "tech-spec.md §Decisions D9 (Pausable inheritance, line 181); diagrams/contract-architecture.puml line 8",
+      "claim": "Inherit OZ `Ownable`, `Pausable`, `ReentrancyGuard`, `IERC20`.",
+      "reality": "Correct exports exist in OZ 5.x. Note the import-path change from 4.x to 5.x: in 5.x `Pausable` lives at `@openzeppelin/contracts/utils/Pausable.sol` (was `security/Pausable.sol` in 4.x); same for `ReentrancyGuard` (`utils/`) and `Ownable` (`access/`). Tech-spec doesn't specify paths but Task 4 implementer must use the 5.x paths.",
+      "recommendation": "Add explicit import paths to Task 4 description: `@openzeppelin/contracts/access/Ownable.sol`, `@openzeppelin/contracts/utils/Pausable.sol`, `@openzeppelin/contracts/utils/ReentrancyGuard.sol`, `@openzeppelin/contracts/token/ERC20/IERC20.sol`. Prevents 4.x-style import-not-found errors."
+    },
+    {
+      "severity": "minor",
+      "category": "package_json_ambiguity",
+      "location": "tech-spec.md Task 1 (line 401) Acceptance Criteria 'engines.node: >=20' and 'exports map for ESM + CJS'",
+      "claim": "Package exports map for both ESM + CJS; tsup configured.",
+      "reality": "`tsup` does support dual ESM+CJS output, but tech-spec elsewhere (Architecture section, `index.ts # public exports`) does not state explicitly which formats are emitted or how the exports map is structured. AC mentions both 'a valid npm package (ESM + types)' and separately 'ESM + CJS' — inconsistent.",
+      "recommendation": "Either commit to ESM-only (modern, simpler) or ESM+CJS (broader compatibility). Align AC + tsup config description in Task 1."
+    },
+    {
+      "severity": "minor",
+      "category": "facilitator_not_supporting_arc_implicit_dep",
+      "location": "tech-spec.md §Decisions D3 alternatives (line 140); code-research.md lines 35-36",
+      "claim": "'CDP facilitator: rejected — Arc Network is not in CDP's supported networks list.'",
+      "reality": "Confirmed: CDP-hosted facilitator supports Base/Base-Sepolia/Polygon/Arbitrum/World/World-Sepolia/Solana, NOT Arc (verified at docs.cdp.coinbase.com/x402/network-support). Tech-spec's claim is accurate.",
+      "recommendation": "No change — verified accurate."
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "verdict": "needs_improvement",
+  "status": "needs_improvement",
+  "summary": "Test strategy covers the three-tier pyramid (unit + contract + integration) appropriate for L-size, with reasonable coverage targets (≥80% line middleware, ≥95% branch contract). However, multiple critical scenarios are missing or under-specified: x402 wire-format schema compliance is stated as 'snapshot or schema check' without an authoritative reference; EIP-712 chain-replay test is mentioned in risks but not in the test plan; settlement failure-mode taxonomy (RPC timeout, relayer-out-of-USDC, receipt status: reverted vs revert-during-estimate) is collapsed into a single 'settle failure returns 402' bullet; replay protection coverage is asymmetric (in-memory NonceStore explicitly tested, USDC authorizationState collision not tested in integration); 'concurrent writes safe' for NonceStore is asserted without describing a concurrency test that could actually catch races; the integration test is gated by ARC_TESTNET_E2E=1 with no statement about CI gating, creating a strong flaky-bypass risk; and Pausable semantics are only partially specified (allow-list of allowed-while-paused functions tested, but no test ensures the gated functions actually emit the right revert reason from Pausable). TDD-readiness: most test bullets describe behavior (good), but several are too vague to derive a TDD anchor from (e.g., 'concurrent writes safe', 'integration test orchestrates verify + settle in order', 'happy path orchestrates verify + settle in order' — these specify ordering of internal calls, which is implementation, not behavior).",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests (verify.ts)",
+      "issue": "EIP-712 chain-replay attack is listed in Risks (row 5: 'EIP-712 chain replay attack — Test asserts this'), but the test plan in 'Unit tests / verify.ts' only mentions 'cross-domain signature (wrong chainId) fails'. There is no test for the symmetric case: signature crafted for wrong verifyingContract (i.e., a different USDC on a similar chain), and no test that asserts the verifier rejects a signature where the domain.name/version was tampered (e.g., 'USDC'→'USDC ' or version '2'→'1'). These are the actual attack surfaces of EIP-712 chain-replay, not just chainId mismatch.",
+      "description": "EIP-712 chain-replay attack is listed in Risks (row 5: 'EIP-712 chain replay attack — Test asserts this'), but the test plan in 'Unit tests / verify.ts' only mentions 'cross-domain signature (wrong chainId) fails'. There is no test for the symmetric case: signature crafted for wrong verifyingContract (i.e., a different USDC on a similar chain), and no test that asserts the verifier rejects a signature where the domain.name/version was tampered (e.g., 'USDC'→'USDC ' or version '2'→'1'). These are the actual attack surfaces of EIP-712 chain-replay, not just chainId mismatch.",
+      "recommendation": "Add four explicit unit tests under verify.ts: (1) signature with domain.chainId = arc-mainnet but request says arc-testnet → invalid_signature; (2) signature with domain.verifyingContract = different-address but same chainId → invalid_signature; (3) signature with domain.name = 'USD Coin' instead of 'USDC' → invalid_signature; (4) signature with domain.version = '1' instead of '2' → invalid_signature. Assertion: recovered address does NOT equal authorization.from, and verify returns error='invalid_signature'. Without (2), the on-chain settle would actually succeed under attacker-favorable conditions if USDC happened to be deployed at the spoofed address."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests (core.ts) and Integration test",
+      "issue": "Settlement failure modes are collapsed into a single bullet 'settle failure returns 402'. The user-spec AC lists 'settlement_failed' as the only error, but the realistic failure taxonomy is much richer: (a) RPC connection timeout, (b) RPC returns 5xx, (c) writeContract estimate reverts (e.g., developer_not_registered detected during gas estimation), (d) tx is sent but receipt.status === 'reverted' (USDC nonce collision after middleware NonceStore miss, e.g., across process restart), (e) tx is sent but never mined within maxTimeoutSeconds, (f) relayer wallet has insufficient USDC for gas. Each has a different recovery path and a different 402 body shape (reason field).",
+      "description": "Settlement failure modes are collapsed into a single bullet 'settle failure returns 402'. The user-spec AC lists 'settlement_failed' as the only error, but the realistic failure taxonomy is much richer: (a) RPC connection timeout, (b) RPC returns 5xx, (c) writeContract estimate reverts, (d) tx is sent but receipt.status === 'reverted', (e) tx is sent but never mined within maxTimeoutSeconds, (f) relayer wallet has insufficient USDC for gas. Each has a different recovery path and a different 402 body shape.",
+      "recommendation": "Expand 'core.ts' unit tests with at least: (1) mock walletClient.writeContract throws ConnectionError → 402 settlement_failed, reason='rpc_unavailable'; (2) walletClient throws ContractFunctionRevertedError with cause='developer_not_registered' before tx sent → 402 settlement_failed, reason='developer_not_registered'; (3) tx submitted but getTransactionReceipt returns status='reverted' (USDC nonce collision) → 402 settlement_failed, reason from revert; (4) getTransactionReceipt times out → 402 settlement_failed, reason='timeout'; (5) relayer has 0 USDC, writeContract throws InsufficientFundsError → 402 settlement_failed, reason='relayer_insufficient_funds'. Assertions: each returns correct error body shape AND does NOT consume the nonce in NonceStore for retryable failures (so the agent can retry). Add a corresponding Integration-test case for (3) by sending the same nonce twice with a delay shorter than the on-chain receipt poll."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Integration test",
+      "issue": "The integration test covers replay rejection at the middleware NonceStore layer ('third call with the same nonce'), but does NOT cover the on-chain USDC authorizationState replay-rejection — which is the only layer that survives middleware process restart. With NonceStore being a per-process Map, restart → empty store → replay would succeed against middleware but must still fail at USDC. This is the entire reason D6 specifies 'two-layer replay protection'. The test that proves the on-chain layer works is missing.",
+      "description": "The integration test covers replay rejection at the middleware NonceStore layer, but does NOT cover the on-chain USDC authorizationState replay-rejection — which is the only layer that survives middleware process restart.",
+      "recommendation": "Add a 4th step to the integration test in Task 14: after the successful first settle, simulate a 'middleware restart' by constructing a fresh NonceStore and replaying the same X-PAYMENT. Expect 402 with error='settlement_failed' (since middleware will pass verify, send the tx, and USDC will revert with 'FiatTokenV2: authorization is used or canceled'). Assert the revert reason is propagated into the 402 body. This is the only test that proves D6 actually works end-to-end."
+    },
+    {
+      "severity": "major",
+      "category": "weak_assertion",
+      "location": "Section: Testing Strategy → Unit tests (x402 codec), Task 12",
+      "issue": "Task 12 mentions 'a test asserting that the 402 body matches x402 spec verbatim (snapshot or schema check against the known canonical fields)'. Snapshot tests in this position are weak — they assert 'output unchanged' but not 'output spec-compliant'. The whole interoperability premise of D1 hinges on this assertion. There is no reference to an authoritative x402 v1 schema artifact (e.g., a checked-in JSON Schema file derived from github.com/coinbase/x402/specs).",
+      "description": "Task 12 mentions 'a test asserting that the 402 body matches x402 spec verbatim (snapshot or schema check against the known canonical fields)'. Snapshot tests in this position are weak — they assert 'output unchanged' but not 'output spec-compliant'. The whole interoperability premise of D1 hinges on this assertion.",
+      "recommendation": "Add a vendored JSON Schema file `packages/middleware/__tests__/fixtures/x402-v1.schema.json` derived from the canonical x402 spec. Use ajv to validate build402Body() output against it. Add tests for: (1) 402 body validates against schema; (2) X-PAYMENT-RESPONSE decoded payload validates against the response schema; (3) decoded X-PAYMENT input validates against the request schema. Drop the snapshot option from the test plan. Also add a test that asserts every error reason produced by errors.ts still validates against the 402 schema (the schema-compliance must hold for error responses too)."
+    },
+    {
+      "severity": "major",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests, Task 12",
+      "issue": "Multiple X-PAYMENT input-validation scenarios listed as 'missing scenarios' in the review prompt are not in the test plan: (a) malformed JSON after base64 decode (e.g., truncated, non-UTF8 bytes), (b) oversized header (DoS vector — middleware should reject headers > N KB before attempting decode), (c) base64 with non-standard padding/charset, (d) X-PAYMENT containing x402Version other than 1 (forward-compat behavior), (e) X-PAYMENT with scheme other than 'exact', (f) X-PAYMENT.payload.authorization with fields of wrong type (e.g., value as number not string), (g) empty X-PAYMENT header value.",
+      "description": "Multiple X-PAYMENT input-validation scenarios are missing: malformed JSON after base64 decode, oversized header (DoS vector), base64 with non-standard padding, wrong x402Version, wrong scheme, wrong field types, empty header.",
+      "recommendation": "Add explicit unit-test cases in x402.ts (decodeXPayment) tests: (1) header = 'not-base64!!' → throws X402DecodeError with reason='malformed_payment_header'; (2) header = base64('{not valid json') → malformed_payment_header; (3) header longer than 16 KB → reject before decode with malformed_payment_header (and document the limit in code); (4) {x402Version: 2, ...} → unsupported_version error; (5) {scheme: 'subscription', ...} → unsupported_scheme error; (6) authorization.value as number → malformed_payment_header (schema mismatch); (7) X-PAYMENT header present but empty string → malformed_payment_header. Each must assert the canonical 402 error body shape from errors.ts."
+    },
+    {
+      "severity": "major",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests (replay-store.ts)",
+      "issue": "'concurrent writes safe' is asserted but the test plan does not describe how this is exercised. JavaScript's event loop is single-threaded, so 'concurrent' here is meaningless unless the test simulates two interleaved async operations both checking has() and then both calling insert(). Without an explicit race scenario, the test cannot fail and provides no protection. Also missing: TTL eviction correctness over wall-clock time (vitest fake timers should be used and described).",
+      "description": "'concurrent writes safe' is asserted without describing how this is exercised. JavaScript's event loop is single-threaded, so 'concurrent' here is meaningless unless the test simulates interleaved async operations. Also missing: TTL eviction correctness over wall-clock time.",
+      "recommendation": "Reword the test plan as: (1) using vitest fake timers, insert nonce with validBefore = now+10s, advance clock by 11s, call insert with same nonce — should succeed (entry evicted); (2) interleaving: two awaited has-then-insert sequences for the same (from, nonce) where the first awaits a microtask between has() and insert() — the second insert must return a duplicate signal (this requires the store to be atomic OR the design must accept the race, which should be documented); (3) eviction lazy-check executes on insert (not on a timer) — assert that the store's internal Map size shrinks when an expired entry is replaced. If the design cannot make 'concurrent writes safe' meaningful in single-threaded JS, drop the bullet and document the actual guarantee."
+    },
+    {
+      "severity": "major",
+      "category": "flaky_risk",
+      "location": "Section: Acceptance Criteria → 'Integration test against Arc Testnet passes when ARC_TESTNET_E2E=1 env var is set'; Task 14",
+      "issue": "Gating the integration test behind ARC_TESTNET_E2E=1 with no statement about which CI job sets that variable means in practice the test will only run when a human remembers to set it locally. This is the canonical 'tests we never run' anti-pattern. Compounding this: the test depends on (a) Arc Testnet RPC availability, (b) faucet-supplied USDC in a relayer wallet, (c) the splitter being already deployed and patched into networks.ts — all of which are flaky in CI even with the gate set. The risk row 'Arc Testnet RPC instability' explicitly mentions a fallback mirror but does not address how the integration test would deal with RPC down.",
+      "description": "Gating integration test behind ARC_TESTNET_E2E=1 with no statement about which CI job sets that variable means in practice the test will only run when a human remembers to set it locally. The test depends on flaky external infrastructure.",
+      "recommendation": "Either (A) replace the live-Arc-Testnet integration test with a Hardhat node-fork integration test that deploys the splitter to a forked local node, mints USDC via balance-storage-slot manipulation, and runs the full middleware against the local node — runs deterministically in CI on every PR; OR (B) keep the live test but add a second 'integration-fork' test that runs in CI unconditionally, and define a nightly scheduled CI job that runs the live test with proper RPC retry + budget for transient failures. Document the policy: 'integration-fork is required green to merge; integration-live is informational, nightly, may flake'. Without one of these, the integration test exists on paper only."
+    },
+    {
+      "severity": "major",
+      "category": "coverage_gap",
+      "location": "Section: Testing Strategy → Contract tests (PaymentSplitter)",
+      "issue": "Fee math edge cases listed in the review prompt (0%, 10% cap, fractional rounding) are not in the contract test plan. The plan only covers 'setFee cap + owner-only'. Missing: (1) feeBps = 0 — entire value to developer, platformBalance unchanged; (2) feeBps = 1000 — 10% to platform, 90% to developer, rounding direction; (3) value = 1 micro-USDC with feeBps = 50 — fee = 0 due to integer division, all 1 micro-USDC to developer (or the inverse — needs an explicit policy + test); (4) very large value (uint256 max / 10000) to confirm no overflow in `value * feeBps / 10000`; (5) feeBps changed mid-stream — payments before vs after use respective fee (tests that the fee is read at payment time, not at register time).",
+      "description": "Fee math edge cases (0%, 10% cap, fractional rounding) are not in the contract test plan. The plan only covers 'setFee cap + owner-only'.",
+      "recommendation": "Add to Task 5 (contract unit tests): (1) test_fee_zero_pct_full_to_developer; (2) test_fee_max_1000bps_split_10pct_90pct; (3) test_value_1_micro_usdc_with_fee_50bps_rounds_to_zero_fee — assert all 1 µUSDC credited to developer balance, platformBalance == 0; (4) test_no_overflow_at_high_value — set value=type(uint256).max/10000, assert platformBalance and developer balance sum to value with no revert; (5) test_fee_change_applies_to_next_payment_only — pay with feeBps=50, set feeBps=1000, pay again, assert each payment used its respective fee. Each must read both balances post-payment with exact-equality assertions."
+    },
+    {
+      "severity": "major",
+      "category": "coverage_gap",
+      "location": "Section: Testing Strategy → Contract tests, Acceptance Criteria",
+      "issue": "Pausable behavior testing is asymmetric. The plan says 'pause/unpause: owner-only; payWithAuthorization reverts when paused; withdraw works when paused'. Missing: (1) explicit test that the revert is the standard Pausable error (custom error EnforcedPause from OZ 5.x) — important for client error handling; (2) test that register works when paused (user-spec AC mentions it); (3) test that withdrawAll works when paused; (4) test that withdrawPlatformFees works when paused; (5) test that setFee and unpause themselves work when paused (the latter is a precondition for unpausing). Also missing: revert behavior when non-owner calls pause/unpause.",
+      "description": "Pausable testing is asymmetric. Several allow-when-paused functions are mentioned in user-spec AC but not in the contract test plan.",
+      "recommendation": "Replace the single 'pause/unpause behavior with allowed vs blocked functions' bullet with an explicit table: for each of {register, payWithAuthorization, withdraw, withdrawAll, withdrawPlatformFees, setFee, pause, unpause}, a test paused-state-behavior. Assertion shape: vi.expect(splitter.connect(user).payWithAuthorization(...)).to.be.revertedWithCustomError(splitter, 'EnforcedPause'). Add non-owner pause/unpause revert tests asserting OwnableUnauthorizedAccount."
+    },
+    {
+      "severity": "major",
+      "category": "wrong_layer",
+      "location": "Section: Testing Strategy → Unit tests (core.ts: 'happy path orchestrates verify + settle in order')",
+      "issue": "'Orchestrates verify + settle in order' is an implementation assertion (testing call order on mocks), not a behavior assertion. This violates the test-master principle 'test behavior, not implementation' and the test would pass even if the verify and settle functions did nothing meaningful, as long as they were called. The litmus test fails: removing the real logic in core.ts would not necessarily fail this test if it only checks call order on mocked dependencies.",
+      "description": "'Orchestrates verify + settle in order' is an implementation assertion (testing call order on mocks), not a behavior assertion.",
+      "recommendation": "Reframe the core.ts happy-path test to assert observable outcomes: (1) PaywallResult has passthrough=true; (2) responseHeaders['X-PAYMENT-RESPONSE'] is a base64 string that decodes to {success:true, transaction:'0xabc...', network:'arc-testnet', payer:fromAddress}; (3) the NonceStore now contains the (from, nonce) pair. Mock walletClient.writeContract to return a known txHash; verify the txHash flows into the response header. Do NOT assert call order on verify/settle mocks; assert the result they produce."
+    },
+    {
+      "severity": "major",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests, Acceptance Criteria",
+      "issue": "Cross-cutting concern not covered: the network-mismatch test exists ('check payload.network === opts.network'), but there is no test for the case where the X-PAYMENT.network corresponds to a NETWORKS entry that exists but has enabled:false (e.g., 'arc-mainnet'). Per Task 6 the registry includes a disabled arc-mainnet entry — a request claiming network='arc-mainnet' should be rejected with a distinct error, not silently treated as valid.",
+      "description": "No test for the case where X-PAYMENT.network corresponds to a NETWORKS entry that exists but has enabled:false.",
+      "recommendation": "Add unit test: payload with network='arc-mainnet' (which exists in registry but enabled:false) → 402 with error='network_disabled' (new error reason, requires updating errors.ts spec) or error='network_mismatch'. The decision should be explicit and tested. Also add: payload with network='unknown-chain' (not in registry at all) → 402 with error='network_mismatch'."
+    },
+    {
+      "severity": "minor",
+      "category": "weak_assertion",
+      "location": "Section: Testing Strategy → Unit tests (verify.ts) — 'validBefore <= now fails; validAfter > now fails'",
+      "issue": "The implementation says 'validBefore > now + 5s safety margin'. The test plan says 'validBefore <= now fails'. The boundary tests should test the 5s safety margin specifically (validBefore = now + 4s → fail; validBefore = now + 6s → pass), not just '<= now'. Without the boundary test, a regression that drops the safety margin would not be caught.",
+      "description": "Test plan does not exercise the 5s safetyMargin boundary on validBefore.",
+      "recommendation": "Replace 'validBefore <= now fails' with three explicit boundary tests using vitest fake timers: (1) validBefore = now + 3s → invalid (authorization_expired); (2) validBefore = now + 5s → invalid (exactly at boundary, depending on inclusive/exclusive — needs decision); (3) validBefore = now + 6s → valid. Same shape for validAfter."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Contract tests",
+      "issue": "The reentrancy test uses 'mock token that reenters', but there is no test that asserts withdraw is protected from a malicious developer's receive() callback re-entering withdraw (CEI pattern verification). Also missing: a test that the splitter's payWithAuthorization is protected against a malicious developerId target — though in the current design developerId is only used as a balance-storage key (not called), this should be explicitly noted in test rationale.",
+      "description": "Reentrancy test scope is narrow (token reenters payWithAuthorization). Missing: withdraw protected against developer receive() callback re-entering.",
+      "recommendation": "Add to Task 5 contract tests: (1) deploy a MaliciousReceiver contract that on receiving USDC tries to call splitter.withdraw again; register it as developer; pay it; call withdraw from it — assert ReentrancyGuardReentrantCall revert. Note: only applicable if USDC.transfer triggers receive (which it doesn't for plain ERC20 transfer, so document why this scenario is or isn't relevant)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Integration test, Task 14",
+      "issue": "Integration test does not exercise the Fastify adapter — only 'a local Node http server using withPaywall()'. Both adapters are part of public API (D7, AC 'fastifyPaywall exports'). If only the node-http adapter is integration-tested, a regression in fastify.ts (e.g., reply.send order, header propagation through Fastify hooks) would only be caught by unit tests with mocked Fastify.",
+      "description": "Integration test does not exercise the Fastify adapter — only the Node http adapter.",
+      "recommendation": "Either split Task 14 into two integration tests (node-http and fastify) running against the same deployed splitter, or add a smaller 'adapter parity' integration test that runs both adapters against a local Hardhat node and asserts they produce byte-identical 402 bodies and X-PAYMENT-RESPONSE headers for the same input."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy → Unit tests (price parsing)",
+      "issue": "Price parsing tests listed are good (0.01, 1.5, 0.000001, '1.2345678', 'abc'). Missing edge cases: negative ('-0.01'), zero ('0' and '0.00'), scientific notation ('1e-2'), leading/trailing whitespace, empty string, very large value ('1000000000') overflowing safe-integer arithmetic, locale-specific decimals ('0,01' with comma).",
+      "description": "Price parsing tests are good but miss negative, zero, scientific notation, whitespace, and locale-specific inputs.",
+      "recommendation": "Add to Task 12 price-parser tests: parseUsdcPrice('-0.01') throws; parseUsdcPrice('0') returns 0n (or throws — decision needed); parseUsdcPrice('1e-2') throws (no scientific notation); parseUsdcPrice(' 0.01 ') trim or throw — decide and test; parseUsdcPrice('') throws; parseUsdcPrice('0,01') throws; parseUsdcPrice('1000000000') returns 1000000000000000n with no precision loss."
+    },
+    {
+      "severity": "minor",
+      "category": "weak_assertion",
+      "location": "Section: Testing Strategy → Integration test",
+      "issue": "The integration test asserts 'developer balance in contract increased by value - fee, platform balance by fee'. This is good. Missing: assert the PaymentReceived event was emitted with the correct args; assert the X-PAYMENT-RESPONSE.transaction field matches the actual on-chain tx hash (not just 'is present'); assert the relayer wallet's USDC balance decreased by the gas cost.",
+      "description": "Integration assertions are partial. Missing: event emission with correct args, tx-hash matches header, relayer gas cost.",
+      "recommendation": "Add to Task 14 assertions: (1) const receipt = await publicClient.getTransactionReceipt({hash: parsedXPaymentResponse.transaction}); expect(receipt.logs).toContainEqual(matching PaymentReceived(developerId, from, value, fee)); (2) expect(parsedXPaymentResponse.transaction).toBe(receipt.transactionHash); (3) const relayerBalanceAfter = await usdc.read.balanceOf([relayer]); expect(relayerBalanceBefore - relayerBalanceAfter).toBeGreaterThan(0n) (gas paid in USDC on Arc)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_scenario",
+      "location": "Section: Testing Strategy — coverage targets",
+      "issue": "Coverage targets are stated (middleware ≥80% line, contract ≥95% branch) but the targets do not match standard expectations. For a money-handling middleware, 80% LINE coverage is permissive — branch coverage would be the appropriate target. Contract 95% branch is good. Also missing: mutation testing budget for at least the verify.ts and settle.ts modules.",
+      "description": "Middleware target is 80% line, which is permissive for money-handling code. Branch coverage would be more meaningful.",
+      "recommendation": "Tighten middleware coverage target to ≥85% line AND ≥80% branch on src/, with verify.ts and settle.ts at ≥95% branch (these are the security-critical modules). Optionally add a stretch goal in Acceptance Criteria: 'mutation score on verify.ts ≥80% via Stryker' — defer to post-MVP if time-bound."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "litmusTest": {
+      "checked": 0,
+      "passed": 0,
+      "failed": 0,
+      "note": "Litmus test not applicable — strategy review, not code review. Evaluated against TDD-derivability of each bullet instead."
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 25,
+      "integration": 1,
+      "e2e": 0,
+      "assessment": "unbalanced",
+      "note": "Single integration test gated by env var. No tests in CI-required gate exercise the full request → 402 → signed-request → settle → 200 path against a deterministic local chain (Hardhat node fork). Pyramid is heavy unit, very thin integration, no e2e."
+    }
+  }
+}

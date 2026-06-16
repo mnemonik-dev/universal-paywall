@@ -10,7 +10,7 @@ Three roles:
 
 - **Developer / service owner** — integrates the middleware npm package to protect their endpoints. Registers on the hosted platform to unlock fiat support and the revenue dashboard.
 - **Human user** — hits a paywalled endpoint, gets redirected to a hosted checkout page, pays by card, returns to the service.
-- **AI agent** — encounters an HTTP 402 response, signs a USDC micropayment authorization via x402, retries — access granted automatically.
+- **AI agent** — encounters an HTTP 402 response, signs a USDC EIP-3009 authorization via x402, retries — middleware (acting as facilitator) settles on-chain, access granted automatically.
 
 ## Core Problem
 
@@ -20,23 +20,23 @@ Monetizing an API today requires wiring up Stripe for humans *and* building a se
 
 Open-core:
 
-- **Free tier (open source):** TypeScript middleware on npm. Self-hosted x402 on Base. No platform involvement, no fee taken.
-- **Paid hosted tier:** Developer routes payments through the Universal Paywall platform. We take **0.5 %** of every transaction automatically — via Stripe Connect for fiat and a PaymentSplitter smart contract on Base for crypto. In exchange: hosted checkout page, Stripe for humans, revenue dashboard.
+- **Free tier (open source):** TypeScript middleware on npm. Self-hosted x402 facilitator. Direct-to-wallet payment (no factory/vault used). No platform involvement, no fee taken.
+- **Paid hosted tier:** Developer routes payments through the Universal Paywall platform — registers via factory contract, gets a per-developer vault. We take **0.5 %** of every transaction automatically — via Stripe Connect for fiat and via the per-developer vault on Arc Network (Testnet for MVP) for crypto. In exchange: hosted checkout page, Stripe for humans, revenue dashboard.
 
 ## Key Features (MVP)
 
 | Feature | Priority | Notes |
 |---|---|---|
 | TypeScript middleware (`withPaywall()`) | Critical | npm package, wraps any HTTP handler |
-| x402 payment flow for AI agents | Critical | Base chain, USDC, non-custodial split |
-| PaymentSplitter smart contract on Base | Critical | Auto-splits 0.5% to platform, rest to developer |
+| x402 payment flow for AI agents | Critical | Arc Testnet (MVP), USDC, non-custodial split via per-developer vault |
+| PaymentSplitter factory + per-developer vault on Arc | Critical | Each developer deploys their own minimal-proxy vault; on `withdraw()` 0.5% goes to platform, rest to developer |
 | Stripe Connect hosted checkout for humans | Critical | Redirect flow, platform fee via `application_fee_amount` |
 | Developer onboarding | Critical | OAuth → Stripe Connect → Base wallet → API key |
 | Revenue dashboard | Important | Transactions, revenue, agents vs humans breakdown |
 
 ## Out of Scope (MVP)
 
-- Multi-chain x402 (only Base in MVP; Solana, Ethereum mainnet — post-MVP)
+- Multi-chain x402 (only Arc Testnet in MVP; Arc Mainnet — when Circle launches; Base, Solana, Ethereum mainnet — post-MVP)
 - Subscription / recurring billing
 - White-labeling of checkout page
 - Webhooks for developers
@@ -49,6 +49,8 @@ Open-core:
 
 ## Post-Launch Ideas
 
+- Arc Mainnet (when Circle launches)
+- Base x402 support (via Coinbase CDP facilitator)
 - Solana x402 support
 - Ethereum mainnet support
 - Webhook delivery for payment events
