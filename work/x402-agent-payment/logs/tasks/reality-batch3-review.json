@@ -1,0 +1,97 @@
+{
+  "validator": "reality-checker",
+  "batch": [7, 8, 9],
+  "iteration": 1,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 9,
+      "issue": "Test file path conflict between T7 and T9. T7 TDD anchor specifies test files at `packages/middleware/src/__tests__/verify.test.ts` and `packages/middleware/src/__tests__/settle.test.ts` (inside the `src/` subtree). T9 specifies ALL test files at `packages/middleware/__tests__/*.test.ts` (at the package root, outside `src/`). The same test files for verify and settle are claimed by both tasks at different paths. If T7 writes to `src/__tests__/` and T9 writes to `__tests__/`, there will be duplicate or orphaned test files and the coverage tool will only see one set.",
+      "fix": "Canonicalize the test directory to one location across all tasks. Pick one: either `packages/middleware/src/__tests__/` (keeping tests co-located with source) or `packages/middleware/__tests__/` (standard for npm packages). Update T7's TDD anchor paths to match T9's choice, or vice versa. The tech-spec Architecture diagram shows `packages/middleware/src/__tests__/` — align T9 to that convention, OR explicitly note in T7 that its TDD-anchor test files will be superseded/moved by T9."
+    },
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 8,
+      "issue": "D13 contradiction: tech-spec states 'settle.ts is the only consumer that extracts via a private symbol' (Shared Resources table, OpaqueRelayerKey row). But T8 step 1 describes `core.ts` extracting the key to build the `WalletClient` (it says 'build viem WalletClient by extracting the underlying key from OpaqueRelayerKey through the private symbol exposed by relayer-key.ts'). The Shared Resources table simultaneously says WalletClient is created by `core.ts`. This creates a contradiction: if core.ts extracts the key it violates D13; if settle.ts extracts it, it must also construct and own the WalletClient — but the Shared Resources table puts ownership in core.ts.",
+      "fix": "Resolve the ownership boundary explicitly. Option A: Move the WalletClient into `settle.ts` (settle.ts owns both key extraction and client construction, consistent with D13). core.ts passes the OpaqueRelayerKey to settle.ts, which builds the WalletClient internally. Remove WalletClient from core.ts shared resources. Option B: Accept that core.ts is the extraction site, update D13 to say 'core.ts is the sole consumer of OpaqueRelayerKey extraction'. Pick one and make T7, T8, and the tech-spec consistent."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 9,
+      "issue": "`parseUsdPrice()` is tested in T9 (`__tests__/price.test.ts`) but no task creates this function. The tech-spec Testing Strategy lists price parsing test cases, but the function is not assigned to any specific source file in the file lists for T6, T7, or T8. No task declares it will implement `parseUsdPrice`.",
+      "fix": "Assign ownership of `parseUsdPrice` to an existing task. Most naturally it belongs in T6 (pure modules wave) as part of `x402.ts` or a new `price.ts` under `packages/middleware/src/`. Add it to T6's 'Files to modify' list and 'What to do' steps. T9 can then import it and test it."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 7,
+      "issue": "viem 2.x error class for `waitForTransactionReceipt` timeout. T7 step 2 classifier maps 'viem `TimeoutError` from RPC call → `rpc_timeout`' as a separate entry from '`waitForTransactionReceipt` timing out → `mine_timeout`'. In viem 2.x the receipt timeout throws `WaitForTransactionReceiptTimeoutError` (not a generic `TimeoutError`). The generic `TimeoutError` does not cover receipt timeouts. The task's edge case note says 'ensure the classifier checks the most specific class first' but then lists a generic `TimeoutError` in the classifier table. An implementer relying on `error instanceof TimeoutError` for `waitForTransactionReceipt` timeout will incorrectly classify it as `rpc_timeout` instead of `mine_timeout`.",
+      "fix": "Replace the generic `TimeoutError` in the classifier with `WaitForTransactionReceiptTimeoutError` for `mine_timeout`. Add a separate catch for RPC-level timeouts (connection timeouts during `writeContract`) using the correct viem error class (`BaseError` subtype for network errors, or inspect the error cause chain). Add an explicit note that these are distinct viem error classes."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 9,
+      "issue": "Error reason string mismatch between T7 and T9 TDD anchors. T7 defines the reason for vault address mismatch as `'recipient_mismatch'` and value check as `'value_too_low'`. T9's TDD anchor `verify.test.ts::tampered_to_fails` expects reason `'to_mismatch'` and `verify.test.ts::tampered_value_below_required_fails` expects `'insufficient_value'`. These are inconsistent: T9 tests cannot pass against T7's implementation unless the reason strings are aligned.",
+      "fix": "Canonicalize the reason strings in one place (preferably `errors.ts` as a const enum or object). Align T7 and T9 to the same values. Pick one name per check — suggestion: keep T7's names (`recipient_mismatch`, `value_too_low`) as they are more descriptive and match the acceptance criteria table in T7. Update T9's TDD anchor to use `recipient_mismatch` and `value_too_low`."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 8,
+      "issue": "T8 step 3 (fastify adapter) says on 402 path: `reply.code(402).headers(headers).send(body)` then adds 'DO NOT `return` the body; Fastify expects an explicit `return reply` or `return` after `reply.send` to short-circuit'. The wording is contradictory — it says DO NOT return the body and then says do return `reply`. In Fastify's `preHandler` hook, you must `return reply` (or `return`) after `reply.send()` to signal that the hook has consumed the response. Failing to do so will cause Fastify to continue to the route handler and potentially double-send. The TDD anchor test `fastifyPaywall preserves reply chaining on 200` confirms the intent, but the implementation hint in step 3 may mislead the implementer.",
+      "fix": "Clarify the fastify adapter code: after `reply.code(402).headers(headers).send(body)`, add `return` (not `return reply`) or `return reply` — both stop the lifecycle. Remove the 'DO NOT return the body' phrase which conflicts with the following 'return reply'. The standard Fastify pattern is `reply.code(402).send(body); return;` inside a `preHandler` hook."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 7,
+      "issue": "Implementation hint in step 2 says 'the `v` value normalization (some libraries return 0/1, EIP-3009 expects 27/28). Test with both formats from a known signer'. This implies the implementer needs to add +27 normalization if viem's `parseSignature` returns 0/1. However, in viem 2.x, `parseSignature` on an Ethereum-format signature returns `v` as `27n` or `28n` (BigInt). The concern is valid for raw compact signatures but not for standard 65-byte hex signatures produced by viem-based wallets. The hint could cause the implementer to add unnecessary normalization or misunderstand viem's actual behavior.",
+      "fix": "Clarify the hint: 'viem `parseSignature` returns v as BigInt (27n or 28n) for standard 65-byte signatures. No manual +27 normalization is needed if the agent uses a viem-compatible signer. If supporting non-viem signers that may produce 0/1, add normalization: `v = v < 27n ? v + 27n : v`. Document which format your test key uses.'"
+    },
+    {
+      "severity": "major",
+      "category": "tdd",
+      "task": 9,
+      "issue": "T9 TDD anchor for `settle.test.ts::rpc_timeout_classified` says '`publicClient.waitForTransactionReceipt` rejects with timeout → `settlement_failed.reason === \\'rpc_timeout\\'`'. But per the T7 classifier, `waitForTransactionReceipt` timeout maps to `mine_timeout` (not `rpc_timeout`). The T9 anchor has the wrong expected reason for this test scenario. The `rpc_timeout` reason should map to RPC-level timeouts during `writeContract`, not receipt timeouts.",
+      "fix": "Fix T9's TDD anchor: `settle.test.ts::rpc_timeout_classified` should mock a timeout during `writeContract` (not `waitForTransactionReceipt`) and expect `rpc_timeout`. Add a separate test case for `waitForTransactionReceipt` timeout that expects `mine_timeout`. The current test description conflates the two timeout scenarios."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 9,
+      "issue": "`pino` and `winston` are listed as dev dependencies for `relayer-key.test.ts` serialization tests, but they are not mentioned in the tech-spec Dependencies section. T9 Details section mentions 'add `pino`, `winston` as dev dependencies if not already present'. There is no task that adds these to `packages/middleware/package.json`.",
+      "fix": "T9 should explicitly add `pino` and `winston` to `packages/middleware/package.json` devDependencies in its 'What to do' step 1 or as a setup step. Alternatively, add them to T6 (package.json setup) to ensure they are available when T9 runs."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 9,
+      "issue": "T9 `core.test.ts::d14_chainid_pin_throws_on_first_request_when_mismatched` says 'a second request with the same client does not re-query (cached failure)'. This implies the NetworkMismatchError is cached so subsequent requests also fail. However T7 and T8 describe the cache as 'chainId pin happens once per network' — it is not specified what happens on the second call after a mismatch. If the mismatch error is cached and rethrown, the process can never recover. If it is not cached, the second call re-runs `getChainId` and potentially succeeds (e.g., after a config fix). The test locks in one behavior without the tech-spec specifying it.",
+      "fix": "Explicitly specify in T8 what happens on the second request after a chainId mismatch: either (a) throw `NetworkMismatchError` on every request until the process restarts (cache the mismatch permanently), or (b) re-verify on every request (no cache on failure). Add this to the Acceptance Criteria of T7/T8. Update T9's test to match the specified behavior."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 8,
+      "issue": "T8 step 1 edge case note says 'Lazy-init concurrency: two simultaneous first requests must not race-create two `PublicClient`s. Guard with a `Promise` cache'. This is good guidance, but it is an implementation requirement not captured in the Acceptance Criteria. The AC list does not include any test or assertion about concurrent lazy-init safety. T9 also has no test for this.",
+      "fix": "Add a test in T9 `core.test.ts` that fires two simultaneous `paywall()` calls on a fresh core state and asserts `publicClient.getChainId()` was called exactly once (not twice). Add a corresponding Acceptance Criteria bullet to T8."
+    },
+    {
+      "severity": "minor",
+      "category": "security",
+      "task": 7,
+      "issue": "T7 step 2 proactive balance check says 'for MVP, hardcode a small constant in micro-USDC documented in the source' with example `RELAYER_MIN_BALANCE_MICRO_USDC = 1_000_000n` (1 USDC). The 'gasEstimate * 2' formula is described as a heuristic that needs Task 3's gas spike to calibrate. If Task 3 is skipped or the constant is set too low, the proactive check provides false safety and `relayer_no_balance` will only trigger reactively. This is an operational risk, not a code bug, but should be surfaced.",
+      "fix": "Add a TODO comment in `settle.ts` that `RELAYER_MIN_BALANCE_MICRO_USDC` should be updated after Task 3 measures real Arc Testnet `transferWithAuthorization` gas cost. The value is a placeholder until Task 3 runs. Document in README that this constant must be reviewed before production use."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 61,
+    "issues_found": 12
+  }
+}

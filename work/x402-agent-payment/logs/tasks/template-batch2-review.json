@@ -1,0 +1,147 @@
+{
+  "validator": "task-validator",
+  "batch": [6, 7, 8, 9, 10],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "decomposition",
+      "task": 8,
+      "section": "frontmatter",
+      "issue": "Task 8 has `wave: 5` and `depends_on: [7]`, but Task 7 is also `wave: 5`. Tasks within the same wave are intended to run in parallel — a depends_on edge within a wave violates the wave-dependency invariant: 'Task with depends_on: [X] must have wave > wave of X'. Either Task 8 needs to move to a new wave (e.g., 5b or 6) or Task 7's deliverables must be merged into Task 8 (or sequence within tech-spec Wave 5 must be explicit). This contradiction will produce a scheduling/orchestration error for the executor.",
+      "fix": "Bump Task 8 to `wave: 5b` (or `wave: 6`, and shift 9/10 to 7), OR remove `depends_on: [7]` and merge Task 7 into Task 8 if they truly must run together. Reconcile with tech-spec Implementation Tasks (currently lists both T7 and T8 under Wave 5)."
+    },
+    {
+      "severity": "critical",
+      "category": "carry-forward",
+      "task": 9,
+      "section": "What to do / TDD Anchor",
+      "issue": "Task 9 includes test files for source modules that do NOT exist in any other task's deliverables: `price.test.ts` (tests `parseUsdPrice`), `factory-cache.test.ts` (tests a standalone factory-cache module), `security-logger.test.ts` (tests a standalone logger module). Per Tasks 6/7/8 carry-forward: Task 6 ships {types, networks, x402, errors, relayer-key, replay-store}; Task 7 ships {verify, settle}; Task 8 ships {core, adapters/*, index}. There is no `src/price.ts`, no `src/factory-cache.ts`, no `src/security-logger.ts`. Task 8 description states the factory-state cache lives inside `core.ts` and the SecurityLogger surface is wired through `core.ts`. Writing unit tests for non-existent modules will fail and the ≥85% coverage threshold cannot be measured against absent code. This is a carry-forward gap: either Task 6/7/8 must create these modules, or Task 9 must fold these tests into `core.test.ts` / the existing module tests.",
+      "fix": "Either (a) add `price.ts`, `factory-cache.ts`, `security-logger.ts` as explicit deliverables in Tasks 6 or 8 (preferred: extract from core.ts into reusable modules), OR (b) rewrite Task 9 TDD anchors and file list so price/factory-cache/security-logger tests target the actual location (e.g., `core.test.ts` SecurityLogger sub-describes; price parsing tests in `x402.test.ts` or a fold into `errors.test.ts` if that's where `parseUsdPrice` lands)."
+    },
+    {
+      "severity": "critical",
+      "category": "resource-sharing",
+      "task": 7,
+      "section": "What to do / Details",
+      "issue": "Task 7 explicitly creates a module-level cache for `PublicClient` and `WalletClient` per network inside `settle.ts` (`Add per-network client cache (module-level Map<network, {publicClient, walletClient, chainIdPinned: boolean}>)`). But tech-spec Shared Resources table assigns `viem PublicClient` and `viem WalletClient` ownership to `core.ts` (lazy-init per network). Task 8 then also creates these lazy-init holders in `core.ts`. This produces COMPETING INSTANCES of the same shared resource across two tasks in the same wave (Tasks 7 and 8 are both wave 5). At runtime: each module will hold its own per-network client, defeating the 'single PublicClient per network in process' invariant and forcing two RPC connections / two chainId pins.",
+      "fix": "Pick exactly one owner per Shared Resources table — `core.ts`. Task 7 should accept `publicClient` and `walletClient` (or factories) via `opts` and not maintain its own cache. The chainId pin (D14) should also live in only one place (core.ts). Update Task 7's Implementation hints and AC to reflect 'caller supplies clients'; update Task 8 to retain ownership."
+    },
+    {
+      "severity": "critical",
+      "category": "resource-sharing",
+      "task": 8,
+      "section": "What to do",
+      "issue": "Task 8 lists the D14 chainId pin and PublicClient/WalletClient construction in `core.ts`, but Task 7 (same wave) also implements these. Without explicit handoff in dependencies/contracts between the two tasks, both implementations will ship and the chainId pin will run twice (or worse — disagree on observed value). See Task 7 finding above.",
+      "fix": "After deciding ownership in `core.ts` (per tech-spec Shared Resources), update Task 8 ACs to add 'core.ts is the SOLE owner of PublicClient/WalletClient cache and the D14 chainId pin; settle.ts receives them via opts and does not duplicate the pin'."
+    },
+    {
+      "severity": "major",
+      "category": "decomposition",
+      "task": 10,
+      "section": "frontmatter / Dependencies",
+      "issue": "Task 10's `depends_on: [5, 8]` is missing `9`. The Details section explicitly states: 'Task 9 (vitest config + ajv + vendored x402 v1 schema fixture) — schema fixture is consumed by the Arc Testnet suite' and the arc-testnet suite ajv-validates against `packages/middleware/__tests__/fixtures/x402-v1.schema.json` which is created in Task 9. Without `9` in depends_on, the orchestrator may schedule Task 10 before the schema fixture exists.",
+      "fix": "Update frontmatter to `depends_on: [5, 8, 9]`. Verify wave ordering still satisfies the rule (Task 9 wave=6, Task 10 wave=6 — same wave; this also requires reshuffling Task 10 to a later wave, e.g. wave 7, or fold the schema fixture creation into the part of Task 10 that needs it, or move it to Task 6/7 as a fixture)."
+    },
+    {
+      "severity": "major",
+      "category": "decomposition",
+      "task": 8,
+      "section": "frontmatter",
+      "issue": "Task 8's `depends_on: [7]` does not include `6`, although Task 8 directly imports from many Task 6 modules (types.ts, x402.ts, errors.ts, networks.ts, replay-store.ts, relayer-key.ts) — see `Files to read` in tech-spec and the Context Files in this task. While the dependency is satisfied transitively via Task 7 (which depends on 6), explicit declaration makes scheduling robust and matches the carry-forward expectation 'depends_on lists ALL tasks whose outputs the task imports'.",
+      "fix": "Set `depends_on: [6, 7]` for explicit clarity."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 9,
+      "section": "What to do",
+      "issue": "Inconsistent test directory location between Task 6 (uses `packages/middleware/src/__tests__/`) and Task 9 (uses `packages/middleware/__tests__/` — no `src/`). The vitest.config.ts in Task 9 says 'include `src/**`, exclude `__tests__/**`' which implies tests are OUTSIDE `src/`. If Task 6 places tests inside `src/__tests__/` they will be excluded from coverage AND duplicated/conflicting with Task 9's `__tests__/` files. Pick one convention.",
+      "fix": "Update Task 6's Files list and TDD Anchor paths to use `packages/middleware/__tests__/{x402,errors,networks,relayer-key,replay-store}.test.ts` (consistent with Task 9), OR update Task 9 to use `src/__tests__/`. Reconcile tech-spec Task 6 Verify-smoke command (which uses `src/__tests__/...`) accordingly."
+    },
+    {
+      "severity": "major",
+      "category": "atomicity",
+      "task": 6,
+      "section": "What to do",
+      "issue": "Task 6 bundles SIX distinct modules (types, networks, x402, errors, relayer-key, replay-store) plus six test files into a single task with ~150 lines of 'What to do' content. While tech-spec explicitly justifies the bundling ('all pure modules in one task'), the scope clearly exceeds the 1-3 file atomicity rule. The relayer-key module alone has ~10 sub-behaviors and 14 TDD anchors. Risk: review cycles for this task will be very long and a bug in one module triggers re-review of all six. Consider splitting at least relayer-key into its own task (it is the only module with security-critical defense-in-depth that warrants isolated focus).",
+      "fix": "Recommend splitting into two tasks: (a) Task 6a: types, networks, x402, errors, replay-store (pure data/codec — co-located). (b) Task 6b: relayer-key with full defense-in-depth surface and serialization tests. Both still in Wave 4 in parallel. If kept bundled, raise the review-round budget and flag the size in tech-spec rationale."
+    },
+    {
+      "severity": "major",
+      "category": "carry-forward",
+      "task": 7,
+      "section": "What to do",
+      "issue": "Task 7 introduces a `NetworkMismatchError` class but is ambiguous about its home ('Add NetworkMismatchError class (or reuse the one from errors.ts if Task 6 added it; otherwise define it locally and re-export from errors.ts once consolidated)'). Task 6 errors.ts spec lists a specific error class set (`MalformedPaymentHeaderError` + the `ErrorReason` union including `chain_id_mismatch`) but does NOT explicitly enumerate `NetworkMismatchError`. This ambiguity will cause the executor to either duplicate or skip the class, breaking imports.",
+      "fix": "Pick one location authoritatively. Recommend: add `NetworkMismatchError` to Task 6 errors.ts deliverable explicitly, then Task 7 just imports it. Update both Task 6 and Task 7 AC + What-to-do to reflect that choice."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 9,
+      "section": "TDD Anchor / Acceptance Criteria",
+      "issue": "Task 9 lists `errors.test.ts::each_reason_produces_canonical_body` requiring schema validation, but Task 6 errors.ts AC explicitly says 'don't import ajv yet — Task 9 owns the schema validation; here just structural assertions'. This split creates a coordination gap: Task 6's errors.test.ts will exist with structural-only assertions, then Task 9 ADDS another errors.test.ts (or has to merge into the existing one). The current TDD anchors do not specify whether Task 9 reuses, extends, or replaces Task 6's test files.",
+      "fix": "Clarify in Task 9: 'Task 9 ADDS schema-validation cases to the existing Task 6 test files (does not duplicate them) and ADDS new files only for modules not tested in Task 6/7/8'. Update file list to reflect 'extend' vs 'create' per file."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 7,
+      "section": "Context Files",
+      "issue": "Context Files section uses sub-headers `**Code files to modify:**` and `**Code files to read:**` inside the section. Other tasks (6, 8, 9, 10) put all context as a flat bulleted list with inline annotations. Cosmetic inconsistency.",
+      "fix": "Flatten to match Task 6 style: single bulleted list with inline `— modify` / `— read` annotation."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 6,
+      "section": "Details",
+      "issue": "Details section uses bolded `**Files:**`, `**Dependencies:**`, `**Edge cases:**`, `**Implementation hints:**` as inline labels with bulleted content underneath each. Template uses the same bold-label pattern but on a single line each. The content here is correct, but Task 6's labels are followed by multi-line bullets while Task 7 has single-line content — minor format inconsistency within the batch.",
+      "fix": "No action required — both forms are template-conformant. Just noting the variance."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 8,
+      "section": "Verification Steps / Smoke",
+      "issue": "Smoke command `npm run build --workspace=packages/middleware && node -e \"import('@universal-paywall/middleware').then(...)\"` imports the package by its npm name. This requires either local-linking via `npm link` or `workspaces` resolution AND the built dist files. If Task 1 didn't set up the workspaces resolution to make the package importable by name from the repo root, this smoke will fail. Tech-spec Verify-smoke for Task 8 uses the same command — minor risk, document the prerequisite.",
+      "fix": "Either change the smoke to import the built file path directly (`./packages/middleware/dist/index.js`), or add a prerequisite note: 'Requires `npm install` at repo root to have created the workspace symlink.'"
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 9,
+      "section": "TDD Anchor",
+      "issue": "Several TDD anchor names use snake_case (e.g., `build402_matches_schema`, `decode_rejects_over_4kb`, `valid_signature_passes`), differing from Task 6/7/8 conventions which use natural-language descriptions (e.g., `valid signature passes`, `JSON.stringify redacts`). Tests within the same package should follow a consistent naming convention.",
+      "fix": "Align Task 9 test names to natural-language style used in Tasks 6/7/8, OR pick a project-wide convention in tech-spec/patterns.md and apply consistently."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 10,
+      "section": "Acceptance Criteria",
+      "issue": "AC includes 'cd contracts && npx hardhat test test/integration/forked-e2e.test.ts exits 0 locally' — assumes hardhat's default test discovery picks up files under `test/integration/`. Hardhat by default scans `test/**/*` so this should work, but worth confirming `hardhat.config.ts` from Task 2 does not override `paths.tests`. Minor risk of misalignment.",
+      "fix": "Add a verification step that confirms the path matches `hardhat.config.ts.paths.tests` (default is `./test`); document if a glob override is needed."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 8,
+      "section": "Required Skills",
+      "issue": "Required Skills section uses English-prefixed line 'Before starting, load:' while other tasks (6, 7, 10) use Russian 'Перед выполнением задачи загрузи:'. Cosmetic, but inconsistent within the batch.",
+      "fix": "Pick one language for the boilerplate prefix and apply across all tasks (tech-spec / project documentation is in English; Russian prefix is harmless but inconsistent)."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 9,
+      "section": "Required Skills",
+      "issue": "Same as Task 8: uses English 'Before starting, load:' while Tasks 6, 7, 10 use Russian. Minor batch-internal inconsistency.",
+      "fix": "Standardize across the batch."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 5,
+    "issues_found": 17
+  }
+}

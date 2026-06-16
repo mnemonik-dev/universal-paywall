@@ -1,0 +1,61 @@
+{
+  "validator": "reality-checker",
+  "batch": [13, 14, 15],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 15,
+      "issue": "Task 15 line 33 states: 'npm test --workspace=packages/middleware — vitest unit tests + forked-e2e (Hardhat fork runs in-process, no env flag)'. This is incorrect. forked-e2e.test.ts lives in contracts/test/integration/ and runs under 'cd contracts && npx hardhat test' (confirmed by T10 Verify-smoke, T10 ACs, and T10 details). It is NOT run by npm test --workspace=packages/middleware. Task 15 does separately list 'cd contracts && npx hardhat test' on line 34, so forked-e2e will be executed — but the erroneous parenthetical on line 33 conflates the two commands. An executor following line 33 literally would tick the 'forked-e2e runs via middleware npm test' AC incorrectly, potentially missing a failure if hardhat forked-e2e is broken while vitest passes.",
+      "fix": "Remove the parenthetical '(Hardhat fork runs in-process, no env flag)' from line 33. Line 34's 'cd contracts && npx hardhat test' is the correct runner for forked-e2e. Update line 34 to read: 'cd contracts && npx hardhat test — Hardhat contract tests (PaymentSplitterFactory, PaymentVaultImpl) AND forked-e2e (contracts/test/integration/forked-e2e.test.ts). Must exit 0.'"
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 14,
+      "issue": "T14's 'What to do' step 2 (tech-spec Testing Strategy Coverage Matrix) omits the mandatory tech-spec row: 'Network id normalization (CAIP-2 <-> alias) round-trips' from the middleware unit-test bullets. The tech-spec Testing Strategy explicitly lists this as a required test (under 'Unit tests (vitest, in packages/middleware/)'). T14's Mandatory Items section and the verification step 2 Middleware unit test list do not include it. An auditor completing T14 would not flag this test as MISSING because it is not on the checklist to verify — creating a gap between what the spec mandates and what the test audit validates.",
+      "fix": "Add a mandatory line to T14's 'Middleware unit tests' check list: 'Network id normalization round-trips — CAIP-2 <-> alias normalize correctly in both directions: PRESENT/MISSING — <path>'. Also add it to the Coverage Matrix template under 'Tech-spec requirement' rows."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 15,
+      "issue": "Task 15 line 44 states 'user-spec -> Contracts: PaymentVaultImpl (lines 198-205): 5 ACs'. However, user-spec lines 200-205 contain 6 distinct top-level checkbox ACs: (1) Initializable + ReentrancyGuard, (2) initialize semantics, (3) withdraw() math + event, (4) withdraw-while-paused works, (5) no setters for developer/factory, (6) no receive() payable. Counting 5 instead of 6 means the QA walk would undercount by one AC and could leave one criterion unchecked without noticing. T15's own prose description in line 44 lists all 6 concerns ('Initializable + storage-based ReentrancyGuard, initialize semantics, withdraw() math + SafeERC20 transfers + event, withdraw-while-paused works, no setters for developer/factory, no receive() payable') — contradicting the stated count of 5.",
+      "fix": "Change '5 ACs' to '6 ACs' on line 44 of T15. Ensure the qa-report.md template's PaymentVaultImpl section has 6 rows."
+    },
+    {
+      "severity": "major",
+      "category": "missing_file",
+      "task": 13,
+      "issue": "decisions.md is listed as a 'Context File' to read (task 13 line 81: '- [decisions.md](../decisions.md)') but the file does not exist in the repository (/Users/syi/src/universal-paywall/work/x402-agent-payment/decisions.md is absent). T12, T13, and T14 all have the same depends_on: [9, 10, 11] and wave: 7 — meaning they run in parallel. T12 creates decisions.md as a post-completion step, but since T13 runs concurrently with T12 (not after it), decisions.md may not exist when T13 starts. The same applies to T14. Reading a missing context file can cause agent errors or silent omission of prior decisions context during the security audit.",
+      "fix": "Either (a) add T12 to T13's and T14's depends_on lists so T12 always completes first, or (b) mark decisions.md as an optional context file with a note that it is created by T12 and may not yet exist when T13/T14 execute in parallel. Option (a) changes T13/T14 to wave: 8 which breaks the audit parallelism design — document the tradeoff. Option (b) is the lighter fix: change the context file entry to '- [decisions.md](../decisions.md) — created by T12; may not exist if T12 is still running in parallel'."
+    },
+    {
+      "severity": "major",
+      "category": "missing_file",
+      "task": 14,
+      "issue": "decisions.md is listed as a 'Context File' to read (task 14 line 109: '- [decisions.md](../decisions.md)') but the file does not exist. Same parallel-wave issue as T13 (both are wave 7, same depends_on: [9, 10, 11]).",
+      "fix": "Same as T13 fix: either add T12 to depends_on or mark decisions.md as optional context."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 13,
+      "issue": "T13's acceptance criteria requires a 'coverage matrix (Decisions D1-D18 + relevant Risk rows)' in the audit report, and the 'What to do' section says 'Use the Decisions list (D1-D18) as a checklist. Every Decision either anchors a finding (PASS) or surfaces one (FAIL/finding).' However, the 'What to do' body only provides explicit audit checks for security-relevant decisions (D2, D3, D5, D8, D12, D13, D14, D15, D16, D17, D18). Non-security decisions D4 (withdraw fee math), D6 (framework-agnostic adapters), and D9 (Hardhat over Foundry) are not mentioned in the step-by-step instructions. An auditor following the prescribed steps literally may omit D4, D6, D9 from the matrix or assign them verdicts without guidance on what 'auditing' them means in a security context.",
+      "fix": "Add a note in the 'Implementation hints' section: 'Decisions D4, D6, D9 have no direct security attack surface. Include them in the coverage matrix with verdict N/A (out of security scope) and a one-line rationale for each. Do not skip them from the matrix — an incomplete matrix is itself a finding.'"
+    },
+    {
+      "severity": "minor",
+      "category": "tdd",
+      "task": 13,
+      "issue": "T13 Verification Step 'Automated' says to run 'cd contracts && npx hardhat coverage → confirm ≥95% branch coverage on both contracts'. This duplicates T14's coverage check. While not harmful, it adds confusion about responsibility: T13 is the security audit and T14 is the test audit. T13 running coverage is reasonable as evidence-gathering, but the instruction should clarify it is a spot-check, not the authoritative coverage gate (that belongs to T14).",
+      "fix": "In T13's Verification Steps, annotate the hardhat coverage line: '(sanity check for security-relevant branch coverage; authoritative coverage gate is T14)'."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 47,
+    "issues_found": 7
+  }
+}

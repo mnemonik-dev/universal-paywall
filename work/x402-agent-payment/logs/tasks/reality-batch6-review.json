@@ -1,0 +1,89 @@
+{
+  "validator": "reality-checker",
+  "batch": [16, 17],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 17,
+      "issue": "T17 Verification Steps references `node scripts/postdeploy/read-factory.mjs` as if it is a pre-existing file, but neither T16 nor any earlier task creates this script. T17 'Details' section says one-off scripts are written in the scratch directory and not committed, yet the Verification Steps snippet calls it from `scripts/postdeploy/` inside the repo. The file path is invented — it will not exist when the agent executes step 3.",
+      "fix": "Clarify that `read-factory.mjs` is written inline by the agent into the scratch directory during task execution (not as a repo path). Remove the `node scripts/postdeploy/read-factory.mjs` path from Verification Steps and replace it with the scratch-directory invocation pattern described in 'What to do' step 3."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 17,
+      "issue": "T17 step 2 calls `ARC_TESTNET_E2E=1 npm run test:e2e` and assumes `packages/middleware/package.json` has a `test:e2e` script. Task 11 is listed as the creator of `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts`, but no task explicitly adds a `test:e2e` npm script to `packages/middleware/package.json`. Task 15 (Pre-deploy QA) calls the same command, meaning the gap would have surfaced there, but T17 depends on this script being runnable and the dependency chain does not guarantee it was wired.",
+      "fix": "Either Task 10 or Task 11 must explicitly add `\"test:e2e\": \"vitest run --reporter verbose __tests__/integration/arc-testnet-e2e.test.ts\"` (or equivalent) to `packages/middleware/package.json`. T17 should reference the owning task for this script and verify the key exists before running."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 16,
+      "issue": "T16 'What to do' states the deploy script (`01_deploy_factory.ts`) deploys `PaymentSplitterFactory(usdc, treasury, 50 bps)`, but the factory constructor as specified in tech-spec Data Models is `PaymentSplitterFactory(usdc, platformTreasury, vaultImpl, 50)` — the `vaultImpl` address is a constructor argument, not something the factory deploys internally. T11 explicitly says 'Deploy `PaymentVaultImpl` first … Deploy `PaymentSplitterFactory(usdcAddress, treasuryAddress, vaultImpl.address, 50)`'. T16's abbreviated form `factory(usdc, treasury, 50 bps)` omits the `vaultImpl` arg entirely, which would cause a mismatch if the agent follows T16 literally instead of T11.",
+      "fix": "T16 'What to do' should mirror T11's constructor call verbatim: `PaymentSplitterFactory(usdcAddress, platformTreasury, vaultImpl.address, 50)`. The matching `npx hardhat verify` command in T16 should include `vaultImpl.address` as a positional constructor arg."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 16,
+      "issue": "`--provenance` requires npm CLI >= 9.5 AND a GitHub Actions OIDC token for SLSA Level 2 attestation. T16 acknowledges this in Dependencies ('if running locally without OIDC, `--provenance` will fail') but the 'What to do' step unconditionally runs `npm publish ... --provenance` without a pre-flight npm version check or a conditional path for local runs. The Implementation Hints say 'verify version with `npm --version` before publishing', but this is a hint, not a step. If the agent runs this on a local machine (which is the default given no CI environment is set up), the publish will either fail or silently downgrade attestation.",
+      "fix": "Promote the npm version check to a concrete step in 'What to do': if `npm --version` < 9.5 or no OIDC env is detected, surface a clear deviation and either abort or document the downgraded publish in the publish log. The AC 'npm publish ... --provenance succeeded' should be conditioned on the environment."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 16,
+      "issue": "`npm publish --workspace=packages/middleware --access=public --tag=alpha --provenance` — the `--workspace` flag targets the entire workspace, which tells npm to publish ALL publishable workspaces matching `packages/middleware`. This is correct IF only one package lives in that path, but the `--workspace` flag on `npm publish` does not accept a glob narrowing to a single package by default in all npm versions. Some versions require `--workspaces` (plural) to publish all, and `--workspace=<name>` to target one. The package name in tech-spec is `@universal-paywall/middleware` — the command should use `--workspace=@universal-paywall/middleware` (by package name, not directory path) or `cd packages/middleware && npm publish ...` to be unambiguous across npm versions.",
+      "fix": "Use `npm publish --workspace=@universal-paywall/middleware --access=public --tag=alpha --provenance` (package name form) or switch to `cd packages/middleware && npm publish --access=public --tag=alpha --provenance`. Verify the exact flag behavior matches the npm version installed in the project."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 17,
+      "issue": "T17 HTTP smoke step (step 5) says 'Создать `server.js` который импортирует `withPaywall`' and 'Запустить server в фоне' followed by `sleep 1`. The task's Verification Steps code snippet shows `sleep 1` as a hardcoded delay before curling. The `withPaywall`-based server needs to resolve the vault address via `computeVaultAddress(developerEoa)`, which requires a valid non-zero factory address to be in the installed package's `NETWORKS`. If the server startup fails (e.g., factory address is zero because Task 16 did not correctly patch `networks.ts`), the curl will get a connection refused, not HTTP 402, and the error message will be opaque. No health-check or retry is specified — `sleep 1` is brittle.",
+      "fix": "Add a readiness check before curl (e.g., poll with `curl --retry 5 --retry-connrefused --retry-delay 1 ...`) instead of a fixed `sleep 1`. Also note explicitly that the server must be started with a valid non-zero `developerEoa` — document a test EOA to use so the task is self-contained."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 17,
+      "issue": "T17 Implementation Hints say 'для ajv-валидации x402 wire format взять схему из tech-spec / шарить с тестами Task 7 (там есть Zod-схема для PaymentRequirements; для post-deploy достаточно ajv-конверсии base shape)'. Task 7 is `verify.ts` + `settle.ts` — neither of those modules contains a Zod schema for `PaymentRequirements`. Task 9 (middleware unit tests) uses `ajv` against a vendored x402 v1 schema at `packages/middleware/__tests__/fixtures/x402-v1.schema.json`. The hint incorrectly points to T7 (a pure-module task with no test file) instead of T9's fixture.",
+      "fix": "Change the hint to reference `packages/middleware/__tests__/fixtures/x402-v1.schema.json` from Task 9, not 'Task 7'. Make clear this file is already in the repo post-T9 and can be loaded directly in the scratch `validate-x402.mjs` script."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 16,
+      "issue": "T16 'Edge cases' says 'if `0.1.0-alpha.0` is burned (npm forbids republishing the same version)', bump to `0.1.0-alpha.1`. However, the release commit subject in T16 hardcodes `0.1.0-alpha.0` in both the commit message and the git tag (`middleware-v0.1.0-alpha.0`). If the version is bumped to `-alpha.1` due to a failed first publish, the previously created commit + tag will reference the wrong version, requiring a fixup commit and a new tag. T16 has no step for this retag scenario.",
+      "fix": "Defer the release commit and tag creation to AFTER `npm publish` succeeds, not before. This ensures the commit + tag always match the actually-published version."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 16,
+      "issue": "T16 Implementation Hints say 'Tag the release commit (`git tag -a middleware-v0.1.0-alpha.0 -m \"...\" HEAD`) but **do not push the tag in this task** — the tag push is part of the post-deploy verification flow (Task 17)'. However, T17 has no step for pushing the git tag. The tag will be left local indefinitely unless the operator pushes it manually.",
+      "fix": "Either add an explicit step in T17 to push the annotated tag (`git push origin middleware-v0.1.0-alpha.0`) after the verdict is PASS, or move the tag push into T16 after npm publish succeeds. Clarify which task owns this action."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 16,
+      "issue": "T16 says 'Build the published bundle: `npm run build --workspace=packages/middleware`. Confirm the resulting `dist/` is < 30 KB minified+gzip (`gzip -c dist/index.js | wc -c` or `tsup` reported size)'. The command `gzip -c dist/index.js | wc -c` only measures the entry-point file. If `tsup` outputs multiple chunks (e.g., `dist/index.js` + `dist/adapters/fastify.js` + `dist/adapters/node-http.js`), the total published bundle size must sum all `dist/*.js` files, not just `index.js`.",
+      "fix": "Change size check to sum all JS files in `dist/`: e.g., `find dist -name '*.js' -exec gzip -c {} \\; | wc -c`. Or rely on `tsup`'s reported output sizes (which are per-file and can be summed)."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 17,
+      "issue": "T17 'What to do' step 5 says to create `server.js` in the scratch directory 'которая импортирует `withPaywall` из установленного пакета'. The installed package is ESM-only (`\"type\": \"module\"` per tech-spec AC). The scratch `server.js` must also use ESM (`import`) not CommonJS (`require`). If the scratch `npm init -y` creates a CJS-default project (no `\"type\": \"module\"`), `import('@universal-paywall/middleware')` will still work via dynamic import in Node >=20, but a static `import` at the top level will fail. T17 does not specify this requirement explicitly.",
+      "fix": "Add to step 5: the scratch `package.json` must include `\"type\": \"module\"` before creating `server.js` with static ESM imports. Or use dynamic `import()` in a CJS file — explicitly document which approach the agent should use."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 2,
+    "claims_verified": 38,
+    "issues_found": 11
+  }
+}

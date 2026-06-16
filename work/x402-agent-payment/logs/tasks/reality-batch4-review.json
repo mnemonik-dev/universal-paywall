@@ -1,0 +1,104 @@
+{
+  "validator": "reality-checker",
+  "batch": [10, 11, 12],
+  "iteration": 1,
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "Forked-e2e is placed under contracts/test/integration/ and is expected to run under `npx hardhat test`, but the middleware servers (withPaywall, fastifyPaywall) are TypeScript modules in packages/middleware/src/. The forked test imports Node http and Fastify and the compiled middleware package in the same Hardhat test process. The Hardhat test runner executes TypeScript via ts-node/ts-jest — it must also resolve the ESM-only @universal-paywall/middleware package. Since Task 1 sets the middleware as ESM-only (\"type\": \"module\"), running it inside a Hardhat (ts-node, CJS by default) test process will fail with ERR_REQUIRE_ESM unless hardhat.config.ts is explicitly set to use ESM or the test imports through a CJS-compatible build artefact. The task does not address this interop friction.",
+      "fix": "Either: (a) require that `npm run build --workspace=packages/middleware` runs before the forked-e2e test and the test imports from `dist/` rather than `src/`, with the Hardhat tsconfig configured to allow ESM imports; or (b) move the forked-e2e to packages/middleware/__tests__/integration/ as a Vitest suite that can natively handle ESM (mirroring the arc-testnet-e2e pattern), and adjust the Verify-smoke command accordingly. Document the build-before-test dependency in the task if keeping in Hardhat."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "The `paused` branch test instructs: 'call a test-only cache invalidator if one exists on the core, else wait > 5 s after factory.pause()'. Task 8 (core.ts) defines a 5-second TTL factory-state cache but does NOT expose a cache-invalidation hook — nor is one mentioned anywhere in the tech-spec. The task therefore falls back to `await new Promise(r => setTimeout(r, 5500))`. A 5.5-second synchronous sleep inside a Hardhat mocha test will push the full forked-e2e suite well past Hardhat's default `timeout` (2000 ms per test by default). The task acknowledges 'the suite isn't slow by surprise' but does not give the required mocha timeout override to prevent a CI timeout failure.",
+      "fix": "Add explicit mocha timeout override: either `this.timeout(10000)` inside the paused test case (if using mocha's this-based API) or configure `hardhat.config.ts` mocha timeout to at least 15000 ms for the integration suite. Alternatively, expose a `testOnly_invalidateCache()` method on the FactoryStateCache (guarded by a NODE_ENV === 'test' check) so the test does not need to sleep. Document the chosen approach."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "T10 lists `depends_on: [5, 8]` but the forked-e2e test also consumes the vendored `x402-v1.schema.json` fixture for the arc-testnet-e2e ajv validation (explicitly stated: 'schema fixture from Task 9'). Task 9 produces that fixture. The cross-adapter replay test also indirectly relies on the process-singleton NonceStore being correctly implemented (Task 8) but the schema validation dependency on Task 9 is a concrete artifact dependency — the test will fail with a missing file if Task 9 has not run. Task 9 is not in `depends_on`.",
+      "fix": "Add Task 9 to T10's `depends_on` array: `depends_on: [5, 8, 9]`."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "The deploy script is instructed to patch packages/middleware/src/networks.ts by importing the middleware module directly ('import it directly so the source of truth stays in one place'): `USDC_ADDRESS defaults to NETWORKS[\"arc-testnet\"].usdcAddress from the middleware module`. This means contracts/deploy/01_deploy_factory.ts imports from packages/middleware/src/networks.ts at deploy time. This creates a cross-package import from the contracts/ Hardhat project into the packages/ TypeScript project. The contracts/ tsconfig and Hardhat setup (Task 2) is scoped to contracts/ — cross-workspace TypeScript path resolution is not configured and will fail unless path aliases or workspace symlinks are explicitly set up. The dry-run on localhost smoke test will expose this immediately.",
+      "fix": "Either: (a) configure contracts/tsconfig.json with `paths` or `references` pointing to packages/middleware/src, and document this in Task 2 / Task 11; or (b) avoid the cross-import entirely — have the deploy script accept USDC_ADDRESS purely from env and look up NETWORKS values only via a small shared-constants file at the monorepo root that both packages import. Option (b) is architecturally cleaner and avoids the TypeScript project-reference complexity."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "Task 11 specifies `scripts/__tests__/register.test.ts` with 6 tests, and its Verification Steps say `npm test --workspace=scripts -- register.test.ts`. However, `scripts/` is a repo-root directory (not a separate npm workspace package) per the architecture.md project structure — it contains only `register.ts` with no `package.json`. There is no `scripts` workspace defined in the root `package.json` (no such workspace is mentioned in the tech-spec or architecture). Running `npm test --workspace=scripts` against a directory that is not an npm workspace will fail with 'Workspace not found'.",
+      "fix": "Either: (a) Task 1 must create a `scripts/package.json` that registers `scripts/` as a workspace (with vitest or mocha configured); or (b) run the register test via the root workspace: `npm test -- scripts/__tests__/register.test.ts` or `npx vitest run scripts/__tests__/register.test.ts`. Clarify in the task which approach is used and ensure Task 1's scaffolding covers it. The test runner choice (vitest vs mocha) should match whatever Task 1 establishes for the workspace."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "The deploy script is instructed to patch networks.ts using a regex anchored to sentinel comments like `/* deploy-script:factoryAddress */`. Task 6 (which owns the NETWORKS shape) does not mention adding these sentinels. If Task 6 is executed without the sentinels, the deploy script's regex will not find its anchor and will either silently skip the patch or throw at runtime. The sentinel addition is specified in Task 11's 'What to do > Update packages/middleware/src/networks.ts' step, but since Task 6 and Task 11 are in different waves, a developer executing Task 6 without forward knowledge of Task 11 will not add them.",
+      "fix": "Add the sentinel comments requirement to Task 6's description and acceptance criteria (or at minimum in its implementation hints). Alternatively, have the deploy script write the addresses to a separate generated file (e.g. networks.generated.ts imported by networks.ts) to decouple the patch from the source file structure. Document the cross-task contract explicitly."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "T11 depends_on [4, 8] but the register test (scripts/__tests__/register.test.ts) also requires a deployed factory instance to call factory.register() against. Per the test description it uses 'Hardhat's local node + Task 4's factory'. Spawning a Hardhat local node as a child process for the register test is non-trivial setup not described in the task. The test spawns register.ts as a child process and that CLI needs a live RPC endpoint with a deployed factory. The task does not describe how the test fixture sets up the local Hardhat node + deploys the factory before invoking the CLI. This is a feasibility gap — the test approach is underspecified.",
+      "fix": "Add explicit fixture setup to the test: either (a) use `@nomicfoundation/hardhat-network-helpers` with an in-process Hardhat node (similar to the forked-e2e pattern in T10), deploy the factory programmatically, then spawn the CLI pointing at `http://127.0.0.1:<port>`; or (b) use a hardhat fixture that deploys the factory and injects the RPC URL + FACTORY_ADDRESS env vars before spawning the CLI child process. The task description should include this setup as a numbered step in 'What to do'."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 12,
+      "issue": "Task 12 depends_on [9, 10, 11] and is wave 7 (Audit Wave). However, the tech-spec groups Tasks 12, 13, and 14 under 'Audit Wave (parallel, after Wave 6)'. All three run in parallel, and Task 13 (Security Audit) also depends on the same Wave 6 outputs. Task 12's file scope explicitly overlaps with Task 13 (Solidity sources, settle.ts, relayer-key.ts) and Task 14 (test files in __tests__/). The task text warns 'do not duplicate security findings — cross-reference Task 13' and 'do not duplicate test-quality findings — cross-reference Task 14', but since all three tasks run in parallel, Task 12 cannot actually cross-reference findings from Task 13/14 that have not been written yet. The instruction creates a logical contradiction.",
+      "fix": "Either: (a) serialize the audit tasks — run Task 14 first (test audit), then Task 13 (security audit), then Task 12 (code audit) so cross-references are valid; or (b) acknowledge in each audit task that cross-references to sibling audits are placeholders (e.g. 'see Task 13 security audit') rather than actual citations to a completed report. The depends_on chain should reflect the chosen ordering if serialization is desired. This is a process issue, not a blocking code defect."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "The arc-testnet-e2e test reads `ARC_TESTNET_FACTORY_ADDRESS` from env and builds a PaywallConfig targeting the real Arc Testnet. However, NETWORKS['eip155:5042002'] in networks.ts has placeholder addresses (`0x0000...0000`) until Task 11's deploy script patches them. If the test constructs PaywallConfig using NETWORKS['eip155:5042002'].factoryAddress instead of the env var, it will use the placeholder address and fail. The task description says 'Require env vars: ... ARC_TESTNET_FACTORY_ADDRESS' correctly, but the implementation hint references NETWORKS directly without clarifying which fields must come from env vs NETWORKS.",
+      "fix": "Add explicit guidance: the arc-testnet-e2e test must override factoryAddress and vaultImplAddress from ARC_TESTNET_FACTORY_ADDRESS env var (not from NETWORKS which may still have placeholders at test time). The test should construct a partial NetworkConfig by spreading NETWORKS['eip155:5042002'] and overriding the two address fields with env var values."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 10,
+      "issue": "The implementation hint 'For the `paused` branch, the cleanest approach: use vitest/chai's `await new Promise(r => setTimeout(r, 5500))` after `factory.pause()`' is concrete and prescriptive enough to be considered pseudocode for the solution. The hint tells the implementer exactly what line of code to write, rather than pointing to a pattern or trade-off.",
+      "fix": "Reframe as a pointer: 'If no cache invalidator is exposed, the test must wait for the cache TTL to expire (5s) before asserting. A vitest/mocha timer or a real setTimeout are both viable; whichever you use, set a test timeout above 10s to avoid CI failures.' Leave the exact code shape to the implementer."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "The README onboarding section instructs 'the developer EOA must hold a tiny USDC balance from step 1 to pay gas for register() (Arc Testnet pays gas in USDC)'. This is correct per the tech-spec Arc USDC / gas model. However, the faucet link is to `faucet.circle.com` with the instruction to 'claim test USDC to the developer EOA'. The faucet at Circle's public URL may not have an Arc Testnet option (Circle has not launched Arc Mainnet as of 2026-06). The correct faucet for Arc Testnet USDC should be verified (e.g., the Arc Network's own testnet faucet or a wrapped USDC deployment by the project). If the link is wrong, step 1 of the onboarding breaks.",
+      "fix": "Verify the correct faucet URL for Arc Testnet USDC before writing the README. If Circle's faucet does not support Arc Testnet, use the Arc Network's own faucet URL and update the README instruction accordingly. Add a placeholder note in the task: '[Verify Arc Testnet USDC faucet URL before committing README]'."
+    },
+    {
+      "severity": "minor",
+      "category": "tdd",
+      "task": 11,
+      "issue": "TDD anchor test `register_handles_already_registered` asserts 'second invocation with the same key prints a typed already registered message and the existing vault address'. The AlreadyRegistered scenario is an on-chain revert — the CLI must decode the custom error from the revert data. The test description says 'print a friendly message', but the implementation guidance only says 'exit non-zero, print a typed message'. There is ambiguity about whether already-registered should exit 0 (idempotent success) or non-zero (error). The test anchor says 'already registered' should print the existing vault address and exit — but the exit code is unspecified for this case.",
+      "fix": "Clarify the expected exit code for AlreadyRegistered: exit 0 with a human-friendly message 'Already registered. Vault: 0x...' (since the state the developer wants already exists) is more developer-friendly than exit non-zero. Update the TDD anchor to specify the exit code explicitly."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "Task 12 is an analysis-only task that reads all in-scope files and writes audit-code.md. The scope includes `contracts/scripts/verify-usdc-eip3009.ts` (the Wave 1 spike from Task 3) and `contracts/deploy/01_deploy_factory.ts` (Task 11). Both are tooling scripts, not production code. Including these in the same audit pass as core middleware modules adds noise — the quality bar for a one-off spike script differs from a production module. The audit scope does not distinguish the two.",
+      "fix": "Add a note in the audit scope clarifying that verify-usdc-eip3009.ts is a one-off spike (Wave 1) and should be audited only for: (a) no secrets hardcoded, (b) no production-unsafe patterns that might get copy-pasted. Different severity calibration applies. This helps the auditor allocate effort proportionally."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 47,
+    "issues_found": 13
+  }
+}
