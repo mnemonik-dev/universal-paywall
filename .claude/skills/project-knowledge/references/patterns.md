@@ -48,7 +48,11 @@ _Filled during development as rules are implemented._
 ## Smart Contract Rules
 
 - Platform fee is **configurable** via `setFee(bps)` — owner-only, default 50 bps (0.5%), hard cap 1000 bps (10%)
-- Only USDC in MVP — contract validates token address per network
-- Developer wallet registered onchain via `register(wallet)` on PaymentSplitter contract
-- Replay protection via `usedTxSigs` mapping in contract (not middleware-level)
-- EIP-2612 Permit used for single-transaction payments (no separate approve step)
+- Only USDC in MVP — contract is constructed with the network's USDC address (immutable per deployment)
+- Developer wallet registered onchain via `register(wallet)` on PaymentSplitter; registration is open (anyone can register any address — registration is opt-in, not authentication), withdrawal is `msg.sender`-gated
+- **EIP-3009 `transferWithAuthorization`** is the on-chain primitive (matches x402 standard, supported natively by Circle USDC). EIP-2612 permit is **not** used.
+- Replay protection has two layers:
+  - On-chain: USDC's own `authorizationState[from][nonce]` mapping (built into EIP-3009)
+  - API-level: middleware maintains an in-memory consumed-nonce store with TTL eviction (nonce expires when `validBefore` passes)
+- Contract uses `Pausable` + `ReentrancyGuard` (OpenZeppelin). When paused: `payWithAuthorization` blocked, `withdraw` allowed (users not locked out).
+- Wallet rotation / unregister is **not supported** in MVP — if the registered wallet is compromised, accumulated balance is lost. Post-MVP feature.

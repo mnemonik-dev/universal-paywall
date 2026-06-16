@@ -1,66 +1,106 @@
 @startuml contract-architecture
-title PaymentSplitter Contract — Architecture
+title PaymentSplitter Contract — Architecture (EIP-3009 wrapper)
 
 skinparam backgroundColor #FAFAFA
 skinparam classBackgroundColor #E8F5E9
 skinparam classBorderColor #4CAF50
 
-class PaymentSplitter {
+class PaymentSplitter <<Ownable, Pausable, ReentrancyGuard>> {
   -- Storage --
   + owner: address
-  + platformFee: uint256  // basis points, e.g. 50 = 0.5%
+  + paused: bool
+  + feeBps: uint16          // 0..1000, default 50
   + developers: mapping(address => Developer)
-  + usedTxSigs: mapping(bytes32 => bool)
-  + usdcToken: IERC20
+  + platformBalance: uint256
+  + usdc: IERC20  (immutable)
 
   -- Developer Registry --
-  + register(wallet: address): void
-  + isRegistered(wallet: address): bool
-
-  -- Payment --
-  + pay(developerId: address, amount: uint256, txSig: bytes32): void
+  + register(wallet: address): void         // idempotent, open
   + getBalance(developer: address): uint256
 
+  -- Payment (settle entry point) --
+  + payWithAuthorization(
+      developerId: address,
+      value: uint256,
+      validAfter: uint256,
+      validBefore: uint256,
+      nonce: bytes32,
+      v: uint8, r: bytes32, s: bytes32
+    ): void
+    // 1) Pausable: when not paused
+    // 2) require developers[developerId].registered
+    // 3) IERC3009(usdc).transferWithAuthorization(
+    //      msg.sender? NO — `from` is recovered inside USDC from sig
+    //      authorization.from, splitter, value, validAfter, validBefore, nonce, v, r, s
+    //    )
+    // 4) fee = value * feeBps / 10000
+    // 5) developers[developerId].balance += value - fee
+    // 6) platformBalance += fee
+    // 7) emit PaymentReceived(developerId, from, value, fee)
+
   -- Withdrawal --
-  + withdraw(amount: uint256): void
+  + withdraw(amount: uint256): void          // nonReentrant, msg.sender-gated
   + withdrawAll(): void
 
   -- Admin --
-  + setFee(bps: uint256): void  // owner only
-  + withdrawPlatformFees(): void // owner only
+  + setFee(bps: uint16): void               // owner-only, require bps <= 1000
+  + withdrawPlatformFees(to: address): void  // owner-only
+  + pause(): void                            // owner-only
+  + unpause(): void                          // owner-only
 }
 
-class Developer {
-  + wallet: address
+class Developer <<struct>> {
+  + registered: bool
   + balance: uint256
-  + registeredAt: uint256
-  + totalReceived: uint256
+  + registeredAt: uint64
 }
 
-class "Middleware\n(off-chain)" as MW {
-  + withPaywall(handler, opts): Handler
-  -- opts --
-  + price: string     // "$0.01"
+interface IERC3009 {
+  + transferWithAuthorization(
+      from, to, value, validAfter, validBefore, nonce, v, r, s
+    )
+  + authorizationState(from, nonce): bool
+}
+
+class "Middleware\n(off-chain facilitator)" as MW {
+  + withPaywall(handler, config): Handler
+  + fastifyPaywall(config): FastifyPlugin
+  -- config --
+  + price: string  ("0.01")
   + developerId: address
-  + network: string   // "arc-mainnet" | "arc-testnet"
+  + network: "arc-testnet" | "arc-mainnet"
+  + facilitator: {
+      mode: "inline",
+      relayerKey: 0x...,
+      rpcUrl?: string
+    }
 }
 
 class "AI Agent\n(buyer)" as Agent {
-  + GatewayClient or own x402 impl
-  + USDC balance on Arc
+  + Any x402 v1 client
+    (CDP SDK / Circle SDK / hand-rolled)
+  + Signs EIP-712 TransferWithAuthorization
+    off-chain (no gas)
+  + USDC balance on Arc Testnet
 }
 
-Agent --> PaymentSplitter : pay(developerId, amount, txSig)
-PaymentSplitter --> Developer : credit balance\n(amount - platformFee%)
-MW ..> PaymentSplitter : verify tx onchain
-MW ..> Agent : 402 with payment requirements
-Agent ..> MW : retry with X-Payment header
+Agent ..> MW : 1) GET (no header)
+MW ..> Agent : 2) 402 + JSON body\n   (PaymentRequirements)
+Agent ..> MW : 3) GET + X-PAYMENT\n   (signed authorization)
+MW ..> MW : 4) verify EIP-712 off-chain\n   check NonceStore (TTL)
+MW --> PaymentSplitter : 5) payWithAuthorization(...)\n   (relayer pays gas in USDC)
+PaymentSplitter --> IERC3009 : 6) transferWithAuthorization\n   (settles, sets authorizationState)
+IERC3009 --> PaymentSplitter : USDC arrived
+PaymentSplitter --> Developer : credit (value - fee)
+MW ..> Agent : 7) 200 + X-PAYMENT-RESPONSE
 
 note bottom of PaymentSplitter
-  Deployed once by platform.
+  Deployed ONCE by platform on Arc Testnet.
   All developers share one contract.
-  Platform fee changeable by owner only.
-  Replay protection via usedTxSigs mapping.
+  Platform fee changeable by owner only (≤10%).
+  Pausable: blocks payments, allows withdrawals.
+  Replay protection: USDC.authorizationState on-chain;
+  middleware NonceStore at API level.
 end note
 
 @enduml

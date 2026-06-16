@@ -16,3 +16,4 @@ target/
 artifacts/
 cache/
 typechain-types/
+.fastembed_cache/

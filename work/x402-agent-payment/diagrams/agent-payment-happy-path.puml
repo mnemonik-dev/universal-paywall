@@ -1,5 +1,5 @@
 @startuml agent-payment-happy-path
-title x402 Agent Payment — Happy Path
+title x402 Agent Payment — Happy Path (Standard x402 v1 + EIP-3009 + Self-Hosted Facilitator)
 
 skinparam sequenceMessageAlign center
 skinparam backgroundColor #FAFAFA
@@ -7,39 +7,45 @@ skinparam participantBackgroundColor #E8F4FD
 skinparam participantBorderColor #2196F3
 
 actor "AI Agent" as Agent
-participant "Developer Service\n(withPaywall middleware)" as Service
-participant "PaymentSplitter\nContract (Arc)" as Contract
-participant "Arc Network" as Arc
+participant "Developer Service\n(withPaywall middleware\n+ inline facilitator)" as Service
+participant "PaymentSplitter\nContract (Arc Testnet)" as Splitter
+participant "USDC\n(0x3600...0000)" as USDC
+participant "Arc Testnet RPC" as Arc
 
-== Step 1: Initial Request ==
+== Step 1: Discover ==
 Agent -> Service : GET /api/data\n(no payment)
 
-Service -> Agent : HTTP 402 Payment Required\nPAYMENT-REQUIRED: base64({\n  asset: "USDC",\n  network: "arc-mainnet",\n  amount: "10000",  // micro-USDC\n  payTo: "0xPaymentSplitter...",\n  developerId: "0xDev..."\n})
+Service -> Agent : HTTP 402 application/json\nBody: {\n  "x402Version": 1,\n  "accepts": [{\n    "scheme": "exact",\n    "network": "arc-testnet",\n    "maxAmountRequired": "10000",\n    "resource": "...",\n    "payTo": "0xSplitter...",\n    "asset": "0x3600...0000",\n    "extra": {\n      "assetTransferMethod": "eip3009",\n      "name": "USDC",\n      "version": "2"\n    }, ...\n  }]\n}
 
-== Step 2: Agent Signs & Pays ==
-Agent -> Agent : Decode payment requirements\nSign USDC authorization\n(via GatewayClient or own impl)
+== Step 2: Agent signs (off-chain, no gas) ==
+Agent -> Agent : Build EIP-712 typed-data:\n  domain  = {name:"USDC", version:"2",\n             chainId:5042002,\n             verifyingContract:0x3600...}\n  message = {\n    from: agent,\n    to: splitter,\n    value: 10000,\n    validAfter: 0,\n    validBefore: now+60,\n    nonce: random32bytes\n  }\nSign with agent wallet → 65-byte sig
 
-Agent -> Arc : Submit USDC tx\n→ PaymentSplitter contract\nwith (amount, developerId)
+== Step 3: Retry with X-PAYMENT ==
+Agent -> Service : GET /api/data\nX-PAYMENT: base64(JSON({\n  "x402Version": 1,\n  "scheme": "exact",\n  "network": "arc-testnet",\n  "payload": {\n    "signature": "0x...",\n    "authorization": {from,to,value,\n                       validAfter,validBefore,nonce},\n    "developerId": "0xDev..."\n  }\n}))
 
-Arc -> Contract : Execute payment
-Contract -> Contract : Verify amount >= required\nCheck nonce (replay protection)\nCredit developer balance\nDeduct platform fee
+== Step 4: Off-chain verify (facilitator) ==
+Service -> Service : 1. Decode X-PAYMENT\n2. EIP-712 ecrecover\n   (recovered == authorization.from)\n3. Check to == splitterAddress\n4. Check value >= maxAmountRequired\n5. Check validBefore > now + 5s\n6. Check network match\n7. Check NonceStore.has({from,nonce}) == false; insert
 
-Contract -> Arc : Emit PaymentReceived event\n(txSig, developerId, amount, fee)
+== Step 5: On-chain settle (facilitator pays gas in USDC) ==
+Service -> Splitter : payWithAuthorization(\n  developerId, value, validAfter,\n  validBefore, nonce, v, r, s\n)\nrelayer signs tx
 
-== Step 3: Retry with Payment ==
-Agent -> Service : GET /api/data\nX-Payment: base64({\n  tx_sig: "0xABC...",\n  network: "arc-mainnet"\n})
+Splitter -> USDC : transferWithAuthorization(\n  from=agent, to=splitter,\n  value, validAfter,\n  validBefore, nonce, v, r, s\n)
+USDC -> USDC : ecrecover, check\nauthorizationState[from][nonce] == false\nset authorizationState[from][nonce] = true\ntransfer USDC: agent → splitter
+USDC --> Splitter : ok
 
-== Step 4: Middleware Verifies ==
-Service -> Arc : Verify tx_sig on Arc RPC\nCheck: tx exists in contract\nCheck: amount >= required\nCheck: developerId matches
+Splitter -> Splitter : developers[developerId].balance\n  += value - platformFee\nplatformBalance += platformFee\nemit PaymentReceived(...)
 
-Arc -> Service : ✅ Transaction confirmed
+Splitter --> Service : tx hash
+Service -> Arc : getTransactionReceipt(tx)
+Arc --> Service : status: success
 
-Service -> Agent : HTTP 200 OK\nPAYMENT-RESPONSE: base64({\n  success: true,\n  tx_sig: "0xABC...",\n  amount: "10000",\n  developer_credited: "9950"\n})\n\n{ ...resource data... }
+== Step 6: 200 OK with X-PAYMENT-RESPONSE ==
+Service -> Agent : HTTP 200 OK\nX-PAYMENT-RESPONSE: base64(JSON({\n  "success": true,\n  "transaction": "0x...",\n  "network": "arc-testnet",\n  "payer": "0xAgent..."\n}))\n\n{ ...resource data... }
 
-== Step 5: Developer Withdraws (async) ==
-note over Contract : Developer balance accumulates\nover many payments
-
-"Developer" -> Contract : withdraw(amount)\n(any time)
-Contract -> "Developer" : Transfer USDC to\nregistered wallet
+== Step 7: Developer withdraws (async) ==
+note over Splitter : Developer balance accumulates\nover many payments
+"Developer" -> Splitter : withdraw(amount)
+Splitter -> USDC : transfer(developer, amount)
+USDC -> "Developer" : USDC arrives
 
 @enduml

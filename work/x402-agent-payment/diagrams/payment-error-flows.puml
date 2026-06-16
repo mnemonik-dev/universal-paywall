@@ -1,49 +1,75 @@
 @startuml payment-error-flows
-title x402 Payment — Error Flows
+title x402 Payment — Error Flows (standard x402 v1)
 
 skinparam sequenceMessageAlign center
 skinparam backgroundColor #FAFAFA
 
 actor "AI Agent" as Agent
-participant "withPaywall\nMiddleware" as MW
-participant "PaymentSplitter\nContract" as Contract
-participant "Arc Network" as Arc
+participant "withPaywall\nMiddleware + Facilitator" as MW
+participant "PaymentSplitter" as Splitter
+participant "USDC" as USDC
 
-== Error 1: Invalid / Missing Payment Header ==
+note across : All errors return HTTP 402 with x402 v1 JSON body:\n  { x402Version: 1, accepts: [...], error: <reason>, ...details }
 
-Agent -> MW : GET /api/data\n(missing X-Payment header)
-MW -> Agent : HTTP 402\n{\n  "error": "payment_required",\n  "required": {\n    "amount": "10000",\n    "asset": "USDC",\n    "network": "arc-mainnet"\n  }\n}
+== Error 1: Missing X-PAYMENT header ==
 
-== Error 2: Transaction Not Found ==
+Agent -> MW : GET /api/data\n(no header)
+MW -> Agent : 402 application/json\n{\n  "x402Version": 1,\n  "accepts": [{scheme,network,...}],\n  "error": "payment_required"  /* optional */\n}
 
-Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xFAKE..." }
-MW -> Arc : Verify tx_sig
-Arc -> MW : ❌ Transaction not found
-MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "tx_not_found",\n  "tx_sig": "0xFAKE..."\n}
+== Error 2: Malformed header / base64 ==
 
-== Error 3: Insufficient Payment Amount ==
+Agent -> MW : GET /api/data\nX-PAYMENT: invalid-base64-blob
+MW -> MW : decodeXPayment throws X402DecodeError
+MW -> Agent : 402 ... "error": "malformed_payment_header"
 
-Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xLOW..." }
-MW -> Arc : Verify tx_sig
-Arc -> MW : ✅ Tx found
-MW -> Contract : Check amount in tx
-Contract -> MW : ❌ Amount 5000 < required 10000
-MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "insufficient_amount",\n  "required": "10000",\n  "received": "5000"\n}
+== Error 3: Invalid signature (EIP-712 mismatch) ==
 
-== Error 4: Replay Attack (same tx used twice) ==
+Agent -> MW : GET /api/data\nX-PAYMENT: base64(...)
+MW -> MW : recoverTypedDataAddress(sig, message)\n  → recovered != authorization.from
+MW -> Agent : 402 ... "error": "invalid_signature"
 
-Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xUSED..." }
-MW -> Arc : Verify tx_sig
-Arc -> MW : ✅ Tx found
-MW -> Contract : Check nonce/tx not reused
-Contract -> MW : ❌ tx_sig already consumed
-MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "tx_already_used",\n  "tx_sig": "0xUSED..."\n}
+== Error 4: Insufficient amount ==
 
-== Error 5: Developer Not Registered ==
+Agent -> MW : GET /api/data\nX-PAYMENT: { authorization.value = 5000 }
+MW -> MW : 5000 < required 10000
+MW -> Agent : 402 ...\n  "error": "insufficient_amount",\n  "required": "10000",\n  "received": "5000"
 
-Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xOK..." }
-MW -> Contract : Verify developerId registered
-Contract -> MW : ❌ developerId not in registry
-MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "developer_not_registered"\n}
+== Error 5: Expired authorization ==
+
+Agent -> MW : GET /api/data\nX-PAYMENT: { validBefore = now - 1 }
+MW -> MW : validBefore <= now + 5s
+MW -> Agent : 402 ... "error": "authorization_expired"
+
+== Error 6: Replay (same nonce, same agent) ==
+
+Agent -> MW : GET /api/data\nX-PAYMENT: { ...same (from, nonce) as before... }
+MW -> MW : NonceStore.has({from, nonce}) == true
+MW -> Agent : 402 ... "error": "nonce_already_used"
+
+== Error 7: Network mismatch ==
+
+Agent -> MW : GET /api/data\nX-PAYMENT: { network: "arc-mainnet" }\n(config.network = "arc-testnet")
+MW -> MW : payload.network != config.network
+MW -> Agent : 402 ... "error": "network_mismatch"
+
+== Error 8: Developer not registered (contract revert) ==
+
+Agent -> MW : GET /api/data\nX-PAYMENT: { developerId: 0xUnknown }
+MW -> MW : verify passes
+MW -> Splitter : payWithAuthorization(0xUnknown, ...)
+Splitter -> Splitter : !developers[0xUnknown].registered → revert
+Splitter --> MW : revert "developer_not_registered"
+MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "developer_not_registered"
+
+== Error 9: On-chain nonce already used (USDC layer) ==
+
+Agent -> MW : GET /api/data\nX-PAYMENT: { authorization with nonce X }
+MW -> MW : NonceStore miss (e.g. process restart)\nverify passes
+MW -> Splitter : payWithAuthorization(...)
+Splitter -> USDC : transferWithAuthorization(...)
+USDC -> USDC : authorizationState[from][nonce] == true → revert
+USDC --> Splitter : revert "FiatTokenV2: authorization is used"
+Splitter --> MW : bubble up
+MW -> Agent : 402 ...\n  "error": "settlement_failed",\n  "reason": "authorization_already_used_onchain"
 
 @enduml

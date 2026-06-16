@@ -7,9 +7,9 @@
 | **Middleware (npm)** | TypeScript | Matches JS ecosystem where most API servers live; compatible with arc-nanopayments patterns |
 | **Backend API** | Node.js + Fastify | TypeScript-native, fast, minimal boilerplate for REST + webhook handlers |
 | **Frontend dashboard** | Next.js | SSR + API routes in one project; fast to build admin UI |
-| **Smart contract** | Solidity + Hardhat | Base = EVM; standard toolchain; OpenZeppelin PaymentSplitter as foundation |
+| **Smart contract** | Solidity 0.8.20+ + Hardhat | EVM-compatible; OpenZeppelin Ownable/Pausable/ReentrancyGuard as base; custom PaymentSplitter that wraps EIP-3009 `transferWithAuthorization` |
 | **Database** | SQLite | Zero config, single file, sufficient for MVP on one VPS; same pattern as mnemonik monorepo |
-| **x402 SDK** | @circle-fin/x402-batching | Battle-tested in arc-nanopayments, handles x402 protocol details |
+| **x402 protocol** | Standard x402 v1, self-hosted facilitator inline in middleware | Open-source spec; we are a server + facilitator; clients (CDP SDK, Circle SDK, custom) interoperate via wire format. No pinned client SDK. |
 | **Fiat payments** | Stripe Connect | Platform model: auto-split via `application_fee_amount`, Stripe handles KYC/compliance |
 | **Blockchain** | EVM-compatible (chain-agnostic) | Architecture supports any EVM chain; Arc Network is first supported chain (low fees, Circle USDC native). Base, Ethereum mainnet — post-MVP. |
 | **Hosting** | Hetzner VPS | Cost-effective, full control, Docker-based |
@@ -21,52 +21,79 @@
 ```
 universal-paywall/
 ├── packages/
-│   └── middleware/          # npm package: @universal-paywall/middleware
+│   └── middleware/                  # npm package: @universal-paywall/middleware
 │       ├── src/
-│       │   ├── index.ts     # withPaywall() export
-│       │   ├── x402.ts      # x402 detection + payment verification
-│       │   └── human.ts     # redirect to hosted checkout
+│       │   ├── index.ts             # public exports
+│       │   ├── core.ts              # framework-agnostic paywall(req, opts)
+│       │   ├── adapters/
+│       │   │   ├── node-http.ts     # withPaywall(handler) for Node http
+│       │   │   └── fastify.ts       # fastifyPaywall(handler) for Fastify
+│       │   ├── x402.ts              # 402 body builder + X-PAYMENT/X-PAYMENT-RESPONSE codec
+│       │   ├── verify.ts            # off-chain EIP-712 ecrecover via viem
+│       │   ├── settle.ts            # on-chain settle via splitter.payWithAuthorization
+│       │   ├── replay-store.ts      # in-memory consumed-nonce set with TTL
+│       │   ├── networks.ts          # NETWORKS map (chainId, rpcUrl, usdcAddress, splitterAddress)
+│       │   ├── errors.ts            # structured x402 error response builders
+│       │   └── types.ts             # PaymentRequirements, PaymentPayload exports
+│       ├── test/
 │       └── package.json
 ├── apps/
-│   ├── api/                 # Fastify backend
+│   ├── api/                         # Fastify backend
 │   │   ├── src/
 │   │   │   ├── routes/
-│   │   │   │   ├── auth.ts       # OAuth, onboarding
-│   │   │   │   ├── checkout.ts   # hosted checkout + Stripe session
-│   │   │   │   ├── webhooks.ts   # Stripe + Base event handlers
-│   │   │   │   └── dashboard.ts  # transaction data for UI
+│   │   │   │   ├── auth.ts          # OAuth, onboarding
+│   │   │   │   ├── checkout.ts      # hosted checkout + Stripe session
+│   │   │   │   ├── webhooks.ts      # Stripe + on-chain event handlers
+│   │   │   │   └── dashboard.ts     # transaction data for UI
 │   │   │   ├── db/
-│   │   │   │   └── sqlite.ts     # SQLite client + migrations
+│   │   │   │   └── sqlite.ts        # SQLite client + migrations
 │   │   │   └── payment/
-│   │   │       ├── x402.ts       # verify x402 payment against Base
-│   │   │       └── stripe.ts     # Stripe Connect helpers
+│   │   │       ├── x402.ts          # x402 facilitator helpers shared with middleware
+│   │   │       └── stripe.ts        # Stripe Connect helpers
 │   │   └── package.json
-│   └── dashboard/           # Next.js developer dashboard
+│   └── dashboard/                   # Next.js developer dashboard
 │       ├── app/
 │       └── package.json
-├── contracts/               # Solidity smart contracts
-│   ├── PaymentSplitter.sol  # Auto-splits platform fee + developer payout
+├── contracts/                       # Solidity smart contracts
+│   ├── contracts/
+│   │   ├── PaymentSplitter.sol      # payWithAuthorization + per-developer ledger
+│   │   └── interfaces/
+│   │       └── IPaymentSplitter.sol
+│   ├── test/
+│   │   └── PaymentSplitter.test.ts
+│   ├── deploy/
+│   │   └── 01_deploy_splitter.ts
 │   ├── hardhat.config.ts
-│   └── deploy/
+│   └── package.json
+├── scripts/
+│   └── register.ts                  # CLI: register developer wallet on splitter
 ├── docker-compose.yml
-└── package.json             # workspace root (npm workspaces)
+└── package.json                     # workspace root (npm workspaces)
 ```
 
 ## Payment Flows
 
 ### AI Agent (x402)
 
+Standard x402 protocol with EIP-3009 `transferWithAuthorization`. Middleware acts as a self-hosted x402 facilitator (verifies signature off-chain, settles on-chain, pays gas from a relayer wallet).
+
 ```
 Agent sends request (no payment)
-  → Endpoint returns HTTP 402 + payment requirements
-    (asset: USDC, network: Base, payTo: PaymentSplitter contract)
-  → Agent signs USDC authorization via GatewayClient
-  → Agent retries request with X-Payment header
-  → Middleware verifies tx on Base RPC
-  → PaymentSplitter contract auto-splits:
-      0.5% → platform wallet
-      99.5% → developer wallet
-  → 200 OK, resource delivered
+  → Endpoint returns HTTP 402 with JSON body { x402Version, accepts: [PaymentRequirements] }
+    (scheme: "exact", network: "arc-testnet",
+     asset: USDC system address, payTo: PaymentSplitter contract,
+     extra: { assetTransferMethod: "eip3009", name: "USDC", version: "2" })
+  → Agent signs EIP-3009 authorization off-chain (no gas, no broadcast):
+      { from: agent, to: splitter, value, validAfter, validBefore, nonce }
+  → Agent retries request with X-PAYMENT: base64(JSON({x402Version, scheme, network, payload}))
+  → Middleware verifies signature off-chain (EIP-712 ecrecover)
+  → Middleware (as facilitator) calls splitter.payWithAuthorization(developerId, v, r, s, ...)
+    on Arc Testnet, paying gas
+  → PaymentSplitter calls USDC.transferWithAuthorization to pull funds,
+    then auto-splits:
+      0.5% → platformBalance
+      99.5% → developers[developerId].balance
+  → 200 OK, X-PAYMENT-RESPONSE: base64({success, transaction, network, payer})
 ```
 
 ### Human User (Stripe)
@@ -91,7 +118,7 @@ CREATE TABLE developers (
   id            TEXT PRIMARY KEY,  -- UUID
   email         TEXT UNIQUE NOT NULL,
   stripe_account_id TEXT,          -- Stripe Connect account ID
-  base_wallet   TEXT,              -- Base chain wallet address
+  evm_wallet    TEXT,              -- EVM wallet address (Arc / Base / ... — chain-agnostic)
   created_at    TEXT NOT NULL
 );
 
@@ -102,14 +129,14 @@ CREATE TABLE api_keys (
   revoked_at    TEXT               -- NULL = active
 );
 
--- Transaction log (populated from Stripe webhooks + Base events)
+-- Transaction log (populated from Stripe webhooks + on-chain events)
 CREATE TABLE transactions (
   id            TEXT PRIMARY KEY,
   developer_id  TEXT NOT NULL REFERENCES developers(id),
   payer_type    TEXT NOT NULL,     -- 'agent' | 'human'
   amount_usd    REAL NOT NULL,
   platform_fee  REAL NOT NULL,     -- 0.5% taken
-  chain         TEXT,              -- 'base' | 'stripe'
+  chain         TEXT,              -- 'arc-testnet' | 'arc-mainnet' | 'stripe' | ...
   tx_hash       TEXT,              -- on-chain tx or Stripe payment_intent id
   created_at    TEXT NOT NULL
 );
@@ -120,15 +147,15 @@ CREATE TABLE transactions (
 | Service | Purpose |
 |---|---|
 | **Stripe Connect** | Fiat payment processing + automatic platform fee split |
-| **Arc RPC** (Arc Network) | Verify x402 USDC transactions on Arc (first chain); viem PublicClient, swappable per network config |
-| **Circle @circle-fin/x402-batching** | x402 protocol client for agent payments |
+| **Arc RPC** (Arc Network Testnet) | Submit `transferWithAuthorization` settle transactions and read receipts; viem PublicClient + WalletClient (relayer signer), swappable per network config |
+| **Standard x402 protocol** | Self-hosted facilitator in middleware. Compatible with any x402 v1 client (CDP SDK, Circle SDK, custom). Custom agent SDK not bundled with this repo. |
 | **Google/GitHub OAuth** | Developer authentication |
 
 ## Key Dependencies
 
-- `@circle-fin/x402-batching` — x402 protocol (server + client)
-- `viem` — Base chain interaction (read tx, verify transfers)
+- `viem` — EVM chain interaction (RPC, EIP-712 typed-data ecrecover, contract calls, relayer signing). Chain-agnostic.
 - `stripe` — Stripe Connect API
 - `better-sqlite3` — SQLite driver (sync, fast)
-- `@openzeppelin/contracts` — PaymentSplitter base contract
+- `@openzeppelin/contracts` — `Ownable`, `Pausable`, `ReentrancyGuard`, `IERC20` base
 - `hardhat` — contract compilation + deployment
+- No prebuilt x402 client SDK pinned — we are protocol-compatible, clients use their own (CDP `x402` package, Circle SDK, or hand-rolled)

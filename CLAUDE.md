@@ -1,6 +1,6 @@
 # Universal Paywall
 
-Open-core paywall for HTTP services. Handles payments from AI agents (x402 on Base) and human users (Stripe Connect). Service owners get paid from both.
+Open-core paywall for HTTP services. Handles payments from AI agents (x402 on Arc Network — Testnet for MVP; chain-agnostic design) and human users (Stripe Connect). Service owners get paid from both.
 
 ## Project Structure
 
@@ -8,7 +8,7 @@ Open-core paywall for HTTP services. Handles payments from AI agents (x402 on Ba
 packages/middleware/   # @universal-paywall/middleware — npm package
 apps/api/              # Fastify backend (onboarding, checkout, webhooks, dashboard API)
 apps/dashboard/        # Next.js developer dashboard
-contracts/             # Solidity PaymentSplitter (Base)
+contracts/             # Solidity PaymentSplitter (Arc Network)
 ```
 
 ## Key Commands
@@ -26,8 +26,8 @@ npm run dev --workspace=apps/dashboard
 # Run contract tests
 cd contracts && npx hardhat test
 
-# Deploy contracts (Base Sepolia staging)
-cd contracts && npx hardhat run deploy/PaymentSplitter.ts --network baseSepolia
+# Deploy contracts (Arc Testnet staging)
+cd contracts && npx hardhat run deploy/01_deploy_splitter.ts --network arcTestnet
 ```
 
 ## Project Knowledge

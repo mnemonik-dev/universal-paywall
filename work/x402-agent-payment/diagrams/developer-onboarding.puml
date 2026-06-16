@@ -1,5 +1,5 @@
 @startuml developer-onboarding
-title Developer Onboarding — Register in PaymentSplitter
+title Developer Onboarding — Register + Run Middleware (Arc Testnet)
 
 skinparam sequenceMessageAlign center
 skinparam backgroundColor #FAFAFA
@@ -7,33 +7,43 @@ skinparam participantBackgroundColor #FFF3E0
 skinparam participantBorderColor #FF9800
 
 actor "Developer" as Dev
-participant "PaymentSplitter\nContract (Arc)" as Contract
-participant "Arc Network" as Arc
-participant "Developer Service\n(withPaywall)" as Service
+participant "Circle Faucet\n(faucet.circle.com)" as Faucet
+participant "register CLI\n(scripts/register.ts)" as CLI
+participant "PaymentSplitter\nContract (Arc Testnet)" as Splitter
+participant "Developer Service\n(withPaywall middleware)" as Service
 
-== One-Time Setup ==
+== Step 1: Get test USDC ==
+Dev -> Faucet : Request 1 USDC on Arc Testnet
+Faucet -> Dev : USDC arrives at developer wallet\n(also pays Arc gas — USDC is native gas token)
 
-Dev -> Arc : Call register(walletAddress)\non PaymentSplitter contract
+== Step 2: Register wallet ==
+Dev -> CLI : npx universal-paywall register \\\n  --wallet 0xDev... \\\n  --network arc-testnet
+note over CLI : REGISTER_KEY env var holds\nthe developer's private key
+CLI -> Splitter : register(0xDev...)
+Splitter -> Splitter : developers[0xDev].registered = true\nemit DeveloperRegistered(0xDev)
+Splitter --> CLI : tx hash
+CLI -> Dev : ✅ Registered (link to arcscan)
 
-Arc -> Contract : Execute register()
-Contract -> Contract : Store: developer[walletAddress] = {\n  registered: true,\n  balance: 0\n}
-Contract -> Dev : ✅ Registration confirmed\n(tx hash)
+== Step 3: Install + configure middleware ==
+Dev -> Service : npm install @universal-paywall/middleware
 
-== Middleware Integration ==
+Dev -> Service : Server code:\n\nimport { withPaywall } from\n  '@universal-paywall/middleware';\n\nconst server = http.createServer(\n  withPaywall(myHandler, {\n    price: '0.01',\n    developerId: '0xDev...',\n    network: 'arc-testnet',\n    facilitator: {\n      mode: 'inline',\n      relayerKey: process.env.PAYWALL_RELAYER_KEY\n    }\n  })\n);
 
-Dev -> Service : Install @universal-paywall/middleware\n\nnpm install @universal-paywall/middleware
+note over Service
+  Contract address baked into the
+  middleware package per NETWORKS map.
+  Relayer key funds Arc gas — needs USDC.
+  Can be the developer's own key for
+  open-source self-hosting (relayer == developer).
+end note
 
-Dev -> Service : Configure:\n\nwithPaywall(handler, {\n  price: '0.01',        // USD\n  developerId: '0xDev...', // registered wallet\n  network: 'arc-mainnet'   // optional, default\n})
+== Step 4: Balance check & withdrawal ==
 
-note over Service : Contract address for arc-mainnet\nbaked into middleware package.\nNo API key needed.
+Dev -> Splitter : getBalance(0xDev)
+Splitter -> Dev : balance (micro-USDC)
 
-== Balance Check & Withdrawal ==
-
-Dev -> Contract : getBalance(walletAddress)
-Contract -> Dev : { balance: "50000000" } // micro-USDC
-
-Dev -> Contract : withdraw(amount)
-Contract -> Contract : Verify caller == registered wallet\nCheck balance >= amount
-Contract -> Dev : Transfer USDC → wallet
+Dev -> Splitter : withdraw(amount) \\\n  (signed from 0xDev)
+Splitter -> Splitter : require msg.sender == 0xDev\nrequire balance >= amount\nbalance -= amount
+Splitter -> Dev : USDC transfer → 0xDev
 
 @enduml
