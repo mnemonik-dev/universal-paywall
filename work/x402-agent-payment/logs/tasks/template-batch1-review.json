@@ -1,41 +1,61 @@
 {
   "validator": "task-validator",
-  "iteration": 2,
   "batch": [1, 2, 3, 4, 5],
   "status": "changes_required",
+  "round_2_resolution": {
+    "T2_absolute_paths_in_reviewers": "resolved — reviewer paths in T2 are now repo-relative (work/x402-agent-payment/logs/working/task-2/...)",
+    "T4_constructor_signature_3_args": "resolved — T4 constructor explicitly declared as 3-arg (IERC20 _usdc, address _platformTreasury, uint16 _initialFeeBps); vaultImpl created inside constructor; feeBps is uint16 throughout",
+    "T5_reentrancy_test_infeasible": "resolved — dynamic re-entry test for register() dropped; replaced by structural source-pattern (CEI) check per addendum §15; documented in test comment and AC",
+    "T5_viem_in_contracts": "resolved — T2 adds viem to contracts/devDependencies (Details + Dependencies sections); T5 uses viem.getContractAddress for off-chain CREATE2",
+    "T5_paths_sources_array": "resolved — T5 AC explicitly forbids modifying hardhat.config.ts; states paths.sources stays single string; cites addendum §14"
+  },
   "findings": [
     {
+      "severity": "critical",
+      "category": "decomposition",
+      "task": 5,
+      "section": "Details (Hardhat config — single paths.sources)",
+      "issue": "T5 Details retains a Fallback path that permits placing mocks under contracts/contracts/mocks/test/ instead of contracts/test/mocks/. This directly contradicts the binding decision in iteration-3 addendum §14 (mocks live in contracts/test/mocks/) and creates ambiguity about the canonical mock location. The 'Canonical' bullet itself admits the compile pathway is unresolved ('Конкретный путь определяется при имплементации test-файла') — no concrete, working compile strategy is supplied, meaning the implementer is left to invent one or fall back to the namespace violation.",
+      "fix": "Remove the Fallback bullet entirely. Pick exactly one compile strategy for mocks in contracts/test/mocks/*.sol and document it concretely: either (a) instruct T2 to add a second compile path via solidity.overrides or a programmatic hre.run('compile') in the test bootstrap, or (b) accept the addendum §14 NatSpec-tagged @custom:test-only approach with mocks under contracts/contracts/mocks/ (Task 4 namespace) and explicitly mark them test-only in NatSpec. Either way, AC must lock down the exact path so the implementer cannot diverge."
+    },
+    {
       "severity": "major",
-      "category": "structure",
-      "task": 2,
-      "section": "Reviewers",
-      "issue": "Reviewer report paths are absolute (`/Users/syi/src/universal-paywall/work/...`) instead of repo-relative. Round-1 systemic finding (path-format inconsistency in Reviewers) NOT resolved for T2 — T1, T3, T4, T5 all use repo-relative `work/x402-agent-payment/logs/working/...` form.",
-      "fix": "Replace the three reviewer lines in tasks/2.md (lines 127-129) with repo-relative form: `work/x402-agent-payment/logs/working/task-2/{reviewer}-{round}.json`."
+      "category": "consistency",
+      "task": 3,
+      "section": "Acceptance Criteria + Smoke",
+      "issue": "Inconsistency between the stdout JSON shape declared in 'What to do' step 2 ({name, version, decimals, supportsEip3009, sampleGasCost, gasCostExceedsThreshold, notes?}) and the artifact JSON shape declared in 'What to do' step 3 / AC ({name, version, decimals, supportsEip3009, sampleGasCost, gasCostExceedsThreshold} — no notes). Edge-case bullet on gasPrice null/0n requires surfacing via 'notes' field which then would not be in the artifact, losing operator-relevant diagnostic for Task 6 consumer.",
+      "fix": "Either include 'notes?: string[]' in the artifact JSON shape (preferred — Task 6 wants any dual-decimal surprises persisted), or rename the stdout-only diagnostic field and clarify that artifact is a strict subset. Update AC bullet for the artifact accordingly."
     },
     {
       "severity": "minor",
-      "category": "consistency",
-      "task": 3,
-      "section": "Reviewers / Required Skills",
-      "issue": "T3 reviewers include `test-reviewer`, but the task produces a one-off Hardhat spike script + JSON artifact, not a tested code module. There are no unit tests, no TDD anchor (correctly absent), and no vitest/hardhat-test work product for a test-reviewer to evaluate. The choice is defensible (the script must be code-quality-reviewed) but `test-reviewer` is an odd fit; consider whether `test-reviewer` adds review value here or should be dropped.",
-      "fix": "Either (a) drop `test-reviewer` from frontmatter and Reviewers section if no tests will be written; or (b) add an explicit Acceptance Criterion that the script's JSON-shape assertion logic is itself test-like (e.g., self-check selector assertion is a unit-of-test). No blocking issue — flag for human judgement."
+      "category": "content",
+      "task": 5,
+      "section": "Implementation hints",
+      "issue": "Hint claims 'loadFixture синхронный wrapper (не используем deprecated loadFixtureAsync)'. loadFixture from @nomicfoundation/hardhat-network-helpers is an async function (returns a Promise) — it must be awaited. The hint is technically incorrect and may mislead the implementer.",
+      "fix": "Replace with: 'loadFixture is an async helper — always await it; do not use the deprecated async-named variants.'"
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 5,
+      "section": "Details (Files)",
+      "issue": "Structural reentrancy test reads source via `resolve(__dirname, '../contracts/PaymentSplitterFactory.sol')`. The contracts/test/ directory sits one level under contracts/, and the Solidity file lives at contracts/contracts/PaymentSplitterFactory.sol — relative path from test file is `../contracts/PaymentSplitterFactory.sol` which is correct. However, no mention that __dirname is unavailable in pure ESM test contexts; if Hardhat test files are CJS (per contracts/ package.json type:commonjs from T2) __dirname works, but this assumption should be stated to avoid an iteration-3 §11 style trap.",
+      "fix": "Add a short note: 'contracts/ uses CJS (package.json type:commonjs per T2) so __dirname is available in test files; the ESM __dirname workaround from addendum §11 applies only to middleware tests.'"
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 1,
+      "section": "What to do (step 9 smoke check)",
+      "issue": "Smoke step lists `npm test --workspace=@universal-paywall/middleware` as a required exit-0 command but the test script uses `vitest run --passWithNoTests`. The Details section on edge cases warns that if --passWithNoTests is removed before tests exist 'скрипт временно сломается'. This is fine, but the smoke step does not warn the implementer that they MUST leave --passWithNoTests in until T6 lands. A future copy-paste change could silently fail T1's smoke check.",
+      "fix": "Add an explicit acceptance criterion or a comment in the package.json scripts: '// --passWithNoTests required until T6 adds first vitest test; do not remove.'"
     }
-  ],
-  "resolved_from_round_1": [
-    "T3 wave/deps mismatch — RESOLVED: wave=2, depends_on=[2]",
-    "T1 TDD Anchor section — RESOLVED: section absent",
-    "T3 TDD Anchor section — RESOLVED: section absent",
-    "Path-format inconsistency in Reviewers — RESOLVED for T1, T3, T4, T5; NOT resolved for T2 (see finding above)",
-    "T4 depends_on — RESOLVED: [1, 2] (T3 correctly removed)",
-    "T2 AC binary pass/fail — RESOLVED: every AC item is now a concrete `exit 0` / string-presence / file-existence check",
-    "T4 grep guard regex refinement — RESOLVED: regex `^[[:space:]]*[^/*[:space:]].*\\b(selfdestruct|delegatecall)\\b` correctly skips lines beginning with `/` or `*` so NatSpec `@custom:security-invariant no_selfdestruct no_delegatecall` does not false-trigger; also provides AST-fallback recommendation",
-    "T5 mock placement under contracts/test/mocks/ — RESOLVED: explicit namespace split documented in Description + Files + AC + Verification Steps (sanity ls check)"
   ],
   "stats": {
     "tasks_checked": 5,
-    "issues_found": 2,
-    "critical": 0,
+    "issues_found": 5,
+    "critical": 1,
     "major": 1,
-    "minor": 1
+    "minor": 3
   }
 }
