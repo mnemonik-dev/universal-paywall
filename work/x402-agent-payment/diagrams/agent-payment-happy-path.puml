@@ -1,0 +1,45 @@
+@startuml agent-payment-happy-path
+title x402 Agent Payment — Happy Path
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FAFAFA
+skinparam participantBackgroundColor #E8F4FD
+skinparam participantBorderColor #2196F3
+
+actor "AI Agent" as Agent
+participant "Developer Service\n(withPaywall middleware)" as Service
+participant "PaymentSplitter\nContract (Arc)" as Contract
+participant "Arc Network" as Arc
+
+== Step 1: Initial Request ==
+Agent -> Service : GET /api/data\n(no payment)
+
+Service -> Agent : HTTP 402 Payment Required\nPAYMENT-REQUIRED: base64({\n  asset: "USDC",\n  network: "arc-mainnet",\n  amount: "10000",  // micro-USDC\n  payTo: "0xPaymentSplitter...",\n  developerId: "0xDev..."\n})
+
+== Step 2: Agent Signs & Pays ==
+Agent -> Agent : Decode payment requirements\nSign USDC authorization\n(via GatewayClient or own impl)
+
+Agent -> Arc : Submit USDC tx\n→ PaymentSplitter contract\nwith (amount, developerId)
+
+Arc -> Contract : Execute payment
+Contract -> Contract : Verify amount >= required\nCheck nonce (replay protection)\nCredit developer balance\nDeduct platform fee
+
+Contract -> Arc : Emit PaymentReceived event\n(txSig, developerId, amount, fee)
+
+== Step 3: Retry with Payment ==
+Agent -> Service : GET /api/data\nX-Payment: base64({\n  tx_sig: "0xABC...",\n  network: "arc-mainnet"\n})
+
+== Step 4: Middleware Verifies ==
+Service -> Arc : Verify tx_sig on Arc RPC\nCheck: tx exists in contract\nCheck: amount >= required\nCheck: developerId matches
+
+Arc -> Service : ✅ Transaction confirmed
+
+Service -> Agent : HTTP 200 OK\nPAYMENT-RESPONSE: base64({\n  success: true,\n  tx_sig: "0xABC...",\n  amount: "10000",\n  developer_credited: "9950"\n})\n\n{ ...resource data... }
+
+== Step 5: Developer Withdraws (async) ==
+note over Contract : Developer balance accumulates\nover many payments
+
+"Developer" -> Contract : withdraw(amount)\n(any time)
+Contract -> "Developer" : Transfer USDC to\nregistered wallet
+
+@enduml

@@ -1,0 +1,39 @@
+@startuml developer-onboarding
+title Developer Onboarding — Register in PaymentSplitter
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FAFAFA
+skinparam participantBackgroundColor #FFF3E0
+skinparam participantBorderColor #FF9800
+
+actor "Developer" as Dev
+participant "PaymentSplitter\nContract (Arc)" as Contract
+participant "Arc Network" as Arc
+participant "Developer Service\n(withPaywall)" as Service
+
+== One-Time Setup ==
+
+Dev -> Arc : Call register(walletAddress)\non PaymentSplitter contract
+
+Arc -> Contract : Execute register()
+Contract -> Contract : Store: developer[walletAddress] = {\n  registered: true,\n  balance: 0\n}
+Contract -> Dev : ✅ Registration confirmed\n(tx hash)
+
+== Middleware Integration ==
+
+Dev -> Service : Install @universal-paywall/middleware\n\nnpm install @universal-paywall/middleware
+
+Dev -> Service : Configure:\n\nwithPaywall(handler, {\n  price: '0.01',        // USD\n  developerId: '0xDev...', // registered wallet\n  network: 'arc-mainnet'   // optional, default\n})
+
+note over Service : Contract address for arc-mainnet\nbaked into middleware package.\nNo API key needed.
+
+== Balance Check & Withdrawal ==
+
+Dev -> Contract : getBalance(walletAddress)
+Contract -> Dev : { balance: "50000000" } // micro-USDC
+
+Dev -> Contract : withdraw(amount)
+Contract -> Contract : Verify caller == registered wallet\nCheck balance >= amount
+Contract -> Dev : Transfer USDC → wallet
+
+@enduml

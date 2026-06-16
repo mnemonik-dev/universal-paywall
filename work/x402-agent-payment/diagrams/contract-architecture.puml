@@ -1,0 +1,66 @@
+@startuml contract-architecture
+title PaymentSplitter Contract — Architecture
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #E8F5E9
+skinparam classBorderColor #4CAF50
+
+class PaymentSplitter {
+  -- Storage --
+  + owner: address
+  + platformFee: uint256  // basis points, e.g. 50 = 0.5%
+  + developers: mapping(address => Developer)
+  + usedTxSigs: mapping(bytes32 => bool)
+  + usdcToken: IERC20
+
+  -- Developer Registry --
+  + register(wallet: address): void
+  + isRegistered(wallet: address): bool
+
+  -- Payment --
+  + pay(developerId: address, amount: uint256, txSig: bytes32): void
+  + getBalance(developer: address): uint256
+
+  -- Withdrawal --
+  + withdraw(amount: uint256): void
+  + withdrawAll(): void
+
+  -- Admin --
+  + setFee(bps: uint256): void  // owner only
+  + withdrawPlatformFees(): void // owner only
+}
+
+class Developer {
+  + wallet: address
+  + balance: uint256
+  + registeredAt: uint256
+  + totalReceived: uint256
+}
+
+class "Middleware\n(off-chain)" as MW {
+  + withPaywall(handler, opts): Handler
+  -- opts --
+  + price: string     // "$0.01"
+  + developerId: address
+  + network: string   // "arc-mainnet" | "arc-testnet"
+}
+
+class "AI Agent\n(buyer)" as Agent {
+  + GatewayClient or own x402 impl
+  + USDC balance on Arc
+}
+
+Agent --> PaymentSplitter : pay(developerId, amount, txSig)
+PaymentSplitter --> Developer : credit balance\n(amount - platformFee%)
+MW ..> PaymentSplitter : verify tx onchain
+MW ..> Agent : 402 with payment requirements
+Agent ..> MW : retry with X-Payment header
+
+note bottom of PaymentSplitter
+  Deployed once by platform.
+  All developers share one contract.
+  Platform fee changeable by owner only.
+  Replay protection via usedTxSigs mapping.
+end note
+
+@enduml

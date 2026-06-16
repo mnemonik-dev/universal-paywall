@@ -1,0 +1,49 @@
+@startuml payment-error-flows
+title x402 Payment — Error Flows
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FAFAFA
+
+actor "AI Agent" as Agent
+participant "withPaywall\nMiddleware" as MW
+participant "PaymentSplitter\nContract" as Contract
+participant "Arc Network" as Arc
+
+== Error 1: Invalid / Missing Payment Header ==
+
+Agent -> MW : GET /api/data\n(missing X-Payment header)
+MW -> Agent : HTTP 402\n{\n  "error": "payment_required",\n  "required": {\n    "amount": "10000",\n    "asset": "USDC",\n    "network": "arc-mainnet"\n  }\n}
+
+== Error 2: Transaction Not Found ==
+
+Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xFAKE..." }
+MW -> Arc : Verify tx_sig
+Arc -> MW : ❌ Transaction not found
+MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "tx_not_found",\n  "tx_sig": "0xFAKE..."\n}
+
+== Error 3: Insufficient Payment Amount ==
+
+Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xLOW..." }
+MW -> Arc : Verify tx_sig
+Arc -> MW : ✅ Tx found
+MW -> Contract : Check amount in tx
+Contract -> MW : ❌ Amount 5000 < required 10000
+MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "insufficient_amount",\n  "required": "10000",\n  "received": "5000"\n}
+
+== Error 4: Replay Attack (same tx used twice) ==
+
+Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xUSED..." }
+MW -> Arc : Verify tx_sig
+Arc -> MW : ✅ Tx found
+MW -> Contract : Check nonce/tx not reused
+Contract -> MW : ❌ tx_sig already consumed
+MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "tx_already_used",\n  "tx_sig": "0xUSED..."\n}
+
+== Error 5: Developer Not Registered ==
+
+Agent -> MW : GET /api/data\nX-Payment: { tx_sig: "0xOK..." }
+MW -> Contract : Verify developerId registered
+Contract -> MW : ❌ developerId not in registry
+MW -> Agent : HTTP 402\n{\n  "error": "payment_failed",\n  "reason": "developer_not_registered"\n}
+
+@enduml
