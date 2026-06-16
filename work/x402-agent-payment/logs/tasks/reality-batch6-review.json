@@ -1,89 +1,72 @@
 {
   "validator": "reality-checker",
   "batch": [16, 17],
+  "iteration": 2,
   "status": "changes_required",
   "findings": [
     {
       "severity": "critical",
-      "category": "missing_file",
-      "task": 17,
-      "issue": "T17 Verification Steps references `node scripts/postdeploy/read-factory.mjs` as if it is a pre-existing file, but neither T16 nor any earlier task creates this script. T17 'Details' section says one-off scripts are written in the scratch directory and not committed, yet the Verification Steps snippet calls it from `scripts/postdeploy/` inside the repo. The file path is invented — it will not exist when the agent executes step 3.",
-      "fix": "Clarify that `read-factory.mjs` is written inline by the agent into the scratch directory during task execution (not as a repo path). Remove the `node scripts/postdeploy/read-factory.mjs` path from Verification Steps and replace it with the scratch-directory invocation pattern described in 'What to do' step 3."
-    },
-    {
-      "severity": "critical",
-      "category": "missing_file",
-      "task": 17,
-      "issue": "T17 step 2 calls `ARC_TESTNET_E2E=1 npm run test:e2e` and assumes `packages/middleware/package.json` has a `test:e2e` script. Task 11 is listed as the creator of `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts`, but no task explicitly adds a `test:e2e` npm script to `packages/middleware/package.json`. Task 15 (Pre-deploy QA) calls the same command, meaning the gap would have surfaced there, but T17 depends on this script being runnable and the dependency chain does not guarantee it was wired.",
-      "fix": "Either Task 10 or Task 11 must explicitly add `\"test:e2e\": \"vitest run --reporter verbose __tests__/integration/arc-testnet-e2e.test.ts\"` (or equivalent) to `packages/middleware/package.json`. T17 should reference the owning task for this script and verify the key exists before running."
+      "category": "hallucination",
+      "task": 16,
+      "section": "Description / What to do / Details / Edge cases",
+      "issue": "Task 16 repeatedly claims the sentinel comments in networks.ts are owned by 'Task 13' (e.g., line 24: 'via Task 13's sentinel comments', line 50: 'per Task 13', line 75: 'from Task 13', line 131: 'Task 13 inserted sentinel comments'). This is wrong. Systemic-fix §13 explicitly states 'T6 creates networks.ts with marker comments' and 'T11's deploy script does sed-style replace on the sentinel-anchored line.' Task 13 is the Security Audit task and does not touch networks.ts. An executor following T16's instructions might block on 'Task 13 must have inserted the sentinels' and be confused when T13 (Security Audit report) does not produce sentinel comments in networks.ts.",
+      "fix": "Replace all occurrences of 'Task 13' when referring to the networks.ts sentinel comment ownership with 'Task 6' (which creates networks.ts with sentinel comments per systemic-fix §13). Also verify line 131 in tasks/16.md: 'Task 13 inserted sentinel comments /* deploy-script:factoryAddress */ / /* deploy-script:vaultImplAddress */ on networks.ts lines' should read 'Task 6 created networks.ts with sentinel comments /* deploy-script:factoryAddress */ / /* deploy-script:vaultImplAddress */ (Task 11 performs the substitution).' "
     },
     {
       "severity": "critical",
       "category": "hallucination",
       "task": 16,
-      "issue": "T16 'What to do' states the deploy script (`01_deploy_factory.ts`) deploys `PaymentSplitterFactory(usdc, treasury, 50 bps)`, but the factory constructor as specified in tech-spec Data Models is `PaymentSplitterFactory(usdc, platformTreasury, vaultImpl, 50)` — the `vaultImpl` address is a constructor argument, not something the factory deploys internally. T11 explicitly says 'Deploy `PaymentVaultImpl` first … Deploy `PaymentSplitterFactory(usdcAddress, treasuryAddress, vaultImpl.address, 50)`'. T16's abbreviated form `factory(usdc, treasury, 50 bps)` omits the `vaultImpl` arg entirely, which would cause a mismatch if the agent follows T16 literally instead of T11.",
-      "fix": "T16 'What to do' should mirror T11's constructor call verbatim: `PaymentSplitterFactory(usdcAddress, platformTreasury, vaultImpl.address, 50)`. The matching `npx hardhat verify` command in T16 should include `vaultImpl.address` as a positional constructor arg."
+      "section": "What to do / Edge cases / Implementation hints",
+      "issue": "Task 16 asserts the PaymentSplitterFactory constructor takes exactly three args: '(IERC20 usdc, address platformTreasury, uint256 feeBps)' and that 'vaultImpl is deployed INSIDE the factory constructor'. However, Task 4 (the authoritative implementation task for the contracts) specifies the constructor as 'Constructor (address _usdc, address _vaultImpl, address _platformTreasury, uint16 _feeBps, address _initialOwner)' — five args, with _vaultImpl as an explicit constructor parameter, and _initialOwner for Ownable2Step. Task 16 also contradicts Task 11 which says 'Deploy PaymentSplitterFactory(usdcAddress, treasuryAddress, vaultImpl.address, 50)' (four args, with vaultImpl as an arg). Additionally, Task 16 uses 'uint256 feeBps' in its hardhat verify command while tech-spec Data Models and Task 4 both say 'uint16 feeBps'. These contradictions make the verify command ('npx hardhat verify --network arcTestnet <factoryAddress> <usdc> <platformTreasury> 50') wrong: it will fail if the actual constructor has 5 args. A wrong hardhat verify command causes verify to fail, which per Task 16's own AC is a hard blocker ('do not publish without verification').",
+      "fix": "Reconcile the factory constructor signature across all tasks. Task 4 is the implementation authority. If T4's constructor is (usdc, vaultImpl, platformTreasury, feeBps, initialOwner), then: (1) Task 16 'What to do' step on hardhat verify must use all 5 args: 'npx hardhat verify --network arcTestnet <factoryAddress> <usdc> <vaultImpl> <platformTreasury> 50 <ownerEoa>'; (2) Task 16 must NOT instruct 'deploy vaultImpl separately then read from factory.vaultImpl()' since if vaultImpl is a constructor arg it IS a separate deploy; (3) 'feeBps' should be typed uint16 consistently. If instead the design is that vaultImpl is deployed INSIDE the constructor (T16's claim), T4 must be updated to remove _vaultImpl from its constructor signature. The conflict must be resolved at its source (T4 and tech-spec Data Models) before T16 can be executed safely."
     },
     {
       "severity": "major",
       "category": "feasibility",
       "task": 16,
-      "issue": "`--provenance` requires npm CLI >= 9.5 AND a GitHub Actions OIDC token for SLSA Level 2 attestation. T16 acknowledges this in Dependencies ('if running locally without OIDC, `--provenance` will fail') but the 'What to do' step unconditionally runs `npm publish ... --provenance` without a pre-flight npm version check or a conditional path for local runs. The Implementation Hints say 'verify version with `npm --version` before publishing', but this is a hint, not a step. If the agent runs this on a local machine (which is the default given no CI environment is set up), the publish will either fail or silently downgrade attestation.",
-      "fix": "Promote the npm version check to a concrete step in 'What to do': if `npm --version` < 9.5 or no OIDC env is detected, surface a clear deviation and either abort or document the downgraded publish in the publish log. The AC 'npm publish ... --provenance succeeded' should be conditioned on the environment."
-    },
-    {
-      "severity": "major",
-      "category": "feasibility",
-      "task": 16,
-      "issue": "`npm publish --workspace=packages/middleware --access=public --tag=alpha --provenance` — the `--workspace` flag targets the entire workspace, which tells npm to publish ALL publishable workspaces matching `packages/middleware`. This is correct IF only one package lives in that path, but the `--workspace` flag on `npm publish` does not accept a glob narrowing to a single package by default in all npm versions. Some versions require `--workspaces` (plural) to publish all, and `--workspace=<name>` to target one. The package name in tech-spec is `@universal-paywall/middleware` — the command should use `--workspace=@universal-paywall/middleware` (by package name, not directory path) or `cd packages/middleware && npm publish ...` to be unambiguous across npm versions.",
-      "fix": "Use `npm publish --workspace=@universal-paywall/middleware --access=public --tag=alpha --provenance` (package name form) or switch to `cd packages/middleware && npm publish --access=public --tag=alpha --provenance`. Verify the exact flag behavior matches the npm version installed in the project."
+      "section": "What to do",
+      "issue": "Task 16 instructs to read the vaultImpl address via 'npx hardhat console --network arcTestnet' then '(await ethers.getContractAt(...)).vaultImpl()'. However, this conflicts with the task's own constructor-args claim: if vaultImpl is created INSIDE the factory constructor with 'new PaymentVaultImpl()' (as T16 claims), the factory contract must expose a 'vaultImpl()' public getter. The tech-spec Data Models shows 'address public immutable vaultImpl' on the factory, so the getter exists in principle. But if the actual T4 implementation takes vaultImpl as a constructor arg (as T4 specifies), then the deploy script must deploy vaultImpl separately first — the current T16 instruction to 'read from factory.vaultImpl() after deploy' would still work in either case. This is a minor feasibility gap conditional on resolving the constructor-sig conflict above, not a standalone critical.",
+      "fix": "After resolving the constructor-sig conflict (finding above), update T16's deploy steps to be consistent with the actual T4/T11 implementation: if vaultImpl is a constructor arg, document the two-step deploy (impl first, then factory with impl address as arg); if vaultImpl is self-deployed inside the factory constructor, document the one-step deploy and confirm T4/T11 match."
     },
     {
       "severity": "major",
       "category": "feasibility",
       "task": 17,
-      "issue": "T17 HTTP smoke step (step 5) says 'Создать `server.js` который импортирует `withPaywall`' and 'Запустить server в фоне' followed by `sleep 1`. The task's Verification Steps code snippet shows `sleep 1` as a hardcoded delay before curling. The `withPaywall`-based server needs to resolve the vault address via `computeVaultAddress(developerEoa)`, which requires a valid non-zero factory address to be in the installed package's `NETWORKS`. If the server startup fails (e.g., factory address is zero because Task 16 did not correctly patch `networks.ts`), the curl will get a connection refused, not HTTP 402, and the error message will be opaque. No health-check or retry is specified — `sleep 1` is brittle.",
-      "fix": "Add a readiness check before curl (e.g., poll with `curl --retry 5 --retry-connrefused --retry-delay 1 ...`) instead of a fixed `sleep 1`. Also note explicitly that the server must be started with a valid non-zero `developerEoa` — document a test EOA to use so the task is self-contained."
+      "section": "Verification Steps / What to do",
+      "issue": "Task 17's bash code snippets reference the variable '$REPO_ROOT' (e.g., 'cp \"$REPO_ROOT/packages/middleware/src/__tests__/fixtures/x402-v1.schema.json\" \"$SCRATCH/...\"') but $REPO_ROOT is never defined anywhere in the task. It is not set in any 'What to do' step, not in a setup block, and not mentioned in Context Files. An executor running the verification steps verbatim will encounter 'cp: /packages/middleware/...: No such file or directory' (empty variable expands to root path).",
+      "fix": "Add a $REPO_ROOT definition at the start of the smoke verification script block, e.g.: 'REPO_ROOT=$(git -C \"$(dirname \"$0\")\" rev-parse --show-toplevel 2>/dev/null || git rev-parse --show-toplevel)' or 'REPO_ROOT=$(pwd)' with a note that it must be run from the repo root. Alternatively, replace '$REPO_ROOT' with a relative path anchored to the working directory (the task already assumes the executor is in the repo root for 'npm run test:e2e')."
     },
     {
-      "severity": "major",
+      "severity": "minor",
       "category": "hints",
       "task": 17,
-      "issue": "T17 Implementation Hints say 'для ajv-валидации x402 wire format взять схему из tech-spec / шарить с тестами Task 7 (там есть Zod-схема для PaymentRequirements; для post-deploy достаточно ajv-конверсии base shape)'. Task 7 is `verify.ts` + `settle.ts` — neither of those modules contains a Zod schema for `PaymentRequirements`. Task 9 (middleware unit tests) uses `ajv` against a vendored x402 v1 schema at `packages/middleware/__tests__/fixtures/x402-v1.schema.json`. The hint incorrectly points to T7 (a pure-module task with no test file) instead of T9's fixture.",
-      "fix": "Change the hint to reference `packages/middleware/__tests__/fixtures/x402-v1.schema.json` from Task 9, not 'Task 7'. Make clear this file is already in the repo post-T9 and can be loaded directly in the scratch `validate-x402.mjs` script."
-    },
-    {
-      "severity": "major",
-      "category": "feasibility",
-      "task": 16,
-      "issue": "T16 'Edge cases' says 'if `0.1.0-alpha.0` is burned (npm forbids republishing the same version)', bump to `0.1.0-alpha.1`. However, the release commit subject in T16 hardcodes `0.1.0-alpha.0` in both the commit message and the git tag (`middleware-v0.1.0-alpha.0`). If the version is bumped to `-alpha.1` due to a failed first publish, the previously created commit + tag will reference the wrong version, requiring a fixup commit and a new tag. T16 has no step for this retag scenario.",
-      "fix": "Defer the release commit and tag creation to AFTER `npm publish` succeeds, not before. This ensures the commit + tag always match the actually-published version."
+      "section": "Verification Steps",
+      "issue": "Task 17 line 70 uses 'function feeBps() view returns (uint256)' in the inline viem ABI fragment, but the tech-spec Data Models and Task 4 both declare 'uint16 public feeBps'. While ABI-level decoding of uint16 and uint256 from a node -e call will not throw at runtime (both are zero-padded to 32 bytes on the wire and viem correctly decodes uint16 as uint256 if the declared return type is uint256), the ABI fragment is technically incorrect and could mislead future readers. More importantly, the comparison 'feeBps:String(await c.readContract(...))' returning '50' is still correct numerically, but the type annotation is wrong.",
+      "fix": "Change 'function feeBps() view returns (uint256)' to 'function feeBps() view returns (uint16)' in the inline ABI fragment to match the actual contract declaration."
     },
     {
       "severity": "minor",
       "category": "feasibility",
       "task": 16,
-      "issue": "T16 Implementation Hints say 'Tag the release commit (`git tag -a middleware-v0.1.0-alpha.0 -m \"...\" HEAD`) but **do not push the tag in this task** — the tag push is part of the post-deploy verification flow (Task 17)'. However, T17 has no step for pushing the git tag. The tag will be left local indefinitely unless the operator pushes it manually.",
-      "fix": "Either add an explicit step in T17 to push the annotated tag (`git push origin middleware-v0.1.0-alpha.0`) after the verdict is PASS, or move the tag push into T16 after npm publish succeeds. Clarify which task owns this action."
-    },
-    {
-      "severity": "minor",
-      "category": "feasibility",
-      "task": 16,
-      "issue": "T16 says 'Build the published bundle: `npm run build --workspace=packages/middleware`. Confirm the resulting `dist/` is < 30 KB minified+gzip (`gzip -c dist/index.js | wc -c` or `tsup` reported size)'. The command `gzip -c dist/index.js | wc -c` only measures the entry-point file. If `tsup` outputs multiple chunks (e.g., `dist/index.js` + `dist/adapters/fastify.js` + `dist/adapters/node-http.js`), the total published bundle size must sum all `dist/*.js` files, not just `index.js`.",
-      "fix": "Change size check to sum all JS files in `dist/`: e.g., `find dist -name '*.js' -exec gzip -c {} \\; | wc -c`. Or rely on `tsup`'s reported output sizes (which are per-file and can be summed)."
-    },
-    {
-      "severity": "minor",
-      "category": "feasibility",
-      "task": 17,
-      "issue": "T17 'What to do' step 5 says to create `server.js` in the scratch directory 'которая импортирует `withPaywall` из установленного пакета'. The installed package is ESM-only (`\"type\": \"module\"` per tech-spec AC). The scratch `server.js` must also use ESM (`import`) not CommonJS (`require`). If the scratch `npm init -y` creates a CJS-default project (no `\"type\": \"module\"`), `import('@universal-paywall/middleware')` will still work via dynamic import in Node >=20, but a static `import` at the top level will fail. T17 does not specify this requirement explicitly.",
-      "fix": "Add to step 5: the scratch `package.json` must include `\"type\": \"module\"` before creating `server.js` with static ESM imports. Or use dynamic `import()` in a CJS file — explicitly document which approach the agent should use."
+      "section": "What to do",
+      "issue": "Task 16's pre-flight provenance check uses a node -e one-liner with a heredoc-style substitution: 'process.exit(/^(9\\.([5-9]|[1-9][0-9])|[1-9][0-9])/.test(\\\"$(npm --version)\\\" ) ? 0 : 1)'. This command substitution runs at shell parse time inside a double-quoted string passed to node -e. The embedded $(...) will expand in the shell correctly, but single/double quote nesting may cause shell parse errors depending on how the executor invokes this. In some shells (e.g., bash with set -e), a failing node -e exit code of 1 on the provenance-not-available path could abort the entire script if not properly guarded with '|| true' or an 'if' wrapper.",
+      "fix": "Wrap the provenance pre-flight in a proper if/else construct: 'if node -e \"...\" && [ -n \"$GITHUB_ACTIONS\" ]; then PROVENANCE_FLAG=\"--provenance\"; else PROVENANCE_FLAG=\"\"; echo \"provenance: skipped\"; fi' so that the check's exit code of 1 does not abort the deploy script. The current one-liner is fragile under set -e environments."
     }
+  ],
+  "resolved_from_round_1": [
+    "T17 hallucinated scripts/postdeploy/read-factory.mjs — RESOLVED: T17 now explicitly uses 'node -e' inline one-liner for on-chain reads, with an optional temporary file that is deleted immediately, and explicitly states 'no file in scripts/postdeploy/ exists'",
+    "T17 npm test:e2e missing — RESOLVED: T1 now explicitly adds 'test:e2e': 'vitest run src/__tests__/integration/' to packages/middleware/package.json scripts (confirmed in T1 lines 62-73 and systemic-fix §9); T17 correctly references this",
+    "T16 constructor call (false positive from round 1) — Round 1 flagged this as a potential false positive but it has turned out to be a REAL conflict between T4 (5-arg constructor including vaultImpl) and T16 (3-arg constructor, no vaultImpl). This is now raised as critical finding above",
+    "T17 readiness loop for HTTP smoke — RESOLVED: T17 now uses 'for i in {1..20}; do curl -sf .../health >/dev/null && break; sleep 0.2; done' instead of a fixed sleep",
+    "T17 scratch dir type:module — RESOLVED: T17 now explicitly patches package.json with type:module using 'node -e const fs=require(fs)...' immediately after npm init -y",
+    "T17 x402 schema from T9 fixture — RESOLVED: T17 explicitly references 'packages/middleware/src/__tests__/fixtures/x402-v1.schema.json' as the schema source (systemic-fix §1 and §2) and copies it to scratch before ajv validation"
   ],
   "stats": {
     "tasks_checked": 2,
     "claims_verified": 38,
-    "issues_found": 11
+    "issues_found": 6,
+    "critical": 2,
+    "major": 2,
+    "minor": 2
   }
 }

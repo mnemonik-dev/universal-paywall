@@ -1,61 +1,95 @@
 {
   "validator": "reality-checker",
   "batch": [13, 14, 15],
-  "status": "changes_required",
+  "iteration": 2,
+  "status": "approved",
   "findings": [
     {
-      "severity": "critical",
-      "category": "hallucination",
-      "task": 15,
-      "issue": "Task 15 line 33 states: 'npm test --workspace=packages/middleware — vitest unit tests + forked-e2e (Hardhat fork runs in-process, no env flag)'. This is incorrect. forked-e2e.test.ts lives in contracts/test/integration/ and runs under 'cd contracts && npx hardhat test' (confirmed by T10 Verify-smoke, T10 ACs, and T10 details). It is NOT run by npm test --workspace=packages/middleware. Task 15 does separately list 'cd contracts && npx hardhat test' on line 34, so forked-e2e will be executed — but the erroneous parenthetical on line 33 conflates the two commands. An executor following line 33 literally would tick the 'forked-e2e runs via middleware npm test' AC incorrectly, potentially missing a failure if hardhat forked-e2e is broken while vitest passes.",
-      "fix": "Remove the parenthetical '(Hardhat fork runs in-process, no env flag)' from line 33. Line 34's 'cd contracts && npx hardhat test' is the correct runner for forked-e2e. Update line 34 to read: 'cd contracts && npx hardhat test — Hardhat contract tests (PaymentSplitterFactory, PaymentVaultImpl) AND forked-e2e (contracts/test/integration/forked-e2e.test.ts). Must exit 0.'"
-    },
-    {
       "severity": "major",
       "category": "feasibility",
-      "task": 14,
-      "issue": "T14's 'What to do' step 2 (tech-spec Testing Strategy Coverage Matrix) omits the mandatory tech-spec row: 'Network id normalization (CAIP-2 <-> alias) round-trips' from the middleware unit-test bullets. The tech-spec Testing Strategy explicitly lists this as a required test (under 'Unit tests (vitest, in packages/middleware/)'). T14's Mandatory Items section and the verification step 2 Middleware unit test list do not include it. An auditor completing T14 would not flag this test as MISSING because it is not on the checklist to verify — creating a gap between what the spec mandates and what the test audit validates.",
-      "fix": "Add a mandatory line to T14's 'Middleware unit tests' check list: 'Network id normalization round-trips — CAIP-2 <-> alias normalize correctly in both directions: PRESENT/MISSING — <path>'. Also add it to the Coverage Matrix template under 'Tech-spec requirement' rows."
-    },
-    {
-      "severity": "major",
-      "category": "feasibility",
-      "task": 15,
-      "issue": "Task 15 line 44 states 'user-spec -> Contracts: PaymentVaultImpl (lines 198-205): 5 ACs'. However, user-spec lines 200-205 contain 6 distinct top-level checkbox ACs: (1) Initializable + ReentrancyGuard, (2) initialize semantics, (3) withdraw() math + event, (4) withdraw-while-paused works, (5) no setters for developer/factory, (6) no receive() payable. Counting 5 instead of 6 means the QA walk would undercount by one AC and could leave one criterion unchecked without noticing. T15's own prose description in line 44 lists all 6 concerns ('Initializable + storage-based ReentrancyGuard, initialize semantics, withdraw() math + SafeERC20 transfers + event, withdraw-while-paused works, no setters for developer/factory, no receive() payable') — contradicting the stated count of 5.",
-      "fix": "Change '5 ACs' to '6 ACs' on line 44 of T15. Ensure the qa-report.md template's PaymentVaultImpl section has 6 rows."
+      "task": 13,
+      "section": "What to do / Acceptance Criteria / Verification Steps",
+      "issue": "T13 uses `--workspace=packages/middleware` (path-based) in 4 places (lines 82, 84, 100, 129) instead of the canonical package-name form `--workspace=@universal-paywall/middleware`. T14 and T15 both use the correct form. The iteration-2 systemic-fixes canonical env table documents the correct npm invocation pattern as `npm test --workspace=@universal-paywall/middleware`. Path-based workspace resolution works today (npm resolves both forms) but the inconsistency means the Acceptance Criterion on line 100 describes a command the executor may observe succeeding locally but behaving differently in a monorepo-level CI context where workspace package names are authoritative.",
+      "fix": "Replace all 4 occurrences of `--workspace=packages/middleware` in T13 with `--workspace=@universal-paywall/middleware` to match the canonical form used by T14 and T15."
     },
     {
       "severity": "major",
       "category": "missing_file",
       "task": 13,
-      "issue": "decisions.md is listed as a 'Context File' to read (task 13 line 81: '- [decisions.md](../decisions.md)') but the file does not exist in the repository (/Users/syi/src/universal-paywall/work/x402-agent-payment/decisions.md is absent). T12, T13, and T14 all have the same depends_on: [9, 10, 11] and wave: 7 — meaning they run in parallel. T12 creates decisions.md as a post-completion step, but since T13 runs concurrently with T12 (not after it), decisions.md may not exist when T13 starts. The same applies to T14. Reading a missing context file can cause agent errors or silent omission of prior decisions context during the security audit.",
-      "fix": "Either (a) add T12 to T13's and T14's depends_on lists so T12 always completes first, or (b) mark decisions.md as an optional context file with a note that it is created by T12 and may not yet exist when T13/T14 execute in parallel. Option (a) changes T13/T14 to wave: 8 which breaks the audit parallelism design — document the tradeoff. Option (b) is the lighter fix: change the context file entry to '- [decisions.md](../decisions.md) — created by T12; may not exist if T12 is still running in parallel'."
-    },
-    {
-      "severity": "major",
-      "category": "missing_file",
-      "task": 14,
-      "issue": "decisions.md is listed as a 'Context File' to read (task 14 line 109: '- [decisions.md](../decisions.md)') but the file does not exist. Same parallel-wave issue as T13 (both are wave 7, same depends_on: [9, 10, 11]).",
-      "fix": "Same as T13 fix: either add T12 to depends_on or mark decisions.md as optional context."
+      "section": "Context Files (line 123)",
+      "issue": "T13 Context Files lists `packages/middleware/__tests__/` as the test directory for audit purposes (`[packages/middleware/__tests__/](../../../packages/middleware/__tests__/)`). Per systemic-fix §2 (binding, iteration 2), the canonical test directory is `packages/middleware/src/__tests__/`. T14 correctly lists `packages/middleware/src/__tests__/` and `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts`. The stale path in T13's Context Files will cause the auditor to look for test files in a non-existent directory (`packages/middleware/__tests__/`) and potentially conclude that security-tagged tests are absent — producing false findings.",
+      "fix": "Update T13 Context Files line 123 to: `Code (audit — tests, to confirm security-test coverage): [packages/middleware/src/__tests__/](../../../packages/middleware/src/__tests__/), [contracts/test/](../../../contracts/test/)`"
     },
     {
       "severity": "minor",
       "category": "feasibility",
       "task": 13,
-      "issue": "T13's acceptance criteria requires a 'coverage matrix (Decisions D1-D18 + relevant Risk rows)' in the audit report, and the 'What to do' section says 'Use the Decisions list (D1-D18) as a checklist. Every Decision either anchors a finding (PASS) or surfaces one (FAIL/finding).' However, the 'What to do' body only provides explicit audit checks for security-relevant decisions (D2, D3, D5, D8, D12, D13, D14, D15, D16, D17, D18). Non-security decisions D4 (withdraw fee math), D6 (framework-agnostic adapters), and D9 (Hardhat over Foundry) are not mentioned in the step-by-step instructions. An auditor following the prescribed steps literally may omit D4, D6, D9 from the matrix or assign them verdicts without guidance on what 'auditing' them means in a security context.",
-      "fix": "Add a note in the 'Implementation hints' section: 'Decisions D4, D6, D9 have no direct security attack surface. Include them in the coverage matrix with verdict N/A (out of security scope) and a one-line rationale for each. Do not skip them from the matrix — an incomplete matrix is itself a finding.'"
+      "section": "What to do (line 80)",
+      "issue": "Line 80 states 'understand the actual implementation that landed in Waves 2, 4, 5, 6 before drawing conclusions'. Per the binding iteration-2 wave table: Wave 2 = T3 (USDC spike), Wave 4 = T5 (contract tests). The middleware implementation landed in Waves 3 (T4 — contracts), 5 (T6 — middleware pure modules), 6 (T7 — verify/settle), 7 (T8 — core+adapters), 8 (T9/T11 — unit tests/deploy). The Description header on line 20 correctly uses the new wave numbering ('Waves 5/6 — middleware pure modules + verify/settle; Wave 7 — core+adapters; Wave 8 — middleware unit tests'). Line 80 is a leftover from pre-renumbering and is internally inconsistent with line 20.",
+      "fix": "Replace line 80 'Waves 2, 4, 5, 6' with 'Waves 3, 5, 6, 7, 8, 9' to match the iteration-2 wave table and the Description header on line 20."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 13,
+      "section": "Description — middleware audit surface",
+      "issue": "The error code `to_mismatch` (introduced by systemic-fix §4 as the canonical wire code when `authorization.to != expected vault address`, replacing the earlier `recipient_mismatch`) is not explicitly named in T13's X-PAYMENT validation audit items. T13 checks the verification logic ('to == computeVaultAddress(opts.developerEoa)') but does not enumerate `to_mismatch` in its error-code catalog check, unlike the other 13 codes which are explicitly named. An auditor following T13 literally will miss validating that this specific wire code is emitted rather than the deprecated `recipient_mismatch`.",
+      "fix": "Add `to_mismatch` to the X-PAYMENT validation surface bullet in T13 Description, alongside the existing checks: 'confirm `to_mismatch` (not `recipient_mismatch`) is the emitted error code when `authorization.to != computeVaultAddress`'."
     },
     {
       "severity": "minor",
       "category": "tdd",
-      "task": 13,
-      "issue": "T13 Verification Step 'Automated' says to run 'cd contracts && npx hardhat coverage → confirm ≥95% branch coverage on both contracts'. This duplicates T14's coverage check. While not harmful, it adds confusion about responsibility: T13 is the security audit and T14 is the test audit. T13 running coverage is reasonable as evidence-gathering, but the instruction should clarify it is a spot-check, not the authoritative coverage gate (that belongs to T14).",
-      "fix": "In T13's Verification Steps, annotate the hardhat coverage line: '(sanity check for security-relevant branch coverage; authoritative coverage gate is T14)'."
+      "task": 14,
+      "section": "Acceptance Criteria — Mandatory Items",
+      "issue": "T14 Acceptance Criteria enumerates explicit bullets for all 7 settlement failure reasons, all 4 EIP-712 tamper tests, network normalization, CREATE2 invariant, etc., but does NOT have an explicit AC bullet for verifying the `to_mismatch` wire code is tested (the `to != computedVaultAddress` path from verify.ts). T14's Description/What to do line 42 does mention `to != computedVaultAddress` as a verify.ts boundary test — so it's present in the description — but the Acceptance Criteria section doesn't call it out explicitly, meaning an executor could omit it from the report without failing any checkbox.",
+      "fix": "Add an explicit Acceptance Criterion in T14: '- [ ] `to_mismatch` error code verified — `verify.ts` test asserts `to != computedVaultAddress` returns 402 with `error: to_mismatch` (not `recipient_mismatch` per systemic-fix §4).' Alternatively, extend the existing '`verify.ts` boundary tests' bullet to explicitly enumerate `to_mismatch`."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 15,
+      "section": "What to do / step 3 — user-spec Деплой ACs",
+      "issue": "User-spec line 209 (the first Деплой AC) reads `npm test --workspace=packages/middleware` — a path-based workspace identifier inconsistent with the systemic-fix §2 canonical form. T15 step 3 instructs the executor to 'walk every acceptance criterion from both specs'. When the executor walks user-spec AC #1 in the Деплой section verbatim, it will encounter and may transcribe the stale command. T15 line 46 itself correctly says `npm test --workspace=@universal-paywall/middleware`, but the user-spec it reads from is stale. This creates a discrepancy in the qa-report: the AC cited from user-spec uses the old form, while the actual command run uses the new form.",
+      "fix": "Update user-spec line 209 from `npm test --workspace=packages/middleware` to `npm test --workspace=@universal-paywall/middleware` to keep the source-of-truth document consistent with the canonical form. Alternatively, add an explicit normalization note in T15 step 3 directing the executor to use `@universal-paywall/middleware` regardless of the user-spec literal."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 15,
+      "section": "What to do / step 3 — user-spec Деплой ACs",
+      "issue": "User-spec line 212 (live Arc Testnet e2e AC) states the test lives at `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts`. Per systemic-fix §2, the canonical path is `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts`. T15 line 46 correctly cites `packages/middleware/src/__tests__/integration/` — but because T15 walks user-spec ACs and cites them as evidence, the qa-report will contain a reference to the stale path from user-spec, which could confuse a reader or cause a CI check verifying file existence to fail.",
+      "fix": "Update user-spec line 212 path from `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts` to `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts`. This is the same root fix as the user-spec stale path — the user-spec was not updated when systemic-fix §2 canonicalized the test directory."
     }
   ],
   "stats": {
     "tasks_checked": 3,
     "claims_verified": 47,
-    "issues_found": 7
-  }
+    "issues_found": 7,
+    "critical": 0,
+    "major": 2,
+    "minor": 5
+  },
+  "round1_fixes_verified": {
+    "T15": {
+      "forked_e2e_command_corrected_to_hardhat": true,
+      "three_canonical_commands_explicit": true,
+      "forked_e2e_path_under_contracts_not_middleware": true,
+      "workspace_identifier_corrected_to_package_name": true
+    },
+    "T13": {
+      "decisions_md_removed_from_context_files": true,
+      "d1_d18_explicit_coverage_matrix_present": true,
+      "slither_hard_requirement_enforced": true
+    },
+    "T14": {
+      "decisions_md_removed_from_context_files": true,
+      "network_normalization_test_row_added": true
+    }
+  },
+  "cross_task_notes": [
+    "No duplicate heavy-resource initialization across T13/T14/T15 — all three tasks are audit/QA tasks with no shared resource ownership.",
+    "T13 and T14 correctly run in parallel (Wave 10) with no dependency on each other's outputs.",
+    "T15 correctly declares depends_on: [12, 13, 14] — all Wave 10 audit tasks must complete before T15.",
+    "The user-spec stale paths (`packages/middleware/__tests__/`) are the root cause of findings in T13 (Context Files) and T15 (AC walking). Both tasks reference the user-spec; the fix in the user-spec resolves both downstream issues."
+  ]
 }

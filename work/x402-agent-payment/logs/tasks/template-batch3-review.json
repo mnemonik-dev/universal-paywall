@@ -1,110 +1,46 @@
 {
   "validator": "task-validator",
   "batch": [11, 12, 13, 14, 15],
+  "iteration": 2,
   "status": "approved",
   "findings": [
     {
-      "severity": "minor",
-      "category": "structure",
-      "task": 11,
-      "section": "Verification Steps > User",
-      "issue": "User section is present and non-empty but contains follow-up questions in a body block rather than the structured Verify-user smoke-style steps. Acceptable per template (template puts free-form HTML comment guidance), but the format diverges from the more structured Automated/Smoke subsections above and could be misread as commentary. Borderline stylistic.",
-      "fix": "Optionally reformat the User section into a bulleted checklist (`- [ ] Faucet step ...`, `- [ ] Register CLI works ...`) so the verifier can tick items off mechanically."
-    },
-    {
-      "severity": "minor",
-      "category": "carry-forward",
-      "task": 11,
-      "section": "Files / Implementation Tasks",
-      "issue": "Task adds new files not listed in tech-spec Task 11 'Files to modify': `scripts/__tests__/register.test.ts` (test file for the register CLI). Tech-spec only lists `contracts/deploy/01_deploy_factory.ts`, `scripts/register.ts`, `README.md`, `packages/middleware/src/networks.ts`. The added test file is a reasonable extension (TDD anchor produces tests) and is internally justified, but it represents a deviation from tech-spec scope.",
-      "fix": "Either update tech-spec to list the test file under Task 11, or note this extension in the task's Post-completion deviation log."
-    },
-    {
-      "severity": "minor",
-      "category": "content",
-      "task": 11,
-      "section": "TDD Anchor",
-      "issue": "The test `register_never_prints_key` description partly verifies string presence (regex match of `0x[0-9a-fA-F]{64}` in stdout/stderr). While the test verifies a security invariant (no key leak), the assertion form is a string/pattern check rather than behavioral. This is appropriate here (secret-leak prevention IS a string check) but flagging per validator rules.",
-      "fix": "No fix required — this is a legitimate string-presence test because the invariant being verified is exactly 'no hex pattern in output'. Documenting as a noted exception."
-    },
-    {
-      "severity": "minor",
-      "category": "content",
-      "task": 12,
-      "section": "Context Files",
-      "issue": "Several Context Files entries link to directories (e.g. `packages/middleware/src/`, `contracts/contracts/`, `contracts/deploy/`, `contracts/scripts/`, `scripts/`) rather than specific files. Markdown link format `[name](path/)` to a directory is unconventional and may not render as clickable in some viewers. For an audit task the broad scope is legitimate, but the link target is non-standard.",
-      "fix": "Either enumerate the specific files (already partially done under Details > 'Files (read for analysis)') or keep directory links but add a leading note explaining that the audit covers all files in the listed directories."
-    },
-    {
-      "severity": "minor",
-      "category": "structure",
-      "task": 12,
-      "section": "Verification Steps > Smoke / User",
-      "issue": "Smoke and User subsections are present but empty (HTML comment 'No Verify-smoke defined in tech-spec for Task 12'). This is appropriate for an analysis-only task, but the empty subsection headers add noise.",
-      "fix": "Either omit the empty Smoke and User subsection headers entirely (per template comment 'Omit section if no smoke checks'), or keep them as currently written. Current state is acceptable."
-    },
-    {
-      "severity": "minor",
-      "category": "content",
-      "task": 13,
-      "section": "Acceptance Criteria",
-      "issue": "AC includes 'If slither was run, its output is summarized; if not, the report explains why' — conditional on tooling availability. While the conditional is reasonable, the AC could be interpreted as pass-by-skip. Risk: an auditor could mark this AC pass by reporting 'slither not available' without attempting installation.",
-      "fix": "Tighten AC to: 'Slither was attempted; if unavailable, the report records the installation attempt and the failure reason'. This prevents trivial skip."
-    },
-    {
-      "severity": "minor",
-      "category": "structure",
-      "task": 13,
-      "section": "Verification Steps",
-      "issue": "Verification Steps section has only `Automated` and `Smoke` subsections — no `User` subsection. Per template the User subsection is optional ('Omit section if no user checks'), so this is conformant. Flagging only because the prior batch may have expected all three.",
-      "fix": "No fix required — omitting User is allowed by template."
-    },
-    {
-      "severity": "minor",
-      "category": "structure",
-      "task": 14,
-      "section": "Verification Steps",
-      "issue": "Verification Steps section has only Automated subsection — no Smoke or User. Per template both are optional, so this is conformant. The Automated subsection lists test/coverage commands that act as smoke-style checks for an audit task, which is reasonable.",
-      "fix": "No fix required."
-    },
-    {
-      "severity": "minor",
-      "category": "content",
-      "task": 14,
-      "section": "Required Skills / Skill name",
-      "issue": "Task uses `/skill:test-master`. The tech-spec for Task 14 lists `Skill: test-master`, so this is consistent with tech-spec. The Required Skills section labels the skill and links to its SKILL.md. Aligned with the task content (test-quality audit).",
-      "fix": "No fix required — test-master is the correct skill for a test-quality audit per tech-spec."
-    },
-    {
-      "severity": "minor",
-      "category": "decomposition",
-      "task": 11,
-      "section": "Description / What to do",
-      "issue": "Task bundles three deliverables (deploy script, register CLI, README). This was flagged as a potential split candidate, but the task's own Description explicitly justifies the bundling ('they share the same mental model deploy -> register -> consume and share the deployed addresses that flow 01_deploy_factory.ts -> networks.ts -> register.ts -> README'). Tech-spec Task 11 also bundles them. Atomicity rule is 1-3 files; this task touches 5 files which slightly exceeds the heuristic.",
-      "fix": "Accept as-is — bundling is justified by shared dependency on deployed addresses and explicit consolidation in tech-spec. No split recommended."
-    },
-    {
-      "severity": "minor",
+      "severity": "major",
       "category": "consistency",
-      "task": 15,
-      "section": "Title / Header",
-      "issue": "Task title is 'Task 15: Pre-deploy QA (requires user approval of tech-spec)' — parenthetical clarifies a precondition. Acceptable but the parenthetical duplicates content from the Pre-conditions block in Description. Minor stylistic redundancy.",
-      "fix": "Optionally shorten title to 'Task 15: Pre-deploy QA' and rely on the Description pre-condition block. Current state is acceptable."
+      "task": 14,
+      "section": "What to do / Context Files",
+      "issue": "T14 references the register CLI test at `scripts/__tests__/register.test.ts` (lines 73 and 123), but T11 — round-1-approved — explicitly relocates the register CLI test to `packages/middleware/src/__tests__/register-cli.test.ts` and forbids a `scripts/` vitest config (T11 lines 71-84, 105-110, 138, 177). The Test Audit will look for a file that does not exist by design and either flag a false missing-test finding or fail to map the actual tests.",
+      "fix": "Update T14: change both occurrences of `scripts/__tests__/register.test.ts` to `packages/middleware/src/__tests__/register-cli.test.ts` to match T11's relocation; update the mandatory items list (line 177) `Register CLI scrub test` evidence path accordingly."
+    },
+    {
+      "severity": "minor",
+      "category": "frontmatter",
+      "task": 13,
+      "section": "frontmatter.verify vs Verification Steps",
+      "issue": "T13 frontmatter declares `verify: []` but the Verification Steps section contains a populated `### Smoke` subsection (lines 138-140 — asserting the audit report file is present and the sign-off section states critical/high counts). If those checks are intended as smoke verification, frontmatter should be `verify: [smoke]`; otherwise the Smoke subsection should be removed.",
+      "fix": "Either set frontmatter `verify: [smoke]` to match the populated Smoke subsection, or move the two existing smoke bullets up into Automated/Acceptance Criteria and remove `### Smoke`."
     },
     {
       "severity": "minor",
       "category": "carry-forward",
-      "task": 15,
+      "task": 12,
       "section": "Acceptance Criteria",
-      "issue": "Task 15 AC list (14 items) is significantly more detailed than tech-spec Verify-smoke ('All suites exit 0; checklist report committed'). The expansion correctly walks both user-spec and tech-spec ACs section-by-section, but the per-section AC items ('Every AC in user-spec Middleware section walked and marked pass with evidence') are meta-criteria rather than concrete behavioral ones — they assert the act of walking rather than specific values.",
-      "fix": "Accept as meta-criteria for a verification task. The per-section AC checkboxes appropriately structure the report rather than enumerate every individual sub-AC inline."
+      "issue": "AC line 58 lists the compliance matrix coverage as `D1, D3, D4, D5, D6, D7, D8, D10–D18` — D2 is missing. D2 (EIP-3009 `transferWithAuthorization` with explicit `from`) does constrain middleware code (`settle.ts`) and is part of the audit surface mentioned in the cross-cutting checks (`grep` for `selfdestruct/delegatecall`, etc.). Excluding D2 from the matrix risks the code-audit silently dropping a Decision that has direct code implications.",
+      "fix": "Update AC line 58 to read `D1, D2, D3, D4, D5, D6, D7, D8, D10–D18` (or be explicit that D2 is delegated to T13 for security-only coverage and not part of T12's quality matrix)."
     }
   ],
   "stats": {
     "tasks_checked": 5,
-    "issues_found": 12,
+    "issues_found": 3,
     "critical": 0,
-    "major": 0,
-    "minor": 12
+    "major": 1,
+    "minor": 2
+  },
+  "round1_fixes_verified": {
+    "T11_wave_8_and_sed_patch": "verified — wave: 8, sed-style sentinel replacement documented at lines 40-44, 86-88, 175",
+    "T12_wave_10_and_no_cross_reference": "verified — wave: 10, scope discipline at line 120 explicitly forbids cross-reference",
+    "T13_wave_10_no_decisions_md_d_matrix": "verified — wave: 10, decisions.md removed from Context Files (Post-completion only), full D1-D18 matrix present at lines 50-72",
+    "T14_wave_10_normalization_coverage_ownership": "verified — wave: 10, network normalization listed at lines 41, 92, 167; T14 owns coverage gate at lines 31, 89, 132, 133",
+    "T15_wave_11_forked_e2e_vault_ac_count": "verified — wave: 11, forked-e2e command at line 34 routes to `cd contracts && npx hardhat test`, PaymentVaultImpl AC count = 6 at lines 45, 72, total = 51 ACs"
   }
 }

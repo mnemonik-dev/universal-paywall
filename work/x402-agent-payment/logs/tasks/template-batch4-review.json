@@ -1,99 +1,72 @@
 {
   "validator": "task-validator",
+  "iteration": 2,
   "batch": [16, 17],
-  "status": "changes_required",
+  "status": "approved",
   "findings": [
     {
-      "severity": "critical",
-      "category": "decomposition",
+      "severity": "minor",
+      "category": "carry-forward",
       "task": 16,
-      "section": "frontmatter.wave / depends_on",
-      "issue": "Task 16 has `wave: 8` and `depends_on: [15]`. Per validator rule, a task with depends_on:[X] must have wave > wave of task X. If Task 15 is also in wave 8 (likely — tech-spec groups Tasks 15/16/17 in 'Final Wave'), then the wave numbers don't reflect the dependency chain. Cross-task validation should confirm Task 15's wave; if Task 15 is also wave 8, this is a dependency-cycle/wave-ordering violation.",
-      "fix": "Either (a) assign distinct waves to 15/16/17 (e.g., 15→wave8, 16→wave9, 17→wave10) so depends_on relationships are consistent with wave ordering, or (b) confirm the team convention that sequential tasks within a 'Final Wave' can share a wave number — document this convention in tech-spec and update the validator's dependency rule. As written, the wave numbers are inconsistent with the dependency chain."
-    },
-    {
-      "severity": "critical",
-      "category": "decomposition",
-      "task": 17,
-      "section": "frontmatter.wave / depends_on",
-      "issue": "Task 17 has `wave: 8` and `depends_on: [16]`, but Task 16 is also `wave: 8`. Same wave-vs-dependency conflict as Task 16. Per the rule 'Task with depends_on:[X] must have wave > wave of task X', this is a violation.",
-      "fix": "Assign Task 17 a higher wave than Task 16 (e.g., wave: 9 or 10) to reflect the sequential dependency, or document and adopt the 'Final Wave shares wave number' convention explicitly."
-    },
-    {
-      "severity": "major",
-      "category": "frontmatter",
-      "task": 16,
-      "section": "frontmatter.reviewers",
-      "issue": "Task 16 declares `deploy-reviewer` as a reviewer. This is a non-standard reviewer (not among the standard `code-reviewer`, `security-auditor`, `test-reviewer`, or other common reviewers). The validator could not confirm that a `deploy-reviewer` agent exists in `~/.claude/agents/`. If it doesn't exist, the task will fail at execution time when feature-execution attempts to spawn the reviewer.",
-      "fix": "Confirm `deploy-reviewer` agent exists at `~/.claude/agents/deploy-reviewer.md`. If not, either (a) create the agent definition first, (b) substitute an existing reviewer (e.g., `infrastructure-reviewer` if defined), or (c) drop to `code-reviewer` + `security-auditor` only and have a human do the deploy review."
+      "section": "Verification Steps / Acceptance Criteria",
+      "issue": "Tech-spec Task 16 Verify-smoke specifies `--provenance` unconditionally (`--access=public --tag=alpha --provenance`). T16 makes `--provenance` conditional on a pre-flight check (npm >= 9.5 AND GITHUB_ACTIONS env present), with a documented downgrade path. This is a defensible operational refinement, but is a literal deviation from the tech-spec Verify-smoke line.",
+      "fix": "Either (a) update tech-spec Task 16 to mark `--provenance` as best-effort with the same pre-flight gate, or (b) align T16 to require `--provenance` unconditionally and abort if it fails. Recommended: option (a) — the operational rationale (provenance only works in GitHub Actions) is sound and worth codifying in tech-spec rather than leaving as a task-level deviation."
     },
     {
       "severity": "minor",
-      "category": "content",
-      "task": 17,
-      "section": "Context Files",
-      "issue": "Context Files contains a non-link entry: `contracts/deploy/` output — deploy log Task 16 ...`. This is plain text, not a markdown link `[name](path)`. Template requires all files as markdown links.",
-      "fix": "Replace with `[contracts/deploy/](../../../contracts/deploy/)` — deploy log Task 16 ...` (or link to a specific expected file in `contracts/deploy/` such as the deploy artifacts JSON)."
+      "category": "carry-forward",
+      "task": 16,
+      "section": "Acceptance Criteria / Verification Steps / Smoke",
+      "issue": "Tech-spec Task 16 Verify-smoke uses literal version `0.1.0-alpha.0` (`npm view @universal-paywall/middleware@0.1.0-alpha.0 dist.tarball`). T16 generalizes to `<final-version>` to permit a fallback bump to `0.1.0-alpha.1` if the first publish is burned with E409. This is a reasonable operational allowance but is a deviation from the tech-spec wording, and could leave the published version unspecified to a reader of just the tech-spec.",
+      "fix": "Add a note in tech-spec Task 16 description allowing version-slot fallback (`0.1.0-alpha.0` or `0.1.0-alpha.N` if a slot is burned), or add an explicit Acceptance Criterion stating `final published version is recorded in decisions.md and equals one of 0.1.0-alpha.{0,1,...}`."
     },
     {
       "severity": "minor",
       "category": "consistency",
-      "task": 16,
-      "section": "Reviewers (section path format)",
-      "issue": "Reviewer report paths use absolute filesystem paths (`/Users/syi/src/universal-paywall/work/...`) rather than the repository-relative paths in the template (`work/{feature}/logs/working/task-{N}/...`). Absolute paths break portability (only works on syi's machine) and don't match the template's convention.",
-      "fix": "Convert to relative paths: `work/x402-agent-payment/logs/working/task-16/code-reviewer-{round}.json` (and analogous for security-auditor and deploy-reviewer)."
+      "task": 17,
+      "section": "frontmatter / Details:Dependencies",
+      "issue": "Frontmatter `depends_on: [16]` is the immediate predecessor and is transitively correct (T17 -> T16 -> T15 -> ... -> T1/T9/T10). However, the Details:Dependencies section explicitly enumerates concrete artifacts owned by T1 (test:e2e script), T9 (x402 schema fixture), and T10 (arc-testnet-e2e.test.ts). The transitive chain is currently complete, but if waves are later renumbered or T15 dependencies change, the implicit reliance on transitivity could break silently.",
+      "fix": "Either (a) leave as-is and rely on the iteration-2 systemic-fixes wave table as the source of truth (acceptable — chain is correct now), or (b) widen `depends_on` to `[16, 10, 9, 1]` for robustness against future reorderings. Not blocking — current chain is sound."
     },
     {
       "severity": "minor",
-      "category": "structure",
+      "category": "consistency",
       "task": 17,
-      "section": "Reviewers",
-      "issue": "Reviewers section contains a prose paragraph explaining the absence of reviewers rather than a list. While the explanation is helpful and consistent with `reviewers: []` in frontmatter, the template's intent is that this section enumerates reviewer→report-path mappings. Empty reviewer list is acceptable per validator's reviewers rules (`Can be empty [] or contain none for self-verifying tasks (QA, deploy)`), so the prose explanation is a reasonable accommodation — minor stylistic deviation.",
-      "fix": "Optional: keep prose explanation but also add an explicit `- none` list item or a one-line note `(self-verifying — see post-deploy-report.md)` to match the list format used elsewhere. No structural fix strictly required."
+      "section": "Verification Steps",
+      "issue": "Verification Steps has only `### Smoke` subsection, no `### Automated`. Template says Automated is `Always present for code tasks`. T17 is non-code (skill: post-deploy-qa), so absence is acceptable, but worth noting that the only verification path is the Smoke checks the agent runs in-task.",
+      "fix": "No action required if intentional. Optionally add a one-line `### Automated` subsection stating `N/A — post-deploy verification task; smoke checks are the only verification surface` to make the intentional absence explicit."
     },
     {
       "severity": "minor",
       "category": "content",
       "task": 17,
-      "section": "Verification Steps → Smoke (placeholder)",
-      "issue": "The Smoke section contains an unresolved placeholder in the curl command: `http://localhost:<port>/protected` — `<port>` is a template variable, not a concrete port. While the surrounding prose explains that port is determined at runtime by the scratch server, the literal `<port>` placeholder is unusual in a Verification Steps block.",
-      "fix": "Either bind the server to a fixed test port (e.g., 8787) and use that literal in the curl, or rewrite the block to make explicit that the port is captured from server.js output (e.g., `PORT=$(node -e ...) && curl ... http://localhost:$PORT/...`). Same applies to the `node server.js` reference — clarify how the server.js content is constructed (`What to do` shows it but Verification Steps references a file that scratch dir doesn't yet have)."
-    },
-    {
-      "severity": "minor",
-      "category": "content",
-      "task": 17,
-      "section": "Context Files",
-      "issue": "Tech-spec Implementation Tasks for Task 17 says tools are `bash, curl, viem (programmatic, not MCP)`, and references `factory.feeBps()` etc. The Context Files block references `networks.ts` and `contracts/deploy/` but does not list the contract ABI source (`contracts/contracts/PaymentSplitterFactory.sol`) or the e2e test file (`packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts`) that step 2 (live e2e) depends on. These are needed for the agent to know the factory ABI and confirm the e2e test exists.",
-      "fix": "Add to Context Files: `[PaymentSplitterFactory.sol](../../../contracts/contracts/PaymentSplitterFactory.sol)` — factory ABI source for on-chain read script; `[arc-testnet-e2e.test.ts](../../../packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts)` — live e2e test (from Task 10) executed via `npm run test:e2e`."
-    },
-    {
-      "severity": "minor",
-      "category": "carry-forward",
-      "task": 17,
-      "section": "Details / What to do — e2e file path",
-      "issue": "Task 17 says the e2e test was created in Task 11, but the tech-spec shows the live Arc Testnet e2e test belongs to Task 10 (`packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts` in Wave 6, Task 10). Task 11 is the deploy script + register CLI + README. The `Dependencies` block in Task 17 attributes the e2e gate to Task 11.",
-      "fix": "Correct the dependency reference: change 'Task 11 (test suite) — `npm run test:e2e` с `ARC_TESTNET_E2E` гейтом написан там' to 'Task 10 (test suite) — `npm run test:e2e` с `ARC_TESTNET_E2E` гейтом написан там'. Same for the `What to do` mention of 'тест существует с Task 11'."
-    },
-    {
-      "severity": "minor",
-      "category": "carry-forward",
-      "task": 16,
-      "section": "Details / Files",
-      "issue": "Task 16 mentions `contracts/deploy/artifacts/arcTestnet/` as a commit target but this artifact directory is not listed anywhere in tech-spec's Architecture > 'What we're building/modifying' or in Task 11's deliverables. Tech-spec only shows `contracts/deploy/01_deploy_factory.ts`. The task assumes Task 11 standardized the artifact output location but acknowledges uncertainty ('committed under `contracts/deploy/artifacts/arcTestnet/` (or wherever Task 11 standardized)').",
-      "fix": "Either (a) pin the artifact location explicitly in Task 11's tech-spec entry so Task 16 doesn't have to guess, or (b) accept that Task 16 will discover the location and document it as a follow-up. Currently the language ('or wherever Task 11 standardized') reads as a known gap."
-    },
-    {
-      "severity": "minor",
-      "category": "atomicity",
-      "task": 16,
-      "section": "What to do / Description",
-      "issue": "Task 16 bundles two distinct deliverables: (a) on-chain deploy + arcscan verification + networks.ts patch, and (b) npm publish (build + dry-run + version bump + publish + tag). The task argues atomicity ('contracts and npm must land atomically'), but in practice these are independent operational steps with different failure modes (chain RPC vs npm registry auth/2FA). The Edge cases section even acknowledges they can fail independently ('npm publish fails after deploy succeeded ... 0.1.0-alpha.0 may be burned'). This is more than 1-3 files of scope.",
-      "fix": "Consider splitting into Task 16a (Deploy + verify + commit networks.ts) and Task 16b (npm publish + tag), where 16b depends_on 16a. This makes failure recovery cleaner (a publish-only retry doesn't require a re-deploy). However, the task-creator may have intentionally bundled them for atomicity — accept the bundling but acknowledge the deviation from atomicity ideal in tech-spec."
+      "section": "What to do / Acceptance Criteria",
+      "issue": "On-chain read of `factory.owner()` is compared to `expected multisig OR deployer EOA` — the disjunction means the executing agent must consult deploy-config from Task 16 to disambiguate which one is canonical at deploy time. The task does not specify how the agent determines which of the two is `expected` for this particular deploy (no pointer to a specific env var or deploy-log field).",
+      "fix": "In T17 step 2 (`Считать deployed factory address и expected параметры`), add a concrete source: e.g. `expected owner is read from the `owner:` line of `work/x402-agent-payment/logs/deploy/arcTestnet-<UTC>.log` (committed by Task 16)` OR `from `PLATFORM_TREASURY_ADDRESS` / `DEPLOYER_KEY`-derived address in env`. Currently the agent has to guess."
     }
   ],
   "stats": {
     "tasks_checked": 2,
-    "issues_found": 11
+    "issues_found": 5,
+    "critical": 0,
+    "major": 0,
+    "minor": 5
+  },
+  "round1_fixes_verified": {
+    "T16": {
+      "wave_renumbered_8_to_12": true,
+      "depends_on_15": true,
+      "npm_publish_via_package_name": true,
+      "provenance_preflight_check": true,
+      "release_tag_after_publish": true
+    },
+    "T17": {
+      "wave_renumbered_8_to_13": true,
+      "depends_on_16": true,
+      "inline_node_e_for_read_factory_no_file_ref": true,
+      "readiness_loop_present": true,
+      "scratch_dir_type_module": true,
+      "x402_schema_source_updated_to_T9_fixture": true
+    }
   }
 }
