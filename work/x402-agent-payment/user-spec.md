@@ -206,10 +206,10 @@ Developer EOA → vault.withdraw()  (msg.sender-gated, nonReentrant)
 
 ### Деплой и тестирование
 
-- [ ] `npm test --workspace=packages/middleware` — vitest unit tests (≥85% line coverage).
+- [ ] `npm test --workspace=@universal-paywall/middleware` — vitest unit tests (≥85% line coverage).
 - [ ] `cd contracts && npx hardhat test` — Hardhat tests с mock USDC (EIP-3009 implementation), ≥95% branch coverage для обоих контрактов.
 - [ ] **Hardhat-fork integration test** в `contracts/test/integration/forked-e2e.test.ts` — runs in CI **без** env флага: разворачивает локальную сеть с mock USDC, деплоит factory + vault, запускает middleware in-process, делает реальный end-to-end платёжный цикл. Покрывает оба адаптера (Node http + Fastify).
-- [ ] **Live Arc Testnet integration test** в `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts` — gated `ARC_TESTNET_E2E=1` (nightly job, не блокирует PR).
+- [ ] **Live Arc Testnet integration test** в `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts` — gated `ARC_TESTNET_E2E=1` (nightly job, не блокирует PR).
 - [ ] Скрипт деплоя `cd contracts && npx hardhat run deploy/01_deploy_factory.ts --network arcTestnet` работает из коробки, выводит factory address и `vaultImpl` address.
 - [ ] README с инструкцией: получить тестовый USDC → запустить `npx universal-paywall register` → запустить middleware → проверить агентом (hand-crafted EIP-3009 signer).
 
