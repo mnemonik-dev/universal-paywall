@@ -239,17 +239,13 @@ Deploy PaymentSplitter to Arc Testnet, verify on block explorer, update `network
 
 ## User-Spec Deviations
 
-**DEV-1: patterns.md says "platform fee hardcoded 50 bps"** `[PENDING USER APPROVAL]`
-- User-spec says: fee is configurable via `setFee(bps)` by owner
-- Tech-spec implements: configurable fee (owner-only), default 50 bps, max cap 1000 bps
-- Why: user explicitly confirmed configurable fee during interview (Q5 answer)
-- Resolution: update `patterns.md` Smart Contract Rules to reflect configurable fee
+**DEV-1: Platform fee configurable** ✅ Resolved
+- patterns.md updated: fee is configurable via `setFee(bps)`, default 50 bps, cap 1000 bps.
 
-**DEV-2: architecture.md mentions Base chain, not Arc**
-- User-spec says: Arc Network (Testnet → Mainnet)
-- Tech-spec implements: Arc Network (per user-spec)
-- Why: user chose Arc over Base during project planning session
-- Resolution: update `architecture.md` blockchain section to Arc; Base is post-MVP
+**DEV-2: Chain-agnostic design, Arc as first chain** ✅ Resolved
+- architecture.md updated: blockchain layer is EVM chain-agnostic. Arc Network is first supported chain. Base and Ethereum mainnet are post-MVP. `networks.ts` in middleware is the single registry — adding a new chain = one entry, no contract rewrite needed.
+
+None pending user approval.
 
 ## Testing Strategy
 

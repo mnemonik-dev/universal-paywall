@@ -11,7 +11,7 @@
 | **Database** | SQLite | Zero config, single file, sufficient for MVP on one VPS; same pattern as mnemonik monorepo |
 | **x402 SDK** | @circle-fin/x402-batching | Battle-tested in arc-nanopayments, handles x402 protocol details |
 | **Fiat payments** | Stripe Connect | Platform model: auto-split via `application_fee_amount`, Stripe handles KYC/compliance |
-| **Blockchain** | Base (EVM, USDC) | Low fees, EVM-compatible, USDC native support, Circle ecosystem |
+| **Blockchain** | EVM-compatible (chain-agnostic) | Architecture supports any EVM chain; Arc Network is first supported chain (low fees, Circle USDC native). Base, Ethereum mainnet — post-MVP. |
 | **Hosting** | Hetzner VPS | Cost-effective, full control, Docker-based |
 | **CI/CD** | GitHub Actions | |
 | **Containers** | Docker + Docker Compose | |
@@ -120,7 +120,7 @@ CREATE TABLE transactions (
 | Service | Purpose |
 |---|---|
 | **Stripe Connect** | Fiat payment processing + automatic platform fee split |
-| **Base RPC** (Alchemy/Infura) | Verify x402 USDC transactions on Base |
+| **Arc RPC** (Arc Network) | Verify x402 USDC transactions on Arc (first chain); viem PublicClient, swappable per network config |
 | **Circle @circle-fin/x402-batching** | x402 protocol client for agent payments |
 | **Google/GitHub OAuth** | Developer authentication |
 
