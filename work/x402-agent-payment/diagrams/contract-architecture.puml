@@ -23,13 +23,13 @@ class PaymentSplitterFactory <<Ownable2Step, Pausable>> {
   + register() returns (address vault)
     whenNotPaused;
     require vaults[msg.sender] == 0  // AlreadyRegistered
-    vault = Clones.cloneDeterministic(vaultImpl, bytes32(msg.sender))
+    vault = Clones.cloneDeterministic(vaultImpl, bytes32(uint256(uint160(msg.sender))))
     IPaymentVault(vault).initialize(msg.sender)
     vaults[msg.sender] = vault
     emit VaultDeployed(msg.sender, vault)
 
   + computeVaultAddress(address developer) view returns (address)
-    return Clones.predictDeterministicAddress(vaultImpl, bytes32(developer), address(this))
+    return Clones.predictDeterministicAddress(vaultImpl, bytes32(uint256(uint160(developer))), address(this))
 
   -- Admin --
   + setFeeBps(uint16): owner-only, require bps <= 1000

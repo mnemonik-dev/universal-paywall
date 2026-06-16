@@ -192,6 +192,28 @@ Happy-path sequence:
 **Rationale:** [TECHNICAL] OZ 5.x requires ≥0.8.20. `Ownable2Step` reduces owner-key-compromise blast radius (two-step transfer). Storage-based `ReentrancyGuard` chosen because Arc Testnet's transient-storage support (EIP-1153) is not yet verified — `ReentrancyGuardTransient` would brick if unsupported.
 **Alternatives considered:** OZ 4.x — older patterns. `ReentrancyGuardTransient` — deferred until Arc 1153 support confirmed.
 
+### D15: Vault implementation contract is locked from direct initialization
+
+**Decision:** `PaymentVaultImpl` constructor calls `_disableInitializers()` (OZ 5.x `Initializable` helper). The implementation contract therefore cannot be `initialize`-d directly — only clones produced by the factory can be initialized once each.
+**Rationale:** Cloneable contracts that don't disable initializers on the impl let any external actor seize the impl by calling `initialize` first. While the impl is never the `payTo` address (only clones are), a hijacked impl can be used in social-engineering / supply-chain attacks. Standard OZ guidance. [TECHNICAL] — security-driven, not in user-spec.
+**Alternatives considered:** Set a dummy initializer in the impl constructor — equivalent. `_disableInitializers()` is the canonical primitive.
+
+### D16: Vault has no `receive()` or `fallback()` payable
+
+**Decision:** `PaymentVaultImpl` defines neither `receive() external payable` nor `fallback() external payable`. Native asset (ETH-equivalent) sent to the vault reverts. The only on-chain inbound path is ERC-20 `transfer` of the configured USDC token.
+**Rationale:** USDC is the native gas token on Arc Network — there is no separate ETH-equivalent that vaults should accept. Refusing native sends prevents accidental loss and keeps the vault's invariant simple (`balanceOf(this)` is the only quantity that matters). [TECHNICAL] — captures the user-spec constraint as a Decision.
+
+### D17: Vault `developer` and `factory` are set once in `initialize` and have no setters
+
+**Decision:** `PaymentVaultImpl` stores `developer` and `factory` as plain `address` fields written exactly once inside `initialize(_developer)`. No `setDeveloper`, no `setFactory`, no migration helpers. The `Initializable` guard prevents re-initialization. Documented in code via NatSpec; enforced structurally by the absence of setters.
+**Rationale:** Vault funds belong to one developer and rely on one factory for fee/treasury reads. Allowing either to change after initialization would let a compromised factory or migration script reroute developer funds. [TECHNICAL] — captures the user-spec constraint as a Decision.
+**Alternatives considered:** "Logical" immutables via `private` storage + view getters — equivalent. `immutable` keyword cannot be used on values written in `initialize` (Solidity requires constructor-set), so the field is functionally immutable in practice but typed as plain `address`.
+
+### D18: Structured security logging surface
+
+**Decision:** Middleware accepts an optional `logger: SecurityLogger` field in `PaywallConfig` (defaults to no-op). `SecurityLogger` is an interface with `securityEvent(name, payload)` where `name ∈ {'signature_invalid', 'nonce_replay_attempt', 'settlement_failed', 'paused_request', 'vault_not_deployed', 'network_mismatch', 'header_too_large', 'malformed_header', 'relayer_initialized', 'chain_id_pinned'}`. Payloads pass through the relayer-key redactor.
+**Rationale:** OWASP A09 (Security Logging & Monitoring Failures). Without a logger surface, operators have no audit trail for forensic incident response. Default-no-op keeps it optional; integrators wire `pino`/`winston`/Datadog as needed. [TECHNICAL] — security-driven.
+
 ### D9: Hardhat over Foundry
 
 **Decision:** Hardhat for tests + deploy.
@@ -214,8 +236,8 @@ Happy-path sequence:
 
 ### D13: Relayer key handled as opaque, non-enumerable wrapper
 
-**Decision:** Introduce `OpaqueRelayerKey` type whose private field is non-enumerable + `toJSON()`/`toString()` redact. `settle.ts` is the only consumer that extracts the underlying key (via a private symbol). All error handling redacts unknown stack content matching `0x[0-9a-fA-F]{64}`.
-**Rationale:** Mitigates accidental leak via `console.log(config)`, `JSON.stringify(config)`, error stack capture. [TECHNICAL] — not in user-spec, security-driven.
+**Decision:** Introduce `OpaqueRelayerKey` type whose private field is non-enumerable + `toJSON()` returns redacted string + `toString()` redacts + `[util.inspect.custom]` symbol returns redacted (so `console.log(config)` does NOT print the key) + the wrapper survives `pino`/`winston` log serialization without leaking. `settle.ts` is the only consumer that extracts the underlying key (via a private symbol). All error handling redacts unknown stack content matching `0x[0-9a-fA-F]{64}`. The same wrapper is used for `REGISTER_KEY` in `scripts/register.ts`.
+**Rationale:** Mitigates accidental leak via `console.log(config)`, `JSON.stringify(config)`, `util.inspect(config)`, error stack capture, and structured loggers. [TECHNICAL] — not in user-spec, security-driven.
 
 ### D14: Startup chainId pin + rpcUrl trust
 
@@ -243,11 +265,17 @@ event Unpaused();
 
 `PaymentVaultImpl.sol`:
 ```solidity
-address public developer;     // set in initialize, then immutable in practice
-address public factory;       // set in initialize, then immutable in practice
-bool private _initialized;    // Initializable
+address public developer;     // set in initialize, never overwritten — no setter exists (D17)
+address public factory;       // set in initialize, never overwritten — no setter exists (D17)
+// Initializable's internal _initialized flag enforces single-call (D15 + D17)
+
+// No receive() or fallback() — native asset transfers revert (D16)
 
 event Withdrawal(address indexed developer, uint256 gross, uint256 fee);
+
+constructor() {
+    _disableInitializers();   // D15: lock the impl from direct initialize
+}
 ```
 
 Custom errors (gas-efficient):
@@ -359,25 +387,38 @@ export interface PaymentPayload {
   - Network mismatch → fail.
 - `replay-store.ts`: synchronous has+insert; TTL eviction; 100k cap eviction; same `(from, nonce)` twice → reject.
 - `settle.ts`: classified failure-mode taxonomy — `rpc_timeout`, `rpc_5xx`, `gas_estimate_revert`, `mine_timeout`, `receipt_reverted`, `relayer_no_balance`, `authorization_already_used_onchain`. Each mocked + asserted on the resulting 402 reason.
-- `relayer-key.ts`: `JSON.stringify` redacts; `toString` redacts; error stacks redact 0x[a-f0-9]{64} patterns; non-enumerable.
+- `relayer-key.ts`: `JSON.stringify` redacts; `toString` redacts; `util.inspect` redacts (custom `[util.inspect.custom]` symbol); `structuredClone` does not expose the secret; the wrapper survives `pino`/`winston` log serialization without leaking; error stacks redact 0x[a-f0-9]{64} patterns; field is non-enumerable.
+- D14 startup chainId pin: middleware constructed with a mismatched RPC vs `NETWORKS[id].chainId` throws `NetworkMismatchError` on first request; correctly matched chainId is a no-op.
+- D18 SecurityLogger surface: each of the 10 event names emits when its trigger condition is met; payloads pass through the same redactor; default no-op logger produces no output.
+- Factory-state cache (paused / vaults): TTL 5s; a fresh registration is invisible until cache expiry; RPC error during cache fill returns the last good value if non-stale, else propagates as `settlement_failed.reason = "rpc_5xx"`.
+- Adapter unit tests (separate from forked-e2e):
+  - `withPaywall` (Node http) propagates handler exceptions; sets response headers correctly; flushes before user handler is invoked.
+  - `fastifyPaywall` (Fastify plugin) integrates into Fastify lifecycle (`preHandler`); sends 402 reply when X-PAYMENT absent; preserves Fastify reply chaining on 200.
 - `errors.ts`: each error reason produces a canonical body matching the schema.
 - Price parsing: `'0.01'` → `10000n`; `'1.5'` → `1500000n`; reject `'1.2345678'`, `'abc'`, `''`, `'-1'`, `'0'`, `'1e2'`, `' 1 '`.
 
 ### Contract tests (Hardhat + chai, ≥95% branch coverage)
 - `PaymentSplitterFactory.test.ts`:
   - `register`: deploys vault at predicted address; `vaults[developer]` populated; idempotent re-call reverts `AlreadyRegistered`; paused → reverts `EnforcedPause` (OZ 5.x); vault `initialize` called once with `_developer = msg.sender`.
+  - **CREATE2 cross-component invariant**: off-chain compute (middleware-side helper that mirrors `Clones.predictDeterministicAddress`) returns the same address as on-chain `computeVaultAddress`. Assert exact byte equality for at least 3 distinct developer EOAs.
+  - **`register` reentrancy invariant**: a malicious developer EOA whose `initialize` callback re-enters `factory.register()` is blocked (via OZ's `ReentrancyGuard` or check-before-effect ordering). Even though `initialize` on a fresh impl shouldn't normally callback, pin the invariant for future refactors.
   - `setFeeBps`: owner-only; revert `InvalidFeeBps` on `bps > 1000`; emits.
   - `setPlatformTreasury`: owner-only; revert `ZeroAddress`; emits.
   - `Ownable2Step` two-step transfer happy path + cancel.
   - `pause`/`unpause`: owner-only.
   - Constructor reverts on zero usdc/treasury/feeBps > 1000.
+  - **`VaultDeployed` event**: arg matches predicted address; `vaults[unregistered]` returns `0x0`; two separate developers in the same block produce two distinct vault addresses.
 - `PaymentVaultImpl.test.ts` (via clone deployed in test fixture):
   - `initialize` is single-call; reverts on second call.
+  - **`_disableInitializers()` on impl** (D15): calling `initialize` directly on `vaultImpl` (not a clone) reverts. This is the canonical hijack vector for cloneable contracts; explicit test.
+  - **No `receive()` / `fallback()`** (D16): sending native asset to the vault reverts.
+  - **No setters for `developer` / `factory`** (D17): pattern-test the ABI to assert neither selector exists (`setDeveloper(address)`, `setFactory(address)`).
   - `withdraw`: developer-only; no-balance reverts `NoBalance`; happy path splits gross→developer/fee→treasury; emits `Withdrawal(developer, gross, fee)`.
   - Fee edge cases: `feeBps = 0` → `fee = 0`, no second transfer; `feeBps = 1000` → 10% fee; `gross = 1` micro-USDC → `fee = 0` (truncation), full 1 unit to developer.
+  - **Fee-snapshot semantics**: factory.setFeeBps invoked between two payments and one withdraw — assert withdraw uses the fee at withdraw time (current contract semantics; documented behavior).
   - Reentrancy: malicious treasury that re-enters `withdraw` is blocked by `ReentrancyGuard`.
   - Withdraw works when factory is `paused()` (developers not locked out).
-- Forked-integration: `forked-e2e.test.ts` (runs in CI, no env gate) — deploys mock USDC with EIP-3009 + factory + vault + middleware (in-process node http server), runs the full happy path and replay-rejection path, asserts: 200 received, vault USDC balance increased by `value`, NonceStore rejects same-nonce retry, on-chain `usdc.authorizationState(from, nonce)` is true after settle.
+- Forked-integration: `forked-e2e.test.ts` (runs in CI, no env gate) — deploys mock USDC with EIP-3009 + factory + vault + middleware (in-process Node http server AND Fastify server), runs the full happy path against BOTH adapters and the replay-rejection path against one, asserts: 200 received, vault USDC balance increased by `value`, NonceStore rejects same-nonce retry, on-chain `usdc.authorizationState(from, nonce)` is true after settle. Also asserts rejection branches: `vault_not_deployed` (developer never registered) and `paused` (factory paused mid-test).
 
 ### E2E (gated by `ARC_TESTNET_E2E=1`, nightly job)
 - Real EIP-3009 signer against deployed factory + vault on Arc Testnet via real RPC.
@@ -403,7 +444,13 @@ export interface PaymentPayload {
 |------|-----------|
 | Arc Testnet USDC doesn't expose `transferWithAuthorization` as expected. | Wave 1 Task 3 spike reads `name`, `version`, `decimals`, selector for `transferWithAuthorization` and `authorizationState`. If absent, surface to user and pivot chain (Base Sepolia is the fallback). |
 | Arc USDC dual interface (18-decimal native gas vs 6-decimal ERC-20). | All facilitator math uses ERC-20 view (6 decimals). Spike asserts `decimals() == 6`. Test fixtures use 6-decimal mock. |
-| Relayer wallet exhausts USDC mid-settle (Arc gas paid in USDC). | Pre-deploy QA verifies relayer USDC ≥ 1. Settlement classifier surfaces `relayer_no_balance`. README documents the operational monitoring. Auto-refill is out of MVP scope. |
+| Relayer wallet exhausts USDC mid-settle (Arc gas paid in USDC). | Pre-deploy QA verifies relayer USDC ≥ 1. **Detection logic** in `settle.ts`: before `writeContract`, read `USDC.balanceOf(relayer)`; if `< gasEstimate * 2` → return `settlement_failed.reason = "relayer_no_balance"` (proactive). If `writeContract` still fails on gas — re-classify reactively under the same reason. Both paths emit `securityEvent("settlement_failed")`. README documents operational monitoring. Auto-refill is out of MVP scope. |
+| Per-payment settlement creates per-event gas overhead; high-volume API (sustained > 1 req/s) sees a non-trivial fraction of payment value spent on gas. | Documented limitation: MVP per-payment is fine for low/mid-volume. **Wave 1 Task 3 spike measures real `transferWithAuthorization` gas cost on Arc Testnet**. If gas > 5% of a 0.01 USDC payment, surface to user and consider deferring high-volume paths to a separate `x402-batched-settlement` feature (post-MVP, Gateway-pattern). |
+| Owner-key compromise reroutes treasury or maxes fee instantly (no timelock). | `Ownable2Step` prevents accidental loss; **does NOT prevent intentional reroute by a compromised key**. Mitigation: deployment guide (`deployment.md`) requires multisig (Safe) as initial owner; multisig provides social timelock. Add `timelock_recommended_for_treasury_changes` to README operational guide. **Optional post-MVP**: replace `Ownable2Step` with `TimelockController`. |
+| `paused()` is read off-chain with a 5s TTL cache; in-flight settlements between pause and cache expiry still settle on-chain. | Documented: pause is "stop new payments" not "freeze the contract". Withdrawals are unaffected (intentional). Operationally: pause has at most a 5s latency window. For instant on-chain freeze, owner can deploy a new factory and redirect middleware NETWORKS config (chain-agnostic by design). |
+| Front-running of `setFeeBps` / `setPlatformTreasury` against pending `vault.withdraw`. | Fee/treasury reads at withdraw time → owner changing these can affect withdraws in the same block. Treated as "fee schedule" not "fixed contract" semantics. Documented in README. Multisig owner reduces risk of malicious change. |
+| Untrusted RPC could fabricate settlement success (lie about receipt). | D14 chainId pin protects against accidental wrong-chain RPC. Against an **adversarial** RPC, the only defense is RPC URL trust at deploy. Documented: `facilitator.rpcUrl` must be a trusted endpoint. Optional post-MVP: cross-verify receipt against a second RPC. |
+| Rogue clone deployment (deploying a contract that LOOKS like a vault but isn't from the factory). | `payTo` in 402 is computed by middleware via `factory.computeVaultAddress(developerEoa)` against the canonical factory address baked into `NETWORKS[id].factoryAddress`. An agent following the 402 body always pays the correct vault. A vault that wasn't deployed by the canonical factory will have `factory != NETWORKS[id].factoryAddress` and middleware skips it. **`PaymentVaultImpl.initialize` is called by the factory at clone time**, so `factory = msg.sender = canonical factory` by construction (no need for runtime back-pointer check; the immutability constraint D17 guarantees this can't change). |
 | `NonceStore` is per-process → multi-instance breaks replay protection. | Explicit single-process limitation documented in user-spec "Что не входит" and in `replay-store.ts` source comment. Redis-backed multi-instance store is post-MVP. |
 | Arc Testnet RPC instability. | `facilitator.rpcUrl` overridable. Fallback mirror `https://5042002.rpc.thirdweb.com` documented. |
 | EIP-712 chain-replay attack. | Domain pins `chainId` + `verifyingContract`. Test cases tamper each of `chainId`, `verifyingContract`, `name`, `version` and assert verify fails. D14 enforces startup chainId pin against the configured network. |
@@ -421,6 +468,7 @@ All deviations were resolved by rewriting user-spec in lockstep with this tech-s
 
 - **From original draft: `payWithAuthorization` shared-splitter design → per-developer vault factory.** Driven by security findings (cross-developer attack, open-registration griefing). User-spec ACs rewritten to specify factory + vault, vault address as `payTo`, `vault.withdraw()` only.
 - **From original draft: arc-mainnet target → arc-testnet only.** Arc Mainnet not launched.
+- **No partial-withdraw API on vault (`withdraw()` only, no `withdraw(amount)`).** [TECHNICAL — D4] Justification: partial withdrawals enable fee-rounding gaming (small `amount` where `amount * feeBps / 10000 == 0` skips fee entirely). Single full-balance withdraw makes fee math exact. User-facing impact: developers cannot leave a portion accruing in the vault; if a developer wants to "save up", they must wait between withdraws.
 - **From original draft: developerId argument in X-PAYMENT payload → removed.** Standard x402 has no such field; per-developer vault makes it unnecessary (recipient determined by `to`).
 - **Added: `Pausable` factory + off-chain pause read.** Standard money-handling safety.
 - **Added: `Ownable2Step` for factory ownership.** Mitigates owner-key compromise.
@@ -434,9 +482,9 @@ All deviations were resolved by rewriting user-spec in lockstep with this tech-s
 
 → **[PENDING USER APPROVAL]** — entire user-spec + tech-spec set, post-rewrite.
 
-## Acceptance Criteria
+## Acceptance Criteria (technical complement)
 
-Technical AC complementing user-spec:
+Technical AC complementing user-spec ACs:
 
 - [ ] `npm install && npm run build --workspace=packages/middleware` succeeds; package is ESM-only (`"type": "module"`, no CJS export).
 - [ ] `cd contracts && npx hardhat compile` succeeds; pragma `^0.8.20`; OpenZeppelin 5.x imports resolve.
@@ -469,130 +517,126 @@ Technical AC complementing user-spec:
 - **Files to modify:** `contracts/{hardhat.config.ts,package.json,tsconfig.json}`
 - **Files to read:** `package.json`, `.claude/skills/project-knowledge/references/architecture.md`
 
-#### Task 3: Verify Arc Testnet USDC supports EIP-3009 (spike)
-- **Description:** Hardhat script that hits Arc Testnet RPC, confirms USDC `0x3600…` exposes `transferWithAuthorization` (selector `0xef55bec6`) + `authorizationState(address,bytes32)`. Reads `name()`, `version()`, `decimals()`. Patches `NETWORKS.arc-testnet.usdcEip712Name/version/expectedDecimals==6`.
+#### Task 3: Verify Arc Testnet USDC supports EIP-3009 + measure gas (spike)
+- **Description:** Hardhat script that hits Arc Testnet RPC, confirms USDC `0x3600…` exposes `transferWithAuthorization` (selector **`0xe3ee160e`**) + `authorizationState(address,bytes32)`. Reads `name()`, `version()`, `decimals()`. **Also estimates gas for a sample `transferWithAuthorization` call** and converts to USDC cost — surfaces to user if cost > 5% of a 0.01 USDC payment (per-payment economics check from external-analysis.md). Patches `NETWORKS.arc-testnet.usdcEip712Name/version` with the values read.
 - **Skill:** code-writing
-- **Reviewers:** code-reviewer
-- **Verify-smoke:** `cd contracts && npx hardhat run scripts/verify-usdc-eip3009.ts --network arcTestnet` prints `{name, version, decimals, supportsEip3009: true}`
+- **Reviewers:** code-reviewer, security-auditor, test-reviewer
+- **Verify-smoke:** `cd contracts && npx hardhat run scripts/verify-usdc-eip3009.ts --network arcTestnet` prints `{name, version, decimals: 6, supportsEip3009: true, sampleGasCost: "<n> micro-USDC"}`
 - **Files to modify:** `contracts/scripts/verify-usdc-eip3009.ts`
-- **Files to read:** `contracts/hardhat.config.ts`
+- **Files to read:** `contracts/hardhat.config.ts`, `packages/middleware/src/networks.ts`
 
-### Wave 2 — Smart contracts (sequential, after Wave 1)
+### Wave 2 — Smart contracts (after Wave 1)
 
 #### Task 4: Factory + Vault contracts
-- **Description:** Implement `PaymentSplitterFactory` and `PaymentVaultImpl` per Decisions D3/D4/D10/D11/D12/D8 and Data Models. Factory: `Ownable2Step`, `Pausable`; `register()`, `computeVaultAddress`, `setFeeBps`, `setPlatformTreasury`, `pause`/`unpause`. Vault: `Initializable`, `ReentrancyGuard`; `initialize`, `withdraw`. Mock USDC with EIP-3009 implementation for tests. `IERC3009` interface (off-chain ABI helper).
+- **Description:** Implement `PaymentSplitterFactory` and `PaymentVaultImpl` per Decisions D3/D4/D8/D10–D17 and Data Models. Define `IERC3009` interface and `MockUsdcEip3009` for tests. (Contract method/event signatures live in Data Models — implement to spec.)
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Verify-smoke:** `cd contracts && npx hardhat compile`
 - **Files to modify:** `contracts/contracts/{PaymentSplitterFactory.sol, PaymentVaultImpl.sol, interfaces/IERC3009.sol, mocks/MockUsdcEip3009.sol}`
-- **Files to read:** `work/x402-agent-payment/user-spec.md`, `.claude/skills/project-knowledge/references/patterns.md`
+- **Files to read:** `work/x402-agent-payment/user-spec.md`, `work/x402-agent-payment/tech-spec.md`
+
+### Wave 3 — Contract tests (after Wave 2)
 
 #### Task 5: Contract tests
-- **Description:** Hardhat + chai tests per Testing Strategy → "Contract tests". Cover both contracts; mock USDC; `Ownable2Step` happy path + cancel; reentrancy attempt with malicious treasury; fee math edge cases (0 / max / dust); withdraw-while-paused; constructor revert paths. ≥95% branch coverage.
+- **Description:** Hardhat + chai tests per Testing Strategy → "Contract tests" (covers CREATE2 cross-component invariant, `_disableInitializers()` impl-hijack guard, no-`receive()`/no-setter ABI assertions, fee math, withdraw-while-paused, `Ownable2Step`, register reentrancy invariant, all events). ≥95% branch coverage.
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Verify-smoke:** `cd contracts && npx hardhat coverage`
 - **Files to modify:** `contracts/test/{PaymentSplitterFactory.test.ts, PaymentVaultImpl.test.ts}`
 - **Files to read:** `contracts/contracts/PaymentSplitterFactory.sol`, `contracts/contracts/PaymentVaultImpl.sol`
 
-### Wave 3 — Middleware pure modules (parallel, after Wave 1)
+### Wave 4 — Middleware pure modules (parallel, after Wave 1)
 
-#### Task 6: Types, NETWORKS, x402 codec, errors
-- **Description:** `networks.ts` (NETWORKS keyed by both alias `arc-testnet` and CAIP-2 `eip155:5042002`; usdcEip712Name/version stubbed pending Task 3 patch). `types.ts` (all exported TS types per Data Models). `x402.ts` (`build402Body`, `decodeXPayment` with 4 KB size cap + strict `{signature, authorization}` shape, `encodeXPaymentResponse`; ajv-friendly). `errors.ts` (one builder per error reason; HTTP 400 vs 402 split per Solution). Pure functions, no I/O.
+#### Task 6: Types, NETWORKS, x402 codec, errors, relayer-key, replay-store
+- **Description:** All pure modules in one task (no external I/O, no inter-dependencies beyond `types.ts`): `networks.ts` (NETWORKS keyed by both alias `arc-testnet` and CAIP-2 `eip155:5042002`, name/version stubbed for Task 3 patch); `types.ts` (per Data Models); `x402.ts` (build/decode/encode with 4 KB cap + strict shape); `errors.ts` (HTTP 400 vs 402 per Solution); `relayer-key.ts` (OpaqueRelayerKey with `[util.inspect.custom]`, redacted `toJSON`/`toString`, symbol-based extract); `replay-store.ts` (NonceStore sync has+insert, TTL, 100k cap).
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
-- **Verify-smoke:** `npm test --workspace=packages/middleware -- src/__tests__/{x402,errors,networks}.test.ts`
-- **Files to modify:** `packages/middleware/src/{networks.ts,types.ts,x402.ts,errors.ts}`
+- **Verify-smoke:** `npm test --workspace=packages/middleware -- src/__tests__/{x402,errors,networks,relayer-key,replay-store}.test.ts`
+- **Files to modify:** `packages/middleware/src/{networks.ts,types.ts,x402.ts,errors.ts,relayer-key.ts,replay-store.ts}`
 - **Files to read:** `work/x402-agent-payment/code-research.md`, `work/x402-agent-payment/user-spec.md`
 
-#### Task 7: Relayer key wrapper + replay store
-- **Description:** `relayer-key.ts` (`OpaqueRelayerKey` non-enumerable wrapper, redacted `toJSON`/`toString`, `extractSecret` private-symbol accessor). `replay-store.ts` (`NonceStore` class: synchronous `has` + `insert` block, TTL eviction on `has`, 100k cap with oldest-`validBefore` FIFO eviction).
-- **Skill:** code-writing
-- **Reviewers:** code-reviewer, security-auditor, test-reviewer
-- **Verify-smoke:** `npm test --workspace=packages/middleware -- src/__tests__/{relayer-key,replay-store}.test.ts`
-- **Files to modify:** `packages/middleware/src/{relayer-key.ts,replay-store.ts}`
-- **Files to read:** `packages/middleware/src/types.ts`
+### Wave 5 — Middleware facilitator (parallel, after Waves 3+4)
 
-### Wave 4 — Middleware facilitator (parallel, after Waves 2+3)
-
-#### Task 8: Verify + Settle
-- **Description:** `verify.ts` (`verifyEip3009Authorization(payload, ctx)` — viem `recoverTypedDataAddress` with domain from NETWORKS; per-spec checks per Solution step 7c; classifies network mismatch + nonce reuse + validity windows). `settle.ts` (`settleOnChain` — WalletClient writeContract to USDC.transferWithAuthorization with explicit `from` parameter; `waitForTransactionReceipt({timeout: 30_000})`; classifier mapping any failure to one of the 7 settlement reasons; relayer key extracted via OpaqueRelayerKey symbol; chainId pin check on first call per D14).
+#### Task 7: Verify + Settle
+- **Description:** `verify.ts` (EIP-712 ecrecover + Solution-7c checks; classifies error reasons). `settle.ts` (WalletClient.writeContract to USDC.transferWithAuthorization with explicit `from`; receipt-await with timeout; classifier maps failures to the 7 settlement reasons per D5; chainId pin per D14).
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Verify-smoke:** `npm test --workspace=packages/middleware -- src/__tests__/{verify,settle}.test.ts`
 - **Files to modify:** `packages/middleware/src/{verify.ts,settle.ts}`
 - **Files to read:** `packages/middleware/src/{x402.ts,networks.ts,replay-store.ts,relayer-key.ts}`, `contracts/contracts/interfaces/IERC3009.sol`
 
-#### Task 9: Core orchestrator + adapters + index
-- **Description:** `core.ts` (`paywall(req, opts)` → orchestrates: header-size check, decode, verify, factory-state cache (paused / vaults), settle, response). `adapters/node-http.ts` (`withPaywall(handler, opts)`). `adapters/fastify.ts` (`fastifyPaywall(opts)`). `index.ts` (public exports).
+#### Task 8: Core orchestrator + adapters + index
+- **Description:** `core.ts` orchestrates verify + factory-state cache + settle + response per Solution. `adapters/node-http.ts` and `adapters/fastify.ts` (per D6). `index.ts` exports public API. SecurityLogger surface from D18 wired through.
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
-- **Verify-smoke:** `npm run build --workspace=packages/middleware && node -e "import('@universal-paywall/middleware').then(m=>console.log(Object.keys(m)))"`
+- **Verify-smoke:** `npm run build --workspace=packages/middleware && node -e "import('@universal-paywall/middleware').then(m=>console.log(Object.keys(m).sort()))"`
 - **Files to modify:** `packages/middleware/src/{core.ts,adapters/node-http.ts,adapters/fastify.ts,index.ts}`
 - **Files to read:** `packages/middleware/src/{verify.ts,settle.ts,errors.ts,x402.ts}`
 
-### Wave 5 — Tests + tooling + integration (parallel, after Wave 4)
+### Wave 6 — Tests + tooling (parallel, after Wave 5)
 
-#### Task 10: Middleware unit tests
-- **Description:** Vitest suite per Testing Strategy → "Unit tests". Covers all modules; ajv-validate the 402 body against a vendored x402 v1 JSON Schema; mock viem RPC; relayer-key redaction tests; replay-store TOCTOU and cap tests. ≥85% line coverage.
+#### Task 9: Middleware unit tests (incl. adapter unit tests)
+- **Description:** Vitest per Testing Strategy → "Unit tests" + the dedicated adapter tests (Node http and Fastify lifecycle). ajv-validates 402 body against vendored x402 v1 schema. Factory-state cache TTL + RPC-error tests. ≥85% line coverage.
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Verify-smoke:** `npm test --workspace=packages/middleware -- --coverage`
-- **Files to modify:** `packages/middleware/src/__tests__/*.test.ts`, `packages/middleware/src/__tests__/fixtures/x402-v1.schema.json`
+- **Files to modify:** `packages/middleware/__tests__/*.test.ts`, `packages/middleware/__tests__/fixtures/x402-v1.schema.json`
 - **Files to read:** all of `packages/middleware/src/`
 
-#### Task 11: Forked integration test + Arc Testnet e2e (gated)
-- **Description:** `contracts/test/integration/forked-e2e.test.ts` — runs in CI by default; deploys mock USDC + factory + vault; spawns an in-process Node http server using `withPaywall()` AND a separate Fastify server using `fastifyPaywall()`; runs the full happy path and replay-rejection path against both. `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts` — gated on `ARC_TESTNET_E2E=1`; hand-rolled EIP-3009 signer against live Arc Testnet. Both assert: 200 received, vault USDC balance increased, NonceStore rejects retry.
+#### Task 10: Forked integration + Arc Testnet e2e (gated)
+- **Description:** Forked test exercises both adapters end-to-end against mock USDC + factory + vault, including rejection branches (`vault_not_deployed`, `paused`) and on-chain `usdc.authorizationState(from, nonce)` assertion. Live Arc Testnet test (`ARC_TESTNET_E2E=1`, nightly) for production-environment confidence.
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Verify-smoke:** `cd contracts && npx hardhat test test/integration/forked-e2e.test.ts`
 - **Files to modify:** `contracts/test/integration/forked-e2e.test.ts`, `packages/middleware/__tests__/integration/arc-testnet-e2e.test.ts`
 - **Files to read:** `packages/middleware/src/index.ts`, `contracts/contracts/PaymentSplitterFactory.sol`, `contracts/contracts/PaymentVaultImpl.sol`
 
-#### Task 12: Deploy script + register CLI + README
-- **Description:** `contracts/deploy/01_deploy_factory.ts` — deploys `PaymentSplitterFactory(usdcAddress, treasuryAddress, 50)`, prints factory address + vaultImpl address; calls `hardhat-verify` against arcscan. Patches `packages/middleware/src/networks.ts` with deployed addresses. `scripts/register.ts` — `tsx` CLI: `--network`, reads `REGISTER_KEY` env, calls `factory.register()` from EOA. Writes `README.md`: faucet → register → install middleware → run server.
+#### Task 11: Deploy script + register CLI + README
+- **Description:** Deploy script for factory + impl; arcscan verification; patches `networks.ts` with deployed addresses. `register.ts` CLI invokes `factory.register()` from developer EOA. README walks: faucet → register → install middleware → run server.
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
-- **Verify-smoke:** dry-run on local Hardhat node: `cd contracts && npx hardhat node` (separate terminal) + `npx hardhat run deploy/01_deploy_factory.ts --network localhost`
+- **Verify-smoke:** Dry-run on local Hardhat node: `cd contracts && npx hardhat node` (separate terminal) + `npx hardhat run deploy/01_deploy_factory.ts --network localhost`
 - **Verify-user:** Read `README.md`; the steps work when followed by a new developer.
 - **Files to modify:** `contracts/deploy/01_deploy_factory.ts`, `scripts/register.ts`, `README.md`, `packages/middleware/src/networks.ts`
 - **Files to read:** `contracts/contracts/PaymentSplitterFactory.sol`, `contracts/hardhat.config.ts`
 
-### Audit Wave (parallel, after Wave 5)
+### Audit Wave (parallel, after Wave 6)
 
-#### Task 13: Code Audit
-- **Description:** Full-feature code quality audit. Read every source file in `packages/middleware/src/`, `contracts/contracts/`, `scripts/`, `contracts/deploy/`, `contracts/scripts/`. Holistic review: shared resources, adapter consistency, naming, error handling, framework-adapter parity. Write `work/x402-agent-payment/audit-code.md`.
+#### Task 12: Code Audit
+- **Description:** Holistic full-feature code quality audit across `packages/middleware/src/`, `contracts/contracts/`, `scripts/`, `contracts/deploy/`, `contracts/scripts/`. Write `work/x402-agent-payment/audit-code.md`.
 - **Skill:** code-reviewing
 - **Reviewers:** none
 
-#### Task 14: Security Audit
-- **Description:** Full-feature security audit. OWASP middleware (X-PAYMENT validation, relayer key handling, RPC trust, integer math). Solidity: reentrancy, access control, event emissions, Pausable correctness, CREATE2 collision resistance, initializer guard, EIP-712 chain-replay safety. Write `work/x402-agent-payment/audit-security.md`.
+#### Task 13: Security Audit
+- **Description:** OWASP middleware + Solidity audit covering reentrancy, access control, event emissions, Pausable correctness, CREATE2 collision, initializer guard, EIP-712 chain-replay, OpaqueRelayerKey defense-in-depth. Write `work/x402-agent-payment/audit-security.md`.
 - **Skill:** security-auditor
 - **Reviewers:** none
 
-#### Task 15: Test Audit
-- **Description:** Full-feature test quality audit. Verify ≥85% middleware line coverage, ≥95% contract branch coverage. Verify ajv schema check on 402 body, EIP-712 tamper tests, settlement taxonomy coverage, forked-e2e adequacy. Write `work/x402-agent-payment/audit-tests.md`.
+#### Task 14: Test Audit
+- **Description:** Verify coverage targets; ajv schema check, EIP-712 tamper tests, settlement taxonomy, CREATE2 cross-component test, `_disableInitializers()` test, adapter unit tests, forked-e2e completeness. Write `work/x402-agent-payment/audit-tests.md`.
 - **Skill:** test-master
 - **Reviewers:** none
 
 ### Final Wave
 
-#### Task 16: Pre-deploy QA (requires user approval of tech-spec)
-- **Description:** Verify user has approved the tech-spec (`status: approved` in frontmatter). Block if still `draft`. Run full test suite: `npm test` + `cd contracts && npx hardhat test && npx hardhat coverage` + `ARC_TESTNET_E2E=1 npm run test:e2e --workspace=packages/middleware`. Walk every AC in user-spec and tech-spec's Acceptance Criteria. Produce checklist report. Block deploy if any AC unmet.
+#### Task 15: Pre-deploy QA (requires user approval of tech-spec)
+- **Description:** Block if `status: draft`. Run full suites: `npm test` + `cd contracts && npx hardhat test && npx hardhat coverage` + `ARC_TESTNET_E2E=1 npm run test:e2e --workspace=packages/middleware`. Walk every user-spec and tech-spec AC. Produce checklist report.
 - **Skill:** pre-deploy-qa
 - **Reviewers:** none
+- **Verify-smoke:** All suites exit 0; checklist report committed under `work/x402-agent-payment/qa-report.md`.
 
-#### Task 17: Deploy to Arc Testnet + npm publish (alpha)
-- **Description:** `01_deploy_factory.ts --network arcTestnet`. Verify on `https://testnet.arcscan.app`. Commit updated `networks.ts` with addresses. Publish `@universal-paywall/middleware@0.1.0-alpha.0` with `--access=public --tag=alpha --provenance` (SLSA build provenance).
+#### Task 16: Deploy to Arc Testnet + npm publish (alpha)
+- **Description:** Deploy factory; verify on arcscan. Commit `networks.ts` with addresses. Publish `@universal-paywall/middleware@0.1.0-alpha.0` with `--access=public --tag=alpha --provenance`.
 - **Skill:** deploy-pipeline
-- **Reviewers:** none
+- **Reviewers:** code-reviewer, security-auditor, deploy-reviewer
 - **Verify-smoke:** `npm view @universal-paywall/middleware@0.1.0-alpha.0 dist.tarball` returns a tarball URL.
 
-#### Task 18: Post-deploy verification
-- **Description:** Live environment verification on Arc Testnet:
-  - On-chain: `factory.feeBps() == 50`; `factory.platformTreasury()` matches deploy config; `factory.owner()` matches expected multisig (or deployer for MVP). — tool: bash + viem script.
-  - Run live e2e test against the published factory: `ARC_TESTNET_E2E=1 npm run test:e2e`. — tool: bash.
-  - HTTP smoke in a scratch dir: install `@universal-paywall/middleware@0.1.0-alpha.0`, set up a Node server, hit with curl, verify 402 body is x402 v1-shaped (ajv-validated). — tool: bash + curl.
+#### Task 17: Post-deploy verification
+- **Description:** Live environment verification:
+  - On-chain reads: `factory.feeBps() == 50`, `factory.platformTreasury()` matches deploy, `factory.owner()` is expected multisig/deployer, `factory.paused() == false`. — tool: bash + viem script.
+  - Live e2e against the deployed factory: `ARC_TESTNET_E2E=1 npm run test:e2e`. — tool: bash.
+  - HTTP smoke: install `@universal-paywall/middleware@0.1.0-alpha.0` in a scratch dir, run a Node server, curl returns ajv-valid 402 body. — tool: bash + curl.
   Tools: bash, curl, viem (programmatic, not MCP).
 - **Skill:** post-deploy-qa
 - **Reviewers:** none
+- **Verify-smoke:** All three steps return success; verification report committed under `work/x402-agent-payment/post-deploy-report.md`.

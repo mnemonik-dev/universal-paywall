@@ -199,7 +199,7 @@ Developer EOA → vault.withdraw()  (msg.sender-gated, nonReentrant)
 
 - [ ] Inherits `Initializable` (OZ 5.x) + `ReentrancyGuard` (storage-based, not transient; Arc support for transient storage unverified).
 - [ ] `initialize(address _developer)`: `initializer` modifier; `require _developer != 0`; sets `developer = _developer`, `factory = msg.sender` (factory storage assigned at clone time).
-- [ ] `withdraw()`: `nonReentrant`, `msg.sender == developer`, reads `gross = SafeERC20.balanceOf(usdc, this)` (через factory), `require gross > 0` (revert `"no_balance"`), `fee = gross * feeBps / 10000`, `net = gross - fee`, `SafeERC20.safeTransfer(developer, net)`, if `fee > 0` then `SafeERC20.safeTransfer(platformTreasury, fee)`, emits `Withdrawal(developer, gross, fee)`.
+- [ ] `withdraw()`: `nonReentrant`, `msg.sender == developer`, reads `gross = IERC20(factory.usdc()).balanceOf(address(this))`, `require gross > 0` (revert `"no_balance"`), `fee = gross * factory.feeBps() / 10000`, `net = gross - fee`, `SafeERC20.safeTransfer(usdc, developer, net)`, if `fee > 0` then `SafeERC20.safeTransfer(usdc, factory.platformTreasury(), fee)`, emits `Withdrawal(developer, gross, fee)`.
 - [ ] Withdraw работает **независимо** от `factory.paused()` (developers не блокируются от своих средств).
 - [ ] Нет setter'ов для `developer` или `factory` — оба immutable post-initialize.
 - [ ] Vault не имеет `receive()` payable (native не должен случайно приходить).
