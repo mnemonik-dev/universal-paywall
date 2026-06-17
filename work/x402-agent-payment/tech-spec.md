@@ -241,10 +241,16 @@ Every payload value is run through `scrubSecrets(...)` (D13) before emit. Logger
 
 **Rationale:** OWASP A09 (Security Logging & Monitoring Failures). Typed catalog forces every emit site to declare what it logs (no free-form payloads → no PII leak; no raw signatures → defense in depth on relayer-key paths). Default no-op keeps it optional; integrators wire `pino`/`winston`/Datadog as needed. `try/catch` prevents a misconfigured logger from causing self-DoS. [TECHNICAL] — security-driven.
 
-### D9: Hardhat over Foundry
+### D9: Foundry for contract tests; lightweight Hardhat-like layer only where TS interop is required
 
-**Decision:** Hardhat for tests + deploy.
-**Rationale:** [TECHNICAL] `architecture.md` lists Hardhat. TypeScript-native tests align with the monorepo.
+**Decision:** **Foundry (forge + anvil)** is the canonical contract toolchain — `forge test` for unit, fuzz, and invariant tests; `anvil` for local-fork node in T10's middleware integration tests; `forge script` for the deploy + verify pipeline; `slither` for static analysis.
+
+The TS post-deploy step that patches `packages/middleware/src/networks.ts` (sentinel comments per systemic-fix §13) reads `broadcast/run-latest.json` from the forge run and applies the same sed-style replacement — no Hardhat involved.
+**Rationale:** [TECHNICAL] Foundry's invariant + fuzz support is materially better than Hardhat for the security surface here (factory + vault + malicious actor scenarios, reentrancy via developer-callback paths if added post-MVP, fee-math overflow surfaces). Forge tests are written in Solidity, so test mocks ship in the same compile unit as the contracts without needing a parallel TS test runner. Re-using OpenZeppelin via `forge install OpenZeppelin/openzeppelin-contracts` keeps the dep graph minimal.
+**Alternatives considered:**
+- Hardhat for everything: rejected — chai assertions can't express invariant/fuzz properties idiomatically; mocks-in-Solidity are an awkward fit when the test harness is JS.
+- Hybrid (Hardhat for everything except invariants): rejected — adds two toolchains for marginal benefit.
+- Pure Foundry incl. for the middleware-side e2e: rejected — middleware is TS; anvil-as-node + viem from TS test is the cleanest split.
 
 ### D10: Configurable platform fee — owner-only, 0–1000 bps, default 50 bps
 
@@ -398,8 +404,11 @@ export interface PaymentPayload {
 - `vitest`, `ajv` (JSON Schema for 402 body shape), `tsup` (bundle), `tsx` (test/CLI runner)
 
 ### New (contracts)
-- `@openzeppelin/contracts` ^5.0.0 — `Ownable2Step`, `Pausable`, `ReentrancyGuard`, `Initializable`, `Clones`, `SafeERC20`, `IERC20`
-- `hardhat`, `@nomicfoundation/hardhat-toolbox`, `@nomicfoundation/hardhat-verify`
+- `@openzeppelin/contracts` ^5.0.2 (via `forge install OpenZeppelin/openzeppelin-contracts@v5.0.2`) — `Ownable2Step`, `Pausable`, `ReentrancyGuard`, `Initializable`, `Clones`, `SafeERC20`, `IERC20`
+- `foundry-rs/foundry` (forge + anvil + cast) — install via `foundryup`
+- `slither-analyzer` (Python) — static analysis
+- `viem` — TS post-deploy script + spike (T3)
+- `tsx` — runs TS post-deploy script
 
 ### Reused from project
 - TypeScript, ESLint, Prettier, gitleaks pre-commit.
