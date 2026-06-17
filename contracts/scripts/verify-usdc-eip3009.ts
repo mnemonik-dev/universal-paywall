@@ -214,7 +214,11 @@ async function probeAuthorizationState(
       notes.push(`authorizationState: existence inferred from revert (${errMessage(err)})`);
       return { exists: true };
     }
-    notes.push(`authorizationState: ambiguous probe outcome — ${errMessage(err)}`);
+    // Treat as absent (conservative): we couldn't classify the error as
+    // either a clean missing-selector signal or a function-body revert.
+    notes.push(
+      `authorizationState: probe inconclusive (treating as absent to avoid false positive) — ${errMessage(err)}`,
+    );
     return { exists: false };
   }
 }
@@ -258,7 +262,10 @@ async function probeTransferWithAuthorization(
       // gas number because the call reverted before the body completed.
       return { exists: true, gasEstimate: null };
     }
-    notes.push(`transferWithAuthorization: gas estimation unavailable — ${errMessage(err)}`);
+    // Treat as absent (conservative) for the same reason as authorizationState.
+    notes.push(
+      `transferWithAuthorization: probe inconclusive (treating as absent to avoid false positive) — ${errMessage(err)}`,
+    );
     return { exists: false, gasEstimate: null };
   }
 }
@@ -297,6 +304,11 @@ function microUsdcFromGasCostWei(gasCostWei: bigint): bigint {
   return (gasCostWei + scale - 1n) / scale;
 }
 
+// Sentinel used when gas pricing is unavailable. Distinguished from a real
+// "0 micro-USDC" measurement so T6 + reviewers do not mistake it for a free
+// payment. Kept as a literal string so the artifact shape stays string-typed.
+const GAS_COST_UNAVAILABLE = 'unavailable (gas pricing skipped)';
+
 async function main(): Promise<void> {
   const notes: string[] = [];
 
@@ -326,70 +338,10 @@ async function main(): Promise<void> {
   const twaProbe = await probeTransferWithAuthorization(client, notes);
   const supportsEip3009 = authStateProbe.exists && twaProbe.exists;
 
-  let sampleGasCostMicroUsdc: bigint;
-  let gasCostExceedsThreshold = false;
-
-  if (!supportsEip3009) {
-    // Hard blocker — economics are moot.
-    sampleGasCostMicroUsdc = 0n;
-  } else {
-    let gasEstimate = twaProbe.gasEstimate;
-    if (gasEstimate === null) {
-      gasEstimate = GAS_ESTIMATE_FALLBACK;
-      notes.push(
-        `gas estimation fallback applied: assumed ${GAS_ESTIMATE_FALLBACK.toString()} gas (node refused estimate for reverting call)`,
-      );
-    }
-
-    const gasPriceWei = await readGasPriceWei(client, notes);
-    if (gasPriceWei === null) {
-      sampleGasCostMicroUsdc = 0n;
-    } else {
-      // gasPriceWei: 18-decimal native wei per unit gas.
-      // gasEstimate: dimensionless gas units.
-      // gasCostWei: 18-decimal native wei (total).
-      // microUsdc:  6-decimal ERC-20 view of the same cost.
-      const gasCostWei = gasEstimate * gasPriceWei;
-      sampleGasCostMicroUsdc = microUsdcFromGasCostWei(gasCostWei);
-
-      // Sanity check: a 60k-gas tx at any plausible mainnet-like gasPrice should
-      // land between 1 and 1e9 micro-USDC. If we drift far outside that band,
-      // the dual-decimal conversion is almost certainly wrong — bail rather than
-      // publish a misleading number.
-      const wildlyLow = sampleGasCostMicroUsdc === 0n && gasCostWei > 0n;
-      const wildlyHigh = sampleGasCostMicroUsdc > 10n ** 12n;
-      if (wildlyLow || wildlyHigh) {
-        console.error(
-          `[verify-usdc-eip3009] FATAL: gas cost conversion produced an implausible value (${sampleGasCostMicroUsdc} micro-USDC ` +
-            `from ${gasCostWei} wei). Refusing to publish a wrong number — inspect dual-decimal handling.`,
-        );
-        process.exit(1);
-      }
-
-      notes.push('arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6');
-      gasCostExceedsThreshold = sampleGasCostMicroUsdc > GAS_COST_THRESHOLD_MICRO_USDC;
-    }
-  }
-
-  const probe: UsdcEip3009Probe = {
-    name: domain.name,
-    version: domain.version,
-    decimals: domain.decimals,
-    supportsEip3009,
-    sampleGasCost: `${sampleGasCostMicroUsdc.toString()} micro-USDC`,
-    gasCostExceedsThreshold,
-  };
-  const out: UsdcEip3009Probe = notes.length > 0 ? { ...probe, notes: [...notes] } : probe;
-
-  // Stdout: single-line JSON for the smoke check.
-  console.log(JSON.stringify(out));
-
-  // Artifact: pretty-printed copy beside this script for T6 to consume.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const artifactPath = resolve(here, 'arc-testnet-usdc-domain.json');
-  writeFileSync(artifactPath, `${JSON.stringify(out, null, 2)}\n`);
-
-  // Hard blockers — exit non-zero so the wave halts and we pivot per Risks fallback.
+  // Hard blockers fire BEFORE we compute economics, write the artifact, or
+  // emit stdout — a failed spike must never leave a stale or wrong-valued
+  // artifact on disk for T6 to pick up. The wave halts; operator pivots per
+  // tech-spec Risks fallback.
   if (!supportsEip3009) {
     console.error(
       '[verify-usdc-eip3009] HARD BLOCKER: supportsEip3009 === false. ' +
@@ -404,6 +356,73 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+
+  // Economics — only computed past the hard blockers.
+  let sampleGasCost: string;
+  let gasCostExceedsThreshold = false;
+
+  let gasEstimate = twaProbe.gasEstimate;
+  if (gasEstimate === null) {
+    gasEstimate = GAS_ESTIMATE_FALLBACK;
+    notes.push(
+      `gas estimation fallback applied: assumed ${GAS_ESTIMATE_FALLBACK.toString()} gas (node refused estimate for reverting call)`,
+    );
+  }
+
+  const gasPriceWei = await readGasPriceWei(client, notes);
+  if (gasPriceWei === null) {
+    // readGasPriceWei already pushed a `notes[]` entry. Use a sentinel string
+    // so consumers can distinguish "we couldn't measure" from "0 micro-USDC".
+    sampleGasCost = GAS_COST_UNAVAILABLE;
+  } else {
+    // gasPriceWei: 18-decimal native wei per unit gas.
+    // gasEstimate: dimensionless gas units.
+    // gasCostWei: 18-decimal native wei (total).
+    // microUsdc:  6-decimal ERC-20 view of the same cost.
+    const gasCostWei = gasEstimate * gasPriceWei;
+    const sampleGasCostMicroUsdc = microUsdcFromGasCostWei(gasCostWei);
+
+    // Sanity-band: at any plausible Arc-style gasPrice, a 60k-gas tx should
+    // produce a micro-USDC cost in [1, 10^12]:
+    //   - wildlyLow → wei→micro-USDC ceil-divide collapsed a non-zero cost to
+    //     zero (off-by-12-orders-of-magnitude bug).
+    //   - wildlyHigh → conversion went the wrong way (multiplied instead of
+    //     divided, or the wei scale is off).
+    // Either way the math is wrong; refuse to publish a misleading number.
+    const wildlyLow = sampleGasCostMicroUsdc === 0n && gasCostWei > 0n;
+    const wildlyHigh = sampleGasCostMicroUsdc > 10n ** 12n;
+    if (wildlyLow || wildlyHigh) {
+      console.error(
+        `[verify-usdc-eip3009] FATAL: gas cost conversion produced an implausible value (${sampleGasCostMicroUsdc} micro-USDC ` +
+          `from ${gasCostWei} wei). Refusing to publish a wrong number — inspect dual-decimal handling.`,
+      );
+      process.exit(1);
+    }
+
+    notes.push('arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6');
+    gasCostExceedsThreshold = sampleGasCostMicroUsdc > GAS_COST_THRESHOLD_MICRO_USDC;
+    sampleGasCost = `${sampleGasCostMicroUsdc.toString()} micro-USDC`;
+  }
+
+  const probe: UsdcEip3009Probe = {
+    name: domain.name,
+    version: domain.version,
+    decimals: domain.decimals,
+    supportsEip3009,
+    sampleGasCost,
+    gasCostExceedsThreshold,
+  };
+  const out: UsdcEip3009Probe = notes.length > 0 ? { ...probe, notes: [...notes] } : probe;
+
+  // Stdout: single-line JSON for the smoke check.
+  console.log(JSON.stringify(out));
+
+  // Artifact: pretty-printed copy beside this script for T6 to consume.
+  // Only written past the hard-blocker checks above, so a stale artifact
+  // is never produced.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const artifactPath = resolve(here, 'arc-testnet-usdc-domain.json');
+  writeFileSync(artifactPath, `${JSON.stringify(out, null, 2)}\n`);
 
   if (gasCostExceedsThreshold) {
     console.warn(

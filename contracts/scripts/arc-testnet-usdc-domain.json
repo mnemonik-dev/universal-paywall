@@ -3,7 +3,7 @@
   "version": "2",
   "decimals": 6,
   "supportsEip3009": true,
-  "sampleGasCost": "1212 micro-USDC",
+  "sampleGasCost": "1260 micro-USDC",
   "gasCostExceedsThreshold": true,
   "notes": [
     "gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)",
