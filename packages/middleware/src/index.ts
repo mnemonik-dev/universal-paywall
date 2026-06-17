@@ -5,13 +5,15 @@
  *   - `withPaywall` (Node http adapter)
  *   - `fastifyPaywall` (Fastify plugin)
  *   - `NETWORKS` (chain registry)
- *   - `SecurityLogger` (typed event interface) + event catalog types
+ *   - `OpaqueRelayerKey` (relayer-key constructor)
  *   - Public types: `PaywallConfig`, `NetworkConfig`, `PaymentRequirements`,
- *     `PaymentPayload`, `ExactEvmPayload`, `OpaqueRelayerKey`.
+ *     `PaymentPayload`, `ExactEvmPayload`, `OpaqueRelayerKey` (shape),
+ *     `SecurityLogger`, `SecurityEventCatalog`, `SecurityEventName`.
  *
  * Internal helpers are intentionally NOT re-exported: `verify`, `settle`,
  * `NonceStore`, the `OpaqueRelayerKey` extract symbol, `FactoryStateCache`,
- * `replay-store` internals.
+ * `replay-store` internals, `PaywallCoreOptions`, `PaywallRequest`,
+ * `PaywallResult` (core's adapter-facing types).
  */
 
 export { withPaywall } from './adapters/node-http.js';
@@ -20,15 +22,6 @@ export type { NodeHttpHandler } from './adapters/node-http.js';
 export { fastifyPaywall } from './adapters/fastify.js';
 
 export { NETWORKS } from './networks.js';
-
-export type {
-  SecurityLogger,
-  SecurityEventCatalog,
-  SecurityEventName,
-  PaywallCoreOptions,
-  PaywallRequest,
-  PaywallResult,
-} from './core.js';
 
 // OpaqueRelayerKey: the class is the public constructor agents use to wrap a
 // raw private key. The internal `getRelayerKeySecret` extract function is
@@ -42,4 +35,7 @@ export type {
   PaymentPayload,
   PaymentRequirements,
   PaywallConfig,
+  SecurityEventCatalog,
+  SecurityEventName,
+  SecurityLogger,
 } from './types.js';

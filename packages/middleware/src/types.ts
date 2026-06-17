@@ -46,6 +46,7 @@ export interface PaywallConfig {
   resource?: string;
   description?: string;
   mimeType?: string;
+  logger?: SecurityLogger;
 }
 
 export interface PaymentRequirements {
@@ -78,4 +79,40 @@ export interface PaymentPayload {
   scheme: 'exact';
   network: string;
   payload: ExactEvmPayload;
+}
+
+/**
+ * Typed D18 SecurityLogger event catalog (per tech-spec D18 + task-8 spec).
+ *
+ * Event names follow the task-8 catalog (`signature_invalid`, `nonce_replay`).
+ * Hash-shaped fields (`payerHash`, `developerEoaHash`, `nonceHash`) are the
+ * canonical 10-char form: `'0x' + keccak256(input).slice(2, 10)` (per
+ * iteration-3 addendum §5). Raw addresses and raw nonces never appear in
+ * event payloads.
+ */
+export interface SecurityEventCatalog {
+  signature_invalid: { payerHash: string; network: string };
+  nonce_replay: { payerHash: string; nonceHash: string };
+  authorization_expired: { payerHash: string };
+  authorization_not_yet_valid: { payerHash: string };
+  network_mismatch: { expected: string; received: string };
+  to_mismatch: { payerHash: string };
+  insufficient_amount: { required: string; received: string };
+  settlement_failed: { payerHash: string; reason: string; txHash?: string };
+  paused_request: { developerEoaHash: string };
+  vault_not_deployed: { developerEoaHash: string };
+  header_too_large: { size: number };
+  malformed_header: { phase: 'base64' | 'json' | 'shape' };
+  chain_id_mismatch: { expected: number; actual: number; network: string };
+}
+
+export type SecurityEventName = keyof SecurityEventCatalog;
+
+/**
+ * Optional logger that integrators wire on `PaywallConfig.logger`. Emission
+ * is fire-and-forget — `securityEvent` throws are swallowed by the
+ * middleware so a misconfigured logger never blocks the request path.
+ */
+export interface SecurityLogger {
+  securityEvent<N extends SecurityEventName>(name: N, payload: SecurityEventCatalog[N]): void;
 }

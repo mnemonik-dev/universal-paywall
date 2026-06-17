@@ -74,26 +74,26 @@ describe('fastifyPaywall — Fastify adapter', () => {
     await app.close();
   });
 
-  it('sets X-PAYMENT-RESPONSE header on passthrough without calling reply.send', async () => {
+  it('sets X-PAYMENT-RESPONSE header on passthrough; route handler runs and is the sole sender', async () => {
     paywallMock.mockResolvedValueOnce({
       kind: 'passthrough',
       responseHeaders: { 'X-PAYMENT-RESPONSE': 'value' },
     });
     const app = Fastify();
     await app.register(fastifyPaywall(baseOpts));
-    let sentByPreHandler = false;
-    app.addHook('onSend', async (_req, reply, payload) => {
-      // If the preHandler had sent the response itself, the route handler
-      // wouldn't run; this assertion checks the route handler did run.
-      if (reply.statusCode === 200 && payload !== undefined) sentByPreHandler = false;
-      return payload;
+    const routeHandlerCalls = vi.fn();
+    app.get('/api', async () => {
+      routeHandlerCalls();
+      return { from: 'route' };
     });
-    app.get('/api', async () => ({ from: 'route' }));
     const res = await app.inject({ method: 'GET', url: '/api' });
+    // The route handler must have run (proves the preHandler did NOT
+    // short-circuit via reply.send) and the header set by the preHandler
+    // must be present alongside the route's own body.
+    expect(routeHandlerCalls).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ from: 'route' });
     expect(res.headers['x-payment-response']).toBe('value');
-    expect(sentByPreHandler).toBe(false);
     await app.close();
   });
 });

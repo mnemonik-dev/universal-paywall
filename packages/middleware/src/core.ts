@@ -40,7 +40,12 @@
 
 import { createPublicClient, http, keccak256 } from 'viem';
 import type { PublicClient } from 'viem';
-import { decodeXPayment, encodeXPaymentResponse, MalformedPaymentHeaderError } from './x402.js';
+import {
+  decodeXPayment,
+  encodeXPaymentResponse,
+  MalformedPaymentHeaderError,
+  parseUsdPrice,
+} from './x402.js';
 import type { MalformedHeaderDetail } from './x402.js';
 import { NETWORKS } from './networks.js';
 import { NonceStore } from './replay-store.js';
@@ -48,41 +53,22 @@ import { scrubSecrets } from './relayer-key.js';
 import type { OpaqueRelayerKey } from './relayer-key.js';
 import { verifyEip3009Authorization } from './verify.js';
 import { settleOnChain, NetworkMismatchError } from './settle.js';
-import type { NetworkConfig, PaymentPayload, PaymentRequirements, PaywallConfig } from './types.js';
+import type {
+  NetworkConfig,
+  PaymentPayload,
+  PaymentRequirements,
+  PaywallConfig,
+  SecurityEventCatalog,
+  SecurityEventName,
+} from './types.js';
 
-// ─── Public types ────────────────────────────────────────────────────────────
-
-/**
- * Typed D18 SecurityLogger event catalog (per tech-spec D18 + task-8 spec).
- * The catalog is fixed: every name has a fixed payload shape that is run
- * through `scrubSecrets(...)` before emit.
- *
- * Names follow the task-8 spec (`signature_invalid`, `nonce_replay`) which
- * supersedes the tech-spec D18 table's earlier `nonce_replay_attempt`
- * naming. The 10-character hash form for `payerHash` / `developerEoaHash` /
- * `nonceHash` is pinned per addendum §5.
- */
-export interface SecurityEventCatalog {
-  signature_invalid: { payerHash: string; network: string };
-  nonce_replay: { payerHash: string; nonceHash: string };
-  authorization_expired: { payerHash: string };
-  authorization_not_yet_valid: { payerHash: string };
-  network_mismatch: { expected: string; received: string };
-  to_mismatch: { payerHash: string };
-  insufficient_amount: { required: string; received: string };
-  settlement_failed: { payerHash: string; reason: string; txHash?: string };
-  paused_request: { developerEoaHash: string };
-  vault_not_deployed: { developerEoaHash: string };
-  header_too_large: { size: number };
-  malformed_header: { phase: 'base64' | 'json' | 'shape' };
-  chain_id_mismatch: { expected: number; actual: number; network: string };
-}
-
-export type SecurityEventName = keyof SecurityEventCatalog;
-
-export interface SecurityLogger {
-  securityEvent<N extends SecurityEventName>(name: N, payload: SecurityEventCatalog[N]): void;
-}
+// ─── Internal types ──────────────────────────────────────────────────────────
+//
+// `PaywallRequest`, `PaywallCoreOptions`, and `PaywallResult` are adapter
+// infrastructure: the adapters in `./adapters/*` consume them, but they are
+// NOT part of the public npm package surface. The public `SecurityLogger`,
+// `SecurityEventCatalog`, and `SecurityEventName` types live in `types.ts`
+// (re-exported by `index.ts`).
 
 export interface PaywallRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -91,14 +77,12 @@ export interface PaywallRequest {
 }
 
 /**
- * Internal options carried into `core.paywall`. Mirrors `PaywallConfig` from
- * `types.ts` but adds the optional `logger`, `maxAmountRequired` (computed
- * by the caller from `price`), and `resource` defaults the adapter fills
- * in if the caller didn't pin a static resource URL.
+ * Options carried into `core.paywall`. Identical to `PaywallConfig` from
+ * `types.ts` — the adapter and core both accept the public config shape
+ * directly. `logger` lives on `PaywallConfig` itself so integrators wire it
+ * through a single options object.
  */
-export interface PaywallCoreOptions extends PaywallConfig {
-  logger?: SecurityLogger;
-}
+export type PaywallCoreOptions = PaywallConfig;
 
 export type PaywallResult =
   | {
@@ -428,7 +412,7 @@ export async function paywall(
     // has no X-PAYMENT header we still return a useful 402 challenge.
   }
 
-  const maxAmountRequiredBig = parsePriceToBaseUnits(opts.price);
+  const maxAmountRequiredBig = parseUsdPrice(opts.price);
   const maxAmountRequired = maxAmountRequiredBig.toString();
   const requirements = buildPaymentRequirements(opts, network, payTo, maxAmountRequired, req);
 
@@ -518,7 +502,7 @@ export async function paywall(
     } catch {
       // Cache stale and refresh failed — surface as settlement_failed/rpc_5xx.
       emit(opts, 'settlement_failed', {
-        payerHash: payerHash(payload.payload.authorization.from),
+        payerHash: payerHash(verifyResult.recoveredFrom),
         reason: 'rpc_5xx',
       });
       return build402(402, requirements, 'settlement_failed', { reason: 'rpc_5xx' });
@@ -534,10 +518,16 @@ export async function paywall(
   }
 
   // ─── 7e: settle ──────────────────────────────────────────────────────────
-  const payerH = payerHash(payload.payload.authorization.from);
+  // Use the cryptographically RECOVERED signer (EIP-712 ecrecover output from
+  // verify.ts), not the claimed wire-format `authorization.from`. In the
+  // happy path the two are equal (verify enforced that), but binding settle
+  // and the X-PAYMENT-RESPONSE `payer` field to `recoveredFrom` keeps the
+  // authenticated value as the single source of truth.
+  const { recoveredFrom } = verifyResult;
+  const payerH = payerHash(recoveredFrom);
   let settleResult;
   try {
-    settleResult = await settleOnChain(payload, payload.payload.authorization.from, {
+    settleResult = await settleOnChain(payload, recoveredFrom, {
       network: opts.network,
       relayerKey: opts.facilitator.relayerKey as OpaqueRelayerKey,
       publicClient,
@@ -564,29 +554,10 @@ export async function paywall(
     success: true,
     transaction: settleResult.txHash,
     network: network.id,
-    payer: payload.payload.authorization.from,
+    payer: recoveredFrom,
   });
   return {
     kind: 'passthrough',
     responseHeaders: { 'X-PAYMENT-RESPONSE': xPaymentResponse },
   };
-}
-
-// ─── parsePriceToBaseUnits ───────────────────────────────────────────────────
-
-const USDC_DECIMALS = 6n;
-const USDC_SCALE = 10n ** USDC_DECIMALS;
-const PRICE_RE = /^\d+(\.\d{1,6})?$/;
-
-function parsePriceToBaseUnits(input: string): bigint {
-  if (typeof input !== 'string' || !PRICE_RE.test(input)) {
-    throw new TypeError(`paywall: invalid price ${JSON.stringify(input)}`);
-  }
-  const dot = input.indexOf('.');
-  const whole = dot === -1 ? input : input.slice(0, dot);
-  const frac = dot === -1 ? '' : input.slice(dot + 1);
-  const paddedFrac = (frac + '000000').slice(0, Number(USDC_DECIMALS));
-  const result = BigInt(whole) * USDC_SCALE + BigInt(paddedFrac);
-  if (result === 0n) throw new TypeError('paywall: price must be > 0');
-  return result;
 }

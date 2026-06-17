@@ -311,6 +311,46 @@ describe('paywall pipeline', () => {
     );
   });
 
+  // ─── 7d: non-stale cache + RPC error returns last-good value ────────────
+  // The first request warms the cache. Within the 5s TTL window we then
+  // reject every readContract — the cached entry is still observable, so
+  // the request must NOT 402: it must serve the last-good factory state and
+  // continue all the way through to passthrough.
+  it('factory-state RPC error with non-stale cache returns last-good value (passthrough)', async () => {
+    const headerValue = encodeXPayment(makePayload());
+    // Warm the cache.
+    const warmup = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+    expect(warmup.kind).toBe('passthrough');
+    // Reject all future RPC reads; second request still within 5s TTL.
+    publicClientStub.readContract.mockRejectedValue(new Error('rpc down'));
+    const second = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+    expect(second.kind).toBe('passthrough');
+  });
+
+  // ─── 7e: settle is called with the recovered signer, NOT the wire `from` ─
+  // verifyEip3009Authorization returns the ecrecover output. Core MUST pass
+  // that recovered address (the cryptographically authenticated one) to
+  // settle.ts, not the claimed-on-the-wire `authorization.from`. In the
+  // happy path the two are equal, but binding the recovered value is the
+  // single source of truth for the settlement payer.
+  it('core passes verifyResult.recoveredFrom to settle (NOT payload.authorization.from)', async () => {
+    const wireClaimed: `0x${string}` = '0x9999999999999999999999999999999999999999';
+    const recovered: `0x${string}` = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    verifySpy.mockImplementationOnce(async () => ({ ok: true, recoveredFrom: recovered }));
+    settleSpy.mockImplementationOnce(async () => ({ ok: true, txHash: TX_HASH, payer: recovered }));
+    const headerValue = encodeXPayment(makePayload({ from: wireClaimed }));
+    const result = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+    // Settle's second positional arg is the recovered signer, not the wire-claimed one.
+    expect(settleSpy).toHaveBeenCalledTimes(1);
+    expect(settleSpy.mock.calls[0]![1]).toBe(recovered);
+    // X-PAYMENT-RESPONSE.payer also reflects the recovered signer.
+    if (result.kind !== 'passthrough') throw new Error('expected passthrough');
+    const decoded = JSON.parse(
+      Buffer.from(result.responseHeaders['X-PAYMENT-RESPONSE'], 'base64').toString('utf8'),
+    );
+    expect(decoded.payer).toBe(recovered);
+  });
+
   // ─── 7f + 7g: happy path ─────────────────────────────────────────────────
   it('happy path returns passthrough with X-PAYMENT-RESPONSE header', async () => {
     const headerValue = encodeXPayment(makePayload());
@@ -511,6 +551,16 @@ describe('paywall pipeline', () => {
     const headerValue = encodeXPayment(makePayload());
     const result = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
     expect(result).toMatchObject({ kind: '402', body: { error: 'invalid_signature' } });
+  });
+
+  // ─── parseUsdPrice — InvalidPriceError for malformed price ─────────────
+  it('invalid opts.price throws InvalidPriceError (NOT TypeError)', async () => {
+    const { InvalidPriceError } = await import('../x402.js');
+    const opts = { ...makeOpts(), price: '-1' };
+    const headerValue = encodeXPayment(makePayload());
+    await expect(paywall({ headers: { 'x-payment': headerValue } }, opts)).rejects.toBeInstanceOf(
+      InvalidPriceError,
+    );
   });
 });
 
