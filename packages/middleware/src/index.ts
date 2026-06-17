@@ -29,7 +29,12 @@ export type {
 
 export { NETWORKS, normalizeNetworkId } from './networks.js';
 
-export { OpaqueRelayerKey, getRelayerKeySecret, scrubSecrets } from './relayer-key.js';
+// NOTE: `getRelayerKeySecret` is intentionally NOT re-exported here.
+// It is the only path to extract the wrapped key, and only `settle.ts`
+// (which imports it directly from `./relayer-key.js`) should consume it.
+// Keeping it off the package's public surface prevents downstream
+// applications from accidentally discovering / using it.
+export { OpaqueRelayerKey, scrubSecrets } from './relayer-key.js';
 
 export { NonceStore } from './replay-store.js';
 export type {

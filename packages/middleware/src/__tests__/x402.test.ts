@@ -83,12 +83,7 @@ describe('parseUsdPrice', () => {
 
   it('rejects zero', () => {
     for (const input of ['0', '0.0', '0.000000']) {
-      expect(() => parseUsdPrice(input)).toThrow(InvalidPriceError);
-      try {
-        parseUsdPrice(input);
-      } catch (e) {
-        expect((e as InvalidPriceError).reason).toBe('zero');
-      }
+      expect(() => parseUsdPrice(input)).toThrowError(expect.objectContaining({ reason: 'zero' }));
     }
   });
 
@@ -173,6 +168,7 @@ describe('decodeXPayment', () => {
     ['x402Version', { ...samplePayload, x402Version: undefined as unknown }],
     ['scheme', { ...samplePayload, scheme: undefined as unknown }],
     ['network', { ...samplePayload, network: undefined as unknown }],
+    ['payload', { ...samplePayload, payload: undefined as unknown }],
     [
       'payload.signature',
       { ...samplePayload, payload: { ...samplePayload.payload, signature: undefined } },

@@ -23,8 +23,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "//test": "keep --passWithNoTests until T6 lands first vitest test; do not remove",
-    "test": "vitest run --passWithNoTests",
-    "test:e2e": "vitest run src/__tests__/integration/ --passWithNoTests",
+    "//test-env": "UP_SUPPRESS_T3_NOTES=1 silences the T3 USDC-domain boot warnings (gas-fallback / arc-dual-decimal) that fire on every networks.ts module load. Operators still see them outside the test runner.",
+    "test": "UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests",
+    "test:e2e": "UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests",
     "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
     "//prepublishOnly": "guard against accidental publish before Task 16; Task 16 removes this and runs the real release pipeline",
     "prepublishOnly": "echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1"

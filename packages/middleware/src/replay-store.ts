@@ -79,6 +79,15 @@ export class NonceStore {
     return inner !== undefined && inner.has(nonce);
   }
 
+  /**
+   * Test-only primitive. Production callers use {@link checkAndInsert}
+   * because that path is what enforces the synchronous-block TOCTOU
+   * contract AND runs lazy TTL eviction on the per-`from` map. `insert`
+   * does NOT receive `now`, so it cannot lazy-evict and `size()` may
+   * include stale entries until a subsequent `has`/`checkAndInsert` walk
+   * sweeps them. Tests should drive `checkAndInsert` to exercise
+   * production semantics.
+   */
   insert(input: InsertInput): void {
     const from = input.from.toLowerCase();
     const nonce = input.nonce.toLowerCase();

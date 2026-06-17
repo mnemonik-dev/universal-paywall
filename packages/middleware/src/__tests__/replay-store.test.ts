@@ -67,7 +67,9 @@ describe('NonceStore — TTL eviction', () => {
       now: 0,
     });
     expect(store.has({ from: FROM_LOWER as `0x${string}`, nonce: NONCE_A, now: 0 })).toBe(true);
+    expect(store.size()).toBe(1);
     expect(store.has({ from: FROM_LOWER as `0x${string}`, nonce: NONCE_A, now: 2000 })).toBe(false);
+    expect(store.size()).toBe(0);
   });
 });
 

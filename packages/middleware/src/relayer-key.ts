@@ -31,21 +31,23 @@ const HEX_64_WITH_PREFIX_RE = /0x[0-9a-fA-F]{64}/g;
 const HEX_130_WITH_PREFIX_RE = /0x[0-9a-fA-F]{130}/g;
 const HEX_64_BARE_RE = /\b[0-9a-fA-F]{64}\b/gi;
 
+// Module-private secret table. The class instance carries only the brand
+// marker; the actual key string lives in this WeakMap, which is reachable
+// only through the `getRelayerKeySecret` function below. No class member —
+// public, protected, or otherwise — can extract the key, so callers cannot
+// bypass the brand-check by calling something like `OpaqueRelayerKey._extract`.
+const SECRET_TABLE = new WeakMap<OpaqueRelayerKey, string>();
+
 export class OpaqueRelayerKey implements OpaqueRelayerKeyShape {
-  // Class-private field — invisible to Object.keys, JSON.stringify, and
-  // structuredClone. Constructor accepts inputs with or without the `0x`
-  // prefix (env-var habits often omit it); normalization is settle.ts's job.
-  readonly #key: string;
-
-  // Brand stamped on the prototype (via the constructor) so `is()` works
-  // across realms (Symbol.for is the cross-realm identity key).
-  static readonly [BRAND] = true as const;
-
   constructor(key: string) {
     if (typeof key !== 'string' || key.length === 0) {
       throw new TypeError('OpaqueRelayerKey: key must be a non-empty string');
     }
-    this.#key = key;
+    // Constructor accepts inputs with or without the `0x` prefix (env-var
+    // habits often omit it); normalization is settle.ts's job.
+    SECRET_TABLE.set(this, key);
+    // Brand stamped on the instance so `is()` works across realms
+    // (Symbol.for is the cross-realm identity key).
     Object.defineProperty(this, BRAND, {
       value: true,
       enumerable: false,
@@ -69,19 +71,15 @@ export class OpaqueRelayerKey implements OpaqueRelayerKeyShape {
   static is(x: unknown): x is OpaqueRelayerKey {
     return typeof x === 'object' && x !== null && (x as Record<symbol, unknown>)[BRAND] === true;
   }
-
-  // Internal extraction path — NOT exported from index.ts; settle.ts uses
-  // the `getRelayerKeySecret` wrapper below.
-  static _extract(key: OpaqueRelayerKey): string {
-    return key.#key;
-  }
 }
 
 /**
  * Extracts the wrapped relayer key.
  *
  * Only `settle.ts` should import this — the rest of the middleware operates
- * on the opaque wrapper. Throws when called on something that is not an
+ * on the opaque wrapper, and this symbol is NOT re-exported from
+ * `index.ts`, so it does not appear on the package's public npm API
+ * surface. Throws when called on something that is not an
  * `OpaqueRelayerKey` instance (catches accidental misuse where a plain
  * object slipped through).
  */
@@ -89,7 +87,11 @@ export function getRelayerKeySecret(key: OpaqueRelayerKey): string {
   if (!OpaqueRelayerKey.is(key)) {
     throw new TypeError('getRelayerKeySecret: input is not an OpaqueRelayerKey');
   }
-  return OpaqueRelayerKey._extract(key);
+  const secret = SECRET_TABLE.get(key);
+  if (secret === undefined) {
+    throw new TypeError('getRelayerKeySecret: instance has no associated secret');
+  }
+  return secret;
 }
 
 // ─── scrubSecrets ──────────────────────────────────────────────────────────────
@@ -101,18 +103,33 @@ function scrubString(s: string): string {
     .replace(HEX_64_BARE_RE, REDACTED);
 }
 
+/**
+ * Recursive scrubber. Walks the input graph, producing a fresh copy with all
+ * secret-shaped strings and OpaqueRelayerKey instances replaced by the
+ * redacted literal. Handles cycles correctly: each input reference is mapped
+ * to its scrubbed-copy reference BEFORE its children are walked, so a
+ * back-edge that closes a cycle resolves to the (partially-built) scrubbed
+ * copy — not the original un-walked object. Without this, a back-edge
+ * leaks the raw secret through a cycle (cf. `{ v: SECRET, self: <-self }`).
+ */
 export function scrubSecrets(input: unknown): unknown {
-  const seen = new WeakSet<object>();
+  const seen = new Map<object, unknown>();
   function walk(v: unknown): unknown {
     if (typeof v === 'string') return scrubString(v);
     if (v === null || typeof v !== 'object') return v;
     if (OpaqueRelayerKey.is(v)) return REDACTED;
-    if (seen.has(v)) return v;
-    seen.add(v);
+    const cached = seen.get(v);
+    if (cached !== undefined) return cached;
     if (Array.isArray(v)) {
-      return v.map((item) => walk(item));
+      const out: unknown[] = [];
+      seen.set(v, out);
+      for (const item of v) {
+        out.push(walk(item));
+      }
+      return out;
     }
     const out: Record<string, unknown> = {};
+    seen.set(v, out);
     for (const [k, val] of Object.entries(v)) {
       out[k] = walk(val);
     }

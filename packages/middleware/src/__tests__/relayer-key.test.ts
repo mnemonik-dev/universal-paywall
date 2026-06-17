@@ -159,6 +159,30 @@ describe('scrubSecrets', () => {
     const out = scrubSecrets(a) as Cyclic;
     expect(out.v).toContain(REDACTED);
     expect(out.self).toBeDefined();
+    // The cycle back-edge must point at the SCRUBBED copy, not the original
+    // object — otherwise `out.self.v` would still hold the raw secret.
+    expect(out.self).toBe(out);
+    expect(out.self?.v).toContain(REDACTED);
+    expect(out.self?.v).not.toContain(RAW_HEX_NO_PREFIX);
+    expect(JSON.stringify(out, (_k, v) => (v === out ? '[Circular]' : v))).not.toContain(
+      RAW_HEX_NO_PREFIX,
+    );
+  });
+
+  it('handles cycles through arrays', () => {
+    const arr: unknown[] = [RAW_HEX_WITH_PREFIX];
+    arr.push(arr);
+    const out = scrubSecrets(arr) as unknown[];
+    expect(out[0]).toContain(REDACTED);
+    expect(out[1]).toBe(out);
+  });
+
+  it('preserves shared references (DAG)', () => {
+    const shared = { x: RAW_HEX_WITH_PREFIX };
+    const root = { a: shared, b: shared };
+    const out = scrubSecrets(root) as { a: { x: string }; b: { x: string } };
+    expect(out.a).toBe(out.b);
+    expect(out.a.x).toContain(REDACTED);
   });
 
   it('error stacks with inline 0x{64} hex are redacted', () => {
