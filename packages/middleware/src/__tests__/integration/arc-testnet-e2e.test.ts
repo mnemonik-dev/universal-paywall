@@ -140,10 +140,13 @@ describe.skipIf(!SHOULD_RUN)('arc testnet e2e', () => {
   const PRICE_BASE_UNITS = 10_000n;
 
   beforeAll(async () => {
-    // Resolve canonical env vars.
+    // Resolve canonical env vars. Both private-key reads are immediately
+    // wrapped (OpaqueRelayerKey / viem account) to minimize the window in
+    // which a raw hex key is observable on the call stack — defense-in-depth
+    // consistent with D13 (SEC-T10-02 / SEC-T10-03).
     const rpcUrl = process.env['ARC_RPC_URL'] ?? 'https://rpc.testnet.arc.network';
-    const relayerKeyHex = requireEnv('PAYWALL_RELAYER_KEY');
-    const payerPkHex = requireEnv('ARC_TESTNET_PAYER_PK') as `0x${string}`;
+    const relayerKey = new OpaqueRelayerKey(requireEnv('PAYWALL_RELAYER_KEY'));
+    payerAccount = privateKeyToAccount(requireEnv('ARC_TESTNET_PAYER_PK') as `0x${string}`);
     const developerEoa = requireEnv('ARC_TESTNET_DEVELOPER_EOA') as `0x${string}`;
 
     // Resolve factory address — env override takes priority, otherwise
@@ -186,15 +189,15 @@ describe.skipIf(!SHOULD_RUN)('arc testnet e2e', () => {
       );
     }
 
-    // Build PaywallConfig.
-    payerAccount = privateKeyToAccount(payerPkHex);
+    // Build PaywallConfig. payerAccount + relayerKey were both wrapped at
+    // env-read time above; no plain hex remains in this scope.
     const config: PaywallConfig = {
       price: PRICE_USD,
       developerEoa,
       network: 'arc-testnet',
       facilitator: {
         mode: 'inline',
-        relayerKey: new OpaqueRelayerKey(relayerKeyHex),
+        relayerKey,
         rpcUrl,
       },
     };
