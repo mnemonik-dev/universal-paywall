@@ -294,14 +294,25 @@ describe('settleOnChain', () => {
     });
   });
 
-  it('undecoded receipt revert falls back to receipt_reverted (no guess)', async () => {
+  it('writeContract throws ContractFunctionExecutionError with revert reason that cannot be matched → gas_estimate_revert (no auth_already_used guess)', async () => {
+    // The classifier must NOT promote a generic ContractFunctionExecutionError
+    // to authorization_already_used_onchain unless the literal substring
+    // "authorization is used" appears. Generic revert reasons get classified
+    // as gas_estimate_revert (the documented pre-broadcast bucket).
+    walletWriteSpy.mockImplementation(async () => {
+      const cause = new BaseError('execution reverted: some unrelated revert');
+      throw new ContractFunctionExecutionError(cause, {
+        abi: [],
+        functionName: 'transferWithAuthorization',
+      });
+    });
     const publicClient = {
       getChainId: vi.fn(async () => arcTestnet.chainId),
       readContract: vi.fn(async () => 10_000_000n),
-      waitForTransactionReceipt: vi.fn(async () => ({ status: 'reverted' })),
+      waitForTransactionReceipt: vi.fn(),
     };
     const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
-    expect(result).toMatchObject({ ok: false, reason: 'receipt_reverted' });
+    expect(result).toMatchObject({ ok: false, reason: 'gas_estimate_revert' });
   });
 
   it('no SecurityLogger import or call (static + runtime)', async () => {
@@ -324,9 +335,11 @@ describe('settleOnChain', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('WalletClient built from OpaqueRelayerKey — raw key not enumerable in errors', async () => {
-    // Force an error and confirm the raw key does not appear in any
-    // serialized form. We capture the actual PK bytes and grep them.
+  it('WalletClient built from OpaqueRelayerKey — raw key not enumerable in errors or opts', async () => {
+    // Force an error path and confirm the raw key never appears in any
+    // serialized form — neither in the returned SettleResult nor in
+    // anything reachable through opts (which holds the OpaqueRelayerKey
+    // wrapper).
     walletWriteSpy.mockImplementation(async () => {
       throw new BaseError('some error');
     });
@@ -338,13 +351,19 @@ describe('settleOnChain', () => {
     const opts = makeOpts({ publicClient });
     const result = await settleOnChain(makePayload(), SIGNER_ADDR, opts);
     const rawKeyStripped = SAMPLE_PK.slice(2).toLowerCase();
-    const serialized = JSON.stringify(result, (_k, v) =>
-      typeof v === 'bigint' ? v.toString() : v,
-    );
-    expect(serialized.toLowerCase()).not.toContain(rawKeyStripped);
+    const replacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);
+    const serializedResult = JSON.stringify(result, replacer);
+    const serializedOpts = JSON.stringify(opts, replacer);
+    expect(serializedResult.toLowerCase()).not.toContain(rawKeyStripped);
+    expect(serializedOpts.toLowerCase()).not.toContain(rawKeyStripped);
   });
 
-  it('settle failure does not call any NonceStore mutation', async () => {
+  it('settle failure leaves the replay-store entry inserted by verify untouched', async () => {
+    // settle.ts has no NonceStore parameter — the structural enforcement
+    // says it cannot import the module at all. To actually exercise the
+    // contract, simulate the production flow: verify inserts into a store,
+    // settle then runs and fails; we assert the store's mutation methods
+    // accumulated no calls beyond what verify already made.
     walletWriteSpy.mockImplementation(async () => {
       throw new TimeoutError({ body: {}, url: 'https://rpc.local' });
     });
@@ -355,10 +374,26 @@ describe('settleOnChain', () => {
     };
     const store = new NonceStore();
     const insertSpy = vi.spyOn(store, 'insert');
+    const checkSpy = vi.spyOn(store, 'checkAndInsert');
+    // Plant an entry via the same path verify uses in production.
+    store.checkAndInsert({
+      from: SIGNER_ADDR,
+      nonce: NONCE,
+      validBefore: 9_999_999_999_000,
+      now: 1_700_000_000_000,
+    });
+    expect(store.size()).toBe(1);
+    const insertCallsAfterVerify = insertSpy.mock.calls.length;
+    const checkCallsAfterVerify = checkSpy.mock.calls.length;
+
     const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
     expect(result).toMatchObject({ ok: false });
-    // settle.ts must never touch the store. Verify the spy was never invoked.
-    expect(insertSpy).not.toHaveBeenCalled();
+
+    // settle.ts must never touch the store after verify. Compare counts.
+    expect(insertSpy.mock.calls.length).toBe(insertCallsAfterVerify);
+    expect(checkSpy.mock.calls.length).toBe(checkCallsAfterVerify);
+    expect(store.size()).toBe(1);
+
     // Static check: settle.ts must not import the replay-store module.
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(resolve(here, '..', 'settle.ts'), 'utf8');

@@ -147,6 +147,16 @@ describe('verifyEip3009Authorization', () => {
     expect(result).toEqual({ ok: false, reason: 'authorization_expired' });
   });
 
+  it('validBefore at nowSec + 5 (exact boundary) fails — guard is `<=`', async () => {
+    // Fence-post: validBeforeMs == nowMs + SAFETY_MARGIN_MS must reject.
+    // Confirms the comparison is `<=`, not strict `<`.
+    const opts = freshOpts();
+    const nowSec = Math.floor(opts.nowMs / 1000);
+    const payload = await makePayload({ validBeforeSec: nowSec + 5 });
+    const result = await verifyEip3009Authorization(payload, opts);
+    expect(result).toEqual({ ok: false, reason: 'authorization_expired' });
+  });
+
   it('validBefore at nowSec + 6 passes the safety margin', async () => {
     const opts = freshOpts();
     const nowSec = Math.floor(opts.nowMs / 1000);
