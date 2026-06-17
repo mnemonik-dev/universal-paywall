@@ -82,3 +82,47 @@ post-completion entries here following the `do-task` skill template.
 - T4 (PaymentSplitterFactory.sol + PaymentVaultImpl.sol) consumes the OZ v5.0.2 submodule + remappings; once Solidity sources land, `npm run build` will populate `packages/middleware/src/abi/{PaymentSplitterFactory,PaymentVaultImpl}.json` automatically via the export-abi hook.
 - T5 (Solidity tests) consumes forge-std v1.16.1 already installed under `lib/forge-std/`.
 - T13 (security audit) will run `slither contracts/src/ --config-file contracts/slither.config.json` using the slither config written here.
+
+## Task 3: Verify Arc Testnet USDC supports EIP-3009 + measure gas (spike)
+
+**Status:** Done
+**Commit:** bba2942 (impl) + round-1 fix commit (this round)
+**Agent:** usdc-spike
+**Summary:** Wave 2 spike confirmed Arc Testnet USDC (`0x3600000000000000000000000000000000000000`, chain id `5042002`) exposes both `transferWithAuthorization` (selector `0xe3ee160e`) and `authorizationState`, returns `decimals=6` (per-payment fee math safe), and reports EIP-712 domain `{name: "USDC", version: "2"}` — note the chain returns the literal string `"USDC"` rather than the marketing-form `"USD Coin"` assumed in the task example; Task 6 must populate `NETWORKS['arc-testnet'].usdcEip712Name = "USDC"` verbatim or EIP-712 signatures will fail to verify. Measured per-payment gas cost `1212–1290 micro-USDC` (varies run-to-run with live `gasPrice`) which exceeds the 500 micro-USDC / 5%-of-0.01-USDC Risks-table threshold; the spike emits a non-blocking warning and exits 0 per spec. The artifact `contracts/scripts/arc-testnet-usdc-domain.json` is the sole handoff to Task 6 (Wave 5) and carries `notes[]` for module-load surfacing per iter-4 §5 T3.
+**Deviations:** None from spec contract. Empirical surprise: chain reports `name="USDC"` (not `"USD Coin"`); recorded here so T6 picks up the correct value from the artifact rather than hardcoding the spec example.
+
+**Spike measurements (literal artifact payload, last run):**
+```json
+{
+  "name": "USDC",
+  "version": "2",
+  "decimals": 6,
+  "supportsEip3009": true,
+  "sampleGasCost": "1212 micro-USDC",
+  "gasCostExceedsThreshold": true,
+  "notes": [
+    "gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)",
+    "arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6"
+  ]
+}
+```
+
+**Per-payment economics at risk on high-volume APIs; defer batched-settlement to post-MVP `x402-batched-settlement` feature per Risks row 4** (gas cost > 5% of a 0.01 USDC payment; non-blocking for MVP per the same row's documented limitation).
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t3: approved_with_minors (3 minor: EH-01 empty-catch comments, CF-01 nativeCurrency.name mismatch, DOC-01 decisions.md entry missing) → [logs/working/task-3/code-reviewer-t3-round1.json](logs/working/task-3/code-reviewer-t3-round1.json)
+- security-auditor-t3: pending
+- test-reviewer-t3: pending
+
+**Verification:**
+- `cd contracts && npx tsx scripts/verify-usdc-eip3009.ts` → exit 0; JSON output matches artifact byte-for-byte (same `out` object); deterministic shape across 3 consecutive runs.
+- `cd contracts && npm run lint` (tsc --noEmit) → exit 0.
+- gitleaks pre-commit hook → 0 leaks.
+- Selector self-check `toFunctionSelector('transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)') === 0xe3ee160e` → pass.
+
+**Open items for future tasks:**
+- T6 (Wave 5, `networks.ts` author): consume `contracts/scripts/arc-testnet-usdc-domain.json` to populate `NETWORKS['arc-testnet'].usdcEip712Name = "USDC"` (NOT "USD Coin") and `usdcEip712Version = "2"`, and surface every `notes[]` entry at module load via warn-level log (informational only, never blocking).
+- Post-MVP `x402-batched-settlement` feature: gas-cost spike (1212–1290 micro-USDC ≈ 12–13% of a 0.01 USDC payment) exceeds the 5% per-payment-economics threshold; defer batched-settlement work per Risks row 4. MVP per-payment settlement remains acceptable for low/mid-volume APIs per the same row's documented limitation.
+- T6 must also document the gas estimation fallback (60000 gas constant) the artifact records — downstream callers should not assume the published gas cost is RPC-measured.

@@ -92,7 +92,10 @@ const arcTestnet = defineChain({
   rpcUrls: {
     default: { http: [process.env.ARC_RPC_URL ?? DEFAULT_RPC_URL] },
   },
-  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+  // Empirical: the live contract's name() returns 'USDC' (not the marketing
+  // form 'USD Coin'). viem uses this field for display only — kept aligned
+  // with the on-chain value so downstream consumers see a consistent name.
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
 });
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, retries = 3): Promise<T> {
@@ -235,18 +238,25 @@ async function probeTransferWithAuthorization(
 }
 
 async function readGasPriceWei(client: PublicClient, notes: string[]): Promise<bigint | null> {
+  // Any throw here — transport error, unsupported method, post-retry transport
+  // failure, or `0n` result — is treated identically: this pricing path is
+  // unusable, fall through to the EIP-1559 path. Discriminating further would
+  // change nothing downstream; both branches end at the same notes[] entry.
   try {
     const price = await withRetry('getGasPrice', () => client.getGasPrice());
     if (price > 0n) return price;
   } catch {
-    // Fall through to EIP-1559 fees.
+    // Intentional: any error here means "legacy gasPrice unavailable"; the
+    // EIP-1559 branch below is the next thing to try.
   }
   try {
     const fees = await withRetry('estimateFeesPerGas', () => client.estimateFeesPerGas());
     const candidate = fees.maxFeePerGas ?? fees.gasPrice;
     if (candidate !== undefined && candidate > 0n) return candidate;
   } catch {
-    // Both pricing paths failed.
+    // Intentional: any error here means "1559 fee estimate unavailable too";
+    // we record the unavailability via `notes` and let the caller skip the
+    // threshold check rather than crash the spike.
   }
   notes.push('gas pricing unavailable, threshold check skipped');
   return null;
