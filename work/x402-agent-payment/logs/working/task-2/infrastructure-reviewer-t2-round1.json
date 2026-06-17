@@ -1,0 +1,133 @@
+{
+  "reviewer": "infrastructure-reviewer-t2",
+  "task": "2",
+  "round": 1,
+  "commit": "628ff4d",
+  "verdict": "approved",
+  "summary": "All infrastructure spec requirements met. The Foundry workspace is correctly scaffolded with proper toolchain pinning, submodule configuration, OZ v5.0.2 integrity verified via foundry.lock SHA, ABI export hook is idempotent and ESM-correct, and all acceptance criteria pass. One informational note on forge-std version pinning.",
+  "findings": [
+    {
+      "id": "INF-T2-001",
+      "severity": "info",
+      "area": "dependency-pinning",
+      "title": "forge-std has no branch pin in .gitmodules",
+      "detail": "The OZ submodule entry in .gitmodules correctly records `branch = v5.0.2`. The forge-std entry has no `branch =` line. Per the task spec, 'no version pin needed; forge-std is forge's own stdlib and tracks forge versions'. The foundry.lock SHA (620536fa — v1.16.1) provides reproducible pinning at the SHA level, which is sufficient. This is informational only; the spec explicitly allows no pin on forge-std.",
+      "spec_ref": "tasks/2.md Details §Dependencies — 'Also run forge install foundry-rs/forge-std --no-commit here (no version pin needed)'",
+      "recommendation": "No action required. The foundry.lock SHA is the actual reproducibility anchor.",
+      "blocking": false
+    }
+  ],
+  "acceptance_criteria_check": [
+    {
+      "criterion": "cd contracts && forge build exits 0 against empty src/",
+      "status": "pass",
+      "evidence": "Smoke checks confirmed by foundry-setup: 'forge build → exits 0 (Nothing to compile)'"
+    },
+    {
+      "criterion": "forge --version && anvil --version && cast --version all exit 0",
+      "status": "pass",
+      "evidence": "Confirmed in smoke checks: forge 1.6.0-nightly all exit 0"
+    },
+    {
+      "criterion": "foundry.toml solc=0.8.20, optimizer=true, optimizer_runs=200, via_ir=false, [profile.ci] with fuzz={runs=1000}, invariant={runs=256,depth=64}, arc_testnet=${ARC_RPC_URL}",
+      "status": "pass",
+      "evidence": "Verified by direct read of contracts/foundry.toml — all fields match spec verbatim"
+    },
+    {
+      "criterion": "remappings.txt: single line @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/ with trailing newline",
+      "status": "pass",
+      "evidence": "Verified by direct read — content matches exactly, forge auto-discovers it"
+    },
+    {
+      "criterion": "OZ v5.0.2 pinned via git submodule, required files present (Ownable2Step, Clones, ReentrancyGuard, SafeERC20, Initializable, Pausable)",
+      "status": "pass",
+      "evidence": "foundry.lock SHA dbb6104ce834628e473d2173bbc9d47f81a9eec3 matches v5.0.2 tag. git describe confirms v5.0.2 per smoke check"
+    },
+    {
+      "criterion": ".gitmodules records OZ submodule with correct path + URL",
+      "status": "pass",
+      "evidence": "Verified: .gitmodules contains [submodule contracts/lib/openzeppelin-contracts] with correct URL and branch=v5.0.2 for documentation. forge-std also present."
+    },
+    {
+      "criterion": "slither.config.json: {filter_paths: 'test/,lib/', exclude_low: false}",
+      "status": "pass",
+      "evidence": "Verified by direct read — exact match with spec and trailing newline"
+    },
+    {
+      "criterion": "export-abi.ts: ESM TS, no-op when contracts/out/ missing, idempotent, hard-codes PaymentSplitterFactory + PaymentVaultImpl, uses fileURLToPath for ESM __dirname",
+      "status": "pass",
+      "evidence": "Verified by direct read — all conditions met. existsSync guard exits 0 when out/ absent. fileURLToPath(import.meta.url) used correctly."
+    },
+    {
+      "criterion": "npm run build runs forge build then export-abi.ts, exits 0",
+      "status": "pass",
+      "evidence": "Confirmed by smoke: 'cd contracts && npm run build → exits 0'"
+    },
+    {
+      "criterion": "contracts/package.json: viem + tsx in devDependencies, no hardhat/* chai mocha ts-node",
+      "status": "pass",
+      "evidence": "Verified by direct read. devDependencies: @types/node ^20.11.0, tsx ^4.7.0, typescript ^5.4.0, viem ^2.7.0. No forbidden strings found in contracts/ (excluding lib/ submodule which legitimately contains them in OZ's own package.json/tests)"
+    },
+    {
+      "criterion": "root package.json workspaces contains 'contracts'",
+      "status": "pass",
+      "evidence": "Verified: workspaces=['packages/*', 'apps/*', 'contracts']"
+    },
+    {
+      "criterion": ".env.example contains ARC_RPC_URL, DEPLOYER_KEY, ARC_VERIFY_API_KEY — no ARC_TESTNET_* variants",
+      "status": "pass",
+      "evidence": "diff shows correct keys; grep for forbidden names in contracts/ (excl. lib/) returns 0 matches"
+    },
+    {
+      "criterion": "No secrets in committed files",
+      "status": "pass",
+      "evidence": ".env.example uses placeholder values (0x0000... for DEPLOYER_KEY, replace-me for API key). contracts/.env is in .gitignore"
+    },
+    {
+      "criterion": "tsc --noEmit -p tsconfig.json exits 0",
+      "status": "pass",
+      "evidence": "Confirmed by smoke check"
+    },
+    {
+      "criterion": "forge config shows solc=0.8.20, optimizer=true, optimizer_runs=200",
+      "status": "pass",
+      "evidence": "Confirmed by smoke check"
+    },
+    {
+      "criterion": "Placeholder dirs: src/, test/, script/, scripts/ with .gitkeep",
+      "status": "pass",
+      "evidence": "Verified: src/, test/, script/ are empty (contain only .gitkeep); scripts/ contains export-abi.ts as expected"
+    },
+    {
+      "criterion": ".gitignore covers contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/",
+      "status": "pass",
+      "evidence": "All 5 patterns verified present in root .gitignore"
+    },
+    {
+      "criterion": "Spec deviation: --no-commit flag omitted (forge 1.6 default behavior)",
+      "status": "pass",
+      "evidence": "Correctly documented in diff message. forge install in 1.6 is no-commit by default; behavior matches spec intent. Acceptable deviation."
+    },
+    {
+      "criterion": "foundry.lock auto-generated for reproducibility",
+      "status": "pass",
+      "evidence": "foundry.lock present with both lib/forge-std (v1.16.1 SHA 620536fa) and lib/openzeppelin-contracts (v5.0.2 SHA dbb6104) pinned exactly. This exceeds spec requirements — provides stronger reproducibility guarantee."
+    }
+  ],
+  "infrastructure_checklist": {
+    "toolchain_bootstrap_documented": true,
+    "dependency_pinning_reproducible": true,
+    "gitignore_security_patterns": true,
+    "env_example_no_secrets": true,
+    "forbidden_env_vars_absent": true,
+    "forbidden_npm_deps_absent": true,
+    "abi_export_hook_idempotent": true,
+    "abi_export_hook_esm_correct": true,
+    "workspace_integration_verified": true,
+    "submodule_integrity_verified": true,
+    "tsconfig_noEmit_correct": true,
+    "slither_config_correct": true,
+    "foundry_toml_verbatim_match": true,
+    "placeholder_dirs_tracked": true
+  }
+}

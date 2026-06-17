@@ -1,0 +1,57 @@
+{
+  "reviewer": "infrastructure-reviewer-t2",
+  "task": "2",
+  "round": 2,
+  "fix_commit": "d5c5dc7",
+  "base_commit": "628ff4d",
+  "verdict": "approved",
+  "summary": "Round 1 informational finding INF-T2-001 (forge-std no branch pin in .gitmodules) has been addressed by adding `branch = v1.16.1` to the forge-std submodule entry. All other infrastructure acceptance criteria remain satisfied. No new findings.",
+  "findings_from_round1": [
+    {
+      "id": "INF-T2-001",
+      "status": "resolved",
+      "resolution": "branch = v1.16.1 added to .gitmodules [submodule contracts/lib/forge-std] entry. Parity with OZ entry which already had branch = v5.0.2. The primary cryptographic pin remains the submodule SHA (620536fa) + foundry.lock SHA — the branch line is informational/documentation only as noted."
+    }
+  ],
+  "round2_changes_reviewed": [
+    {
+      "file": ".gitmodules",
+      "change": "Added `branch = v1.16.1` to forge-std submodule entry",
+      "assessment": "correct",
+      "detail": "Directly addresses INF-T2-001. Branch line is documentation-only; the commit SHA in the git index and foundry.lock remain the authoritative pins. No issues."
+    },
+    {
+      "file": "contracts/.env.example",
+      "change": "DEPLOYER_KEY placeholder changed from all-zeros hex to non-key-shaped sentinel string `0x<your-0x-prefixed-64-hex-char-private-key>`",
+      "assessment": "correct",
+      "detail": "The comment explaining the all-zeros key risk is clear and actionable. The sentinel is non-parseable as a real private key, which eliminates the copy-paste-into-prod risk. Correct fix for a security finding from the security-auditor."
+    },
+    {
+      "file": "contracts/foundry.toml",
+      "change": "Leading comment extended to document foundry.lock as a secondary lock alongside submodule SHA pinning",
+      "assessment": "correct",
+      "detail": "The added comment accurately describes forge 1.6+ foundry.lock semantics. Correctly frames it as complementary to (not replacing) the submodule SHA. Good contributor documentation."
+    }
+  ],
+  "infrastructure_checklist": {
+    "toolchain_bootstrap_documented": true,
+    "dependency_pinning_reproducible": true,
+    "gitignore_security_patterns": true,
+    "env_example_no_secrets": true,
+    "env_example_sentinel_not_key_shaped": true,
+    "forbidden_env_vars_absent": true,
+    "forbidden_npm_deps_absent": true,
+    "abi_export_hook_idempotent": true,
+    "abi_export_hook_esm_correct": true,
+    "workspace_integration_verified": true,
+    "submodule_integrity_verified": true,
+    "forge_std_branch_pin_present": true,
+    "oz_branch_pin_present": true,
+    "foundry_lock_committed": true,
+    "tsconfig_noEmit_correct": true,
+    "slither_config_correct": true,
+    "foundry_toml_verbatim_match": true,
+    "placeholder_dirs_tracked": true
+  },
+  "remaining_findings": []
+}
