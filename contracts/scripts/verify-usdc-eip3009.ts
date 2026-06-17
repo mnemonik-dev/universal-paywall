@@ -86,17 +86,49 @@ interface UsdcEip3009Probe {
   notes?: string[];
 }
 
+function resolveRpcUrl(): string {
+  const raw = process.env.ARC_RPC_URL ?? DEFAULT_RPC_URL;
+  // Reject anything that isn't an http(s) URL — guards against an operator
+  // passing a file path / leftover env value, which viem would silently
+  // accept and turn into an unhelpful HttpRequestError further down. We do
+  // not echo the value on failure (could carry an API key).
+  if (!/^https?:\/\//i.test(raw)) {
+    console.error('[verify-usdc-eip3009] FATAL: ARC_RPC_URL must be an http or https URL.');
+    process.exit(1);
+  }
+  return raw;
+}
+
 const arcTestnet = defineChain({
   id: ARC_CHAIN_ID,
   name: 'arc-testnet',
   rpcUrls: {
-    default: { http: [process.env.ARC_RPC_URL ?? DEFAULT_RPC_URL] },
+    default: { http: [resolveRpcUrl()] },
   },
   // Empirical: the live contract's name() returns 'USDC' (not the marketing
   // form 'USD Coin'). viem uses this field for display only — kept aligned
   // with the on-chain value so downstream consumers see a consistent name.
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
 });
+
+/**
+ * Strip URLs from operator-facing strings before they hit stdout, stderr, or
+ * the artifact / `notes[]`. viem's HttpRequestError surfaces the target RPC
+ * URL in `message` / `shortMessage`; if the operator runs the spike with an
+ * authenticated RPC (e.g. an Infura-style URL with the API key in the path),
+ * that key would leak through `notes[]` into the committed artifact. Replace
+ * any `http(s)://...` substring with a literal placeholder so the diagnostic
+ * value of the message is preserved without leaking the credential.
+ */
+function scrubUrls(message: string): string {
+  return message.replace(/https?:\/\/\S+/g, '<rpc-url>');
+}
+
+function errMessage(err: unknown): string {
+  if (err instanceof BaseError) return scrubUrls(err.shortMessage ?? 'no message');
+  if (err instanceof Error) return scrubUrls(err.message);
+  return scrubUrls(String(err));
+}
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, retries = 3): Promise<T> {
   let lastErr: unknown;
@@ -179,14 +211,10 @@ async function probeAuthorizationState(
     }
     if (err instanceof ContractFunctionExecutionError) {
       // A revert from the function body means the dispatcher hit it.
-      notes.push(
-        `authorizationState: existence inferred from revert (${err.shortMessage ?? 'no message'})`,
-      );
+      notes.push(`authorizationState: existence inferred from revert (${errMessage(err)})`);
       return { exists: true };
     }
-    notes.push(
-      `authorizationState: ambiguous probe outcome — ${err instanceof Error ? err.message : String(err)}`,
-    );
+    notes.push(`authorizationState: ambiguous probe outcome — ${errMessage(err)}`);
     return { exists: false };
   }
 }
@@ -230,9 +258,7 @@ async function probeTransferWithAuthorization(
       // gas number because the call reverted before the body completed.
       return { exists: true, gasEstimate: null };
     }
-    notes.push(
-      `transferWithAuthorization: gas estimation unavailable — ${err instanceof Error ? err.message : String(err)}`,
-    );
+    notes.push(`transferWithAuthorization: gas estimation unavailable — ${errMessage(err)}`);
     return { exists: false, gasEstimate: null };
   }
 }
@@ -290,13 +316,9 @@ async function main(): Promise<void> {
   try {
     domain = await readUsdcDomain(client);
   } catch (err) {
-    const message =
-      err instanceof BaseError
-        ? err.shortMessage
-        : err instanceof Error
-          ? err.message
-          : String(err);
-    console.error(`[verify-usdc-eip3009] RPC unavailable or USDC reverted view call: ${message}`);
+    console.error(
+      `[verify-usdc-eip3009] RPC unavailable or USDC reverted view call: ${errMessage(err)}`,
+    );
     process.exit(1);
   }
 
@@ -394,7 +416,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   // Last-resort guard — keep the message operator-friendly, no stack dump.
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`[verify-usdc-eip3009] unexpected failure: ${message}`);
+  console.error(`[verify-usdc-eip3009] unexpected failure: ${errMessage(err)}`);
   process.exit(1);
 });
