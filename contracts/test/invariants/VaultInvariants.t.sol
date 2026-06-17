@@ -14,6 +14,12 @@ import {MockUsdcEip3009} from "../mocks/MockUsdcEip3009.sol";
  *      instead of trivially-reverting calls. The handler tracks `totalMinted`
  *      and `totalWithdrawn` so the integrity invariant has an authoritative
  *      reference to compare the vault balance against.
+ *
+ *      `factory.pause()` is intentionally NOT exposed as a handler entry point:
+ *      per D12 the vault's `withdraw()` is unpausable, so toggling pause from
+ *      inside the invariant run would not exercise any vault-balance edge
+ *      while still consuming fuzz budget on a no-op for the vault side. If a
+ *      future task adds pause-gated logic to the vault, expose `pause()` here.
  */
 contract VaultHandler is Test {
     MockUsdcEip3009 public mockUsdc;

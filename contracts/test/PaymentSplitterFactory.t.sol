@@ -26,7 +26,10 @@ contract PaymentSplitterFactoryTest is Test {
     address internal dev2;
     address internal dev3;
 
-    // Mirrors of factory events for vm.expectEmit declarations.
+    // Mirrors of factory events for vm.expectEmit declarations. KEEP IN SYNC
+    // with the canonical declarations in src/PaymentSplitterFactory.sol — if a
+    // signature drifts, the expectEmit assertions silently match the wrong
+    // topic and the test passes incorrectly.
     event VaultDeployed(address indexed developer, address vault);
     event FeeBpsUpdated(uint16 oldBps, uint16 newBps);
     event PlatformTreasuryUpdated(address oldTreasury, address newTreasury);
