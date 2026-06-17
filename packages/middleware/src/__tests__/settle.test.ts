@@ -171,6 +171,21 @@ describe('settleOnChain', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('readContract returns non-bigint balance → rpc_5xx (defensive guard)', async () => {
+    // A misbehaving RPC / test double could return a string or number for
+    // balanceOf. The guard in settle.ts must classify this as rpc_5xx
+    // (the data plane is broken) rather than coerce to bigint and crash
+    // or silently leak the wrong type into details.balance downstream.
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => '10000000'),
+      waitForTransactionReceipt: vi.fn(),
+    };
+    const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
+    expect(result).toEqual({ ok: false, reason: 'rpc_5xx' });
+    expect(walletWriteSpy).not.toHaveBeenCalled();
+  });
+
   it('rpc TimeoutError → rpc_timeout', async () => {
     walletWriteSpy.mockImplementation(async () => {
       throw new TimeoutError({ body: {}, url: 'https://rpc.local' });
@@ -189,6 +204,26 @@ describe('settleOnChain', () => {
       throw new HttpRequestError({
         url: 'https://rpc.local',
         status: 502,
+      });
+    });
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => 10_000_000n),
+      waitForTransactionReceipt: vi.fn(),
+    };
+    const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
+    expect(result).toMatchObject({ ok: false, reason: 'rpc_5xx' });
+  });
+
+  it('HttpRequestError 429 (rate-limit) → rpc_5xx (any HTTP error bucket)', async () => {
+    // The classifier treats any HttpRequestError as rpc_5xx — including
+    // 4xx rate-limit / auth failures — because the 7-reason taxonomy
+    // has no separate 4xx slot and conflating them with rpc_timeout
+    // would mislead operators.
+    walletWriteSpy.mockImplementation(async () => {
+      throw new HttpRequestError({
+        url: 'https://rpc.local',
+        status: 429,
       });
     });
     const publicClient = {

@@ -26,9 +26,13 @@
  *      milliseconds (`Number(field) * 1000`) before comparison against
  *      `opts.nowMs`. `SAFETY_MARGIN_MS = 5_000`.
  *
- *   5. After all checks pass, `nonceStore.has(...)` is followed *synchronously*
- *      by `nonceStore.insert(...)` — no `await` between them, no other state
- *      mutation in the gap. This closes the TOCTOU window per D5.
+ *   5. After all checks pass, `nonceStore.checkAndInsert(...)` runs as the
+ *      single atomic primitive (per replay-store.ts contract — `has` and
+ *      `insert` are marked test-only). checkAndInsert performs the
+ *      has-then-insert as a synchronous block with no JS-visible gap, and
+ *      includes a defense-in-depth `validBefore <= now` safety net so a
+ *      regression that drops the 5s margin check above can't sneak an
+ *      already-dead authorization in. This closes the TOCTOU window per D5.
  *
  * This module is the security gate. It does NOT emit any security events —
  * per systemic-fixes-3 §2, `core.ts` is the single owner of D18 event
