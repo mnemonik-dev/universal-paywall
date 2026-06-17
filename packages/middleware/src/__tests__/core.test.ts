@@ -183,11 +183,13 @@ describe('paywall pipeline', () => {
   });
 
   // ─── 7b: malformed base64 ────────────────────────────────────────────────
-  it('malformed base64 X-PAYMENT returns 400 malformed_payment_header + emits malformed_header phase:base64 or json', async () => {
+  it('non-base64 bytes in X-PAYMENT returns 400 malformed_payment_header + emits malformed_header phase:json', async () => {
     const logger = makeLogger();
-    // Buffer.from is permissive with malformed base64, so we feed something
-    // that decodes to invalid UTF-8 / non-JSON. The classifier treats this
-    // as either 'base64' or 'json' phase — both are accepted here.
+    // Node's Buffer.from(..., 'base64') is permissive — it does not throw on
+    // chars outside the base64 alphabet, it silently drops them. So the only
+    // observable failure path here is the JSON-parse phase. Pin the
+    // assertion to 'json' so a future regression that re-classifies this as
+    // 'base64' would fail loudly.
     const malformed = Buffer.from([0xff, 0xfe, 0xfd]).toString('base64');
     const result = await paywall(
       { headers: { 'x-payment': malformed }, method: 'POST', url: '/api/data' },
@@ -198,10 +200,7 @@ describe('paywall pipeline', () => {
       status: 400,
       body: { error: 'malformed_payment_header' },
     });
-    expect(logger.securityEvent).toHaveBeenCalledWith(
-      'malformed_header',
-      expect.objectContaining({ phase: expect.stringMatching(/^(base64|json|shape)$/) }),
-    );
+    expect(logger.securityEvent).toHaveBeenCalledWith('malformed_header', { phase: 'json' });
   });
 
   // ─── 7b: malformed JSON ──────────────────────────────────────────────────
@@ -289,6 +288,31 @@ describe('paywall pipeline', () => {
         (c) => (c[0] as { functionName: string }).functionName === 'paused',
       );
       expect(pausedCalls.length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ─── 7d: vault-address cached forever once non-zero (D3 immutability) ────
+  // The factory deploys are immutable per D3 — once `vaults(developerEoa)`
+  // returns a non-zero address, the value is final. Even after the 5s TTL
+  // for the paused() flag expires and the entry is refreshed, the vault
+  // address must NOT be re-fetched.
+  it('non-zero vault address is NOT re-fetched after TTL expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const headerValue = encodeXPayment(makePayload());
+      await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+      // Cross the 5s TTL boundary.
+      vi.advanceTimersByTime(6_000);
+      await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+      const vaultCalls = publicClientStub.readContract.mock.calls.filter(
+        (c) => (c[0] as { functionName: string }).functionName === 'vaults',
+      );
+      // First request fetched the vault address (call count 1). Second
+      // request, despite a TTL refresh on paused(), MUST NOT re-fetch the
+      // vault address — it's pinned in the cache forever once non-zero.
+      expect(vaultCalls.length).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -460,14 +484,21 @@ describe('paywall pipeline', () => {
     ['network_mismatch', 'network_mismatch'],
     ['to_mismatch', 'to_mismatch'],
     ['insufficient_amount', 'insufficient_amount'],
-  ] as const)('verify returns %s → core emits %s once', async (verifyReason, eventName) => {
-    verifySpy.mockImplementationOnce(async () => ({ ok: false, reason: verifyReason }));
-    const logger = makeLogger();
-    const headerValue = encodeXPayment(makePayload());
-    await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
-    const emitCalls = logger.securityEvent.mock.calls.filter((c) => c[0] === eventName);
-    expect(emitCalls).toHaveLength(1);
-  });
+  ] as const)(
+    'verify returns %s → core emits %s once AND 402 body.error matches',
+    async (verifyReason, eventName) => {
+      verifySpy.mockImplementationOnce(async () => ({ ok: false, reason: verifyReason }));
+      const logger = makeLogger();
+      const headerValue = encodeXPayment(makePayload());
+      const result = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
+      const emitCalls = logger.securityEvent.mock.calls.filter((c) => c[0] === eventName);
+      expect(emitCalls).toHaveLength(1);
+      // Tie the test to the actual 402 response body so a regression where
+      // core reads the wrong field from VerifyResult (or the switch falls
+      // through silently) would fail loudly here.
+      expect(result).toMatchObject({ kind: '402', body: { error: verifyReason } });
+    },
+  );
 
   it('verify insufficient_amount emits required + received', async () => {
     verifySpy.mockImplementationOnce(async () => ({ ok: false, reason: 'insufficient_amount' }));
@@ -561,6 +592,58 @@ describe('paywall pipeline', () => {
     await expect(paywall({ headers: { 'x-payment': headerValue } }, opts)).rejects.toBeInstanceOf(
       InvalidPriceError,
     );
+  });
+
+  // ─── replay-store retention after settle failure (TDD anchor) ───────────
+  // tasks/8.md mandates: when settle returns failure, the NonceStore entry
+  // for (from, nonce) MUST NOT be deleted. A retry with the same nonce
+  // returns `nonce_already_used` rather than re-attempting settle.
+  // Risks row "Settlement failure mid-flight".
+  //
+  // Drive this through the module-scope NonceStore singleton. The first
+  // request: simulate verify producing a checkAndInsert (real store call)
+  // and settle returning receipt_reverted. The second request with the
+  // same nonce: verify mock returns the real store's
+  // checkAndInsert result, which now reports nonce_already_used.
+  it('replay-store entry is retained after settlement failure — retry with same nonce returns nonce_already_used', async () => {
+    const store = __getNonceStoreForTests();
+    const headerValue = encodeXPayment(makePayload());
+    const nonceArg: `0x${string}` = ('0x' + 'ab'.repeat(32)) as `0x${string}`;
+    // verify mock that mirrors the real verify.ts contract: on
+    // success, it inserts into NonceStore.checkAndInsert and returns
+    // recoveredFrom; on prior insertion it surfaces nonce_already_used.
+    verifySpy.mockImplementation(async () => {
+      const result = store.checkAndInsert({
+        from: FROM_ADDR,
+        nonce: nonceArg,
+        validBefore: Date.now() + 60_000,
+        now: Date.now(),
+      });
+      if (!result.accepted) {
+        return { ok: false, reason: result.reason };
+      }
+      return { ok: true, recoveredFrom: FROM_ADDR };
+    });
+    // First request: settle returns receipt_reverted. The replay-store
+    // entry must remain.
+    settleSpy.mockImplementationOnce(async () => ({ ok: false, reason: 'receipt_reverted' }));
+    const first = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+    expect(first).toMatchObject({
+      kind: '402',
+      body: { error: 'settlement_failed', reason: 'receipt_reverted' },
+    });
+    // Structural assertion: the NonceStore observably still has the entry.
+    expect(store.has({ from: FROM_ADDR, nonce: nonceArg, now: Date.now() })).toBe(true);
+    // Second request with the SAME X-PAYMENT (same nonce) → core must
+    // short-circuit at verify with nonce_already_used, NOT re-attempt
+    // settle. The settle spy proves settle was NOT called a second time.
+    settleSpy.mockClear();
+    const second = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+    expect(second).toMatchObject({
+      kind: '402',
+      body: { error: 'nonce_already_used' },
+    });
+    expect(settleSpy).not.toHaveBeenCalled();
   });
 });
 
