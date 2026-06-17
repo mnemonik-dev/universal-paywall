@@ -97,7 +97,7 @@
     },
     "ChallengeBody": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": ["x402Version", "accepts"],
       "properties": {
         "x402Version": { "const": 1 },
@@ -109,7 +109,8 @@
         "reason": { "type": "string" },
         "settlementReason": { "type": "string" },
         "required": { "$ref": "#/definitions/DecimalIntegerString" },
-        "received": { "$ref": "#/definitions/DecimalIntegerString" }
+        "received": { "$ref": "#/definitions/DecimalIntegerString" },
+        "txHash": { "$ref": "#/definitions/Bytes32" }
       }
     },
     "XPaymentResponse": {

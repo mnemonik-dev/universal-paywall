@@ -101,28 +101,17 @@ async function waitForPort(host: string, port: number, timeoutMs: number): Promi
   let lastErr: unknown = null;
   while (Date.now() < deadline) {
     try {
-      await new Promise<void>((resolveP, rejectP) => {
-        const socket = createServer();
-        socket.unref();
-        // Use a TCP connect via net.connect would be ideal but createServer
-        // suffices for this poll: we try an HTTP fetch instead.
-        socket.close();
-        fetch(`http://${host}:${port}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),
-        })
-          .then((r) => {
-            if (r.ok) resolveP();
-            else rejectP(new Error(`status ${r.status}`));
-          })
-          .catch(rejectP);
+      const response = await fetch(`http://${host}:${port}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),
       });
-      return;
+      if (response.ok) return;
+      lastErr = new Error(`status ${response.status}`);
     } catch (e) {
       lastErr = e;
-      await new Promise((r) => setTimeout(r, 200));
     }
+    await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`port ${host}:${port} not ready: ${(lastErr as Error)?.message ?? '?'}`);
 }
@@ -284,6 +273,12 @@ describeIfReady('scripts/register.ts (CLI)', () => {
   });
 
   it('register_calls_factory — happy path produces non-zero vault and exits 0', async () => {
+    // Use DEVELOPER_KEY (anvil account #1). The happy-path test happens to
+    // emit "Tx: 0x<hash>" which is a 32-byte hex string — so we deliberately
+    // do NOT apply the broad 0x{64} hex-pattern check here. Literal-substring
+    // checks against the input key value are still the canonical key-leak
+    // guard for this path; the broad-pattern check lives on the
+    // already-registered output (no Tx line).
     const result = await runRegister({
       registerKey: DEVELOPER_KEY,
       factoryAddress: fixture.factoryAddress,
@@ -292,6 +287,9 @@ describeIfReady('scripts/register.ts (CLI)', () => {
 
     expect(result.code, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(0);
     expect(result.stdout).toContain('Registered. Vault: 0x');
+    const combined = result.stdout + result.stderr;
+    expect(combined).not.toContain(DEVELOPER_KEY);
+    expect(combined).not.toContain(DEVELOPER_KEY.slice(2));
 
     const vault = (await fixture.publicClient.readContract({
       abi: [
@@ -310,22 +308,16 @@ describeIfReady('scripts/register.ts (CLI)', () => {
     expect(vault).not.toBe(ZERO_ADDRESS);
   }, 60_000);
 
-  it('register_never_prints_key — no 32-byte hex appears in stdout or stderr', async () => {
-    const result = await runRegister({
+  it('register_handles_already_registered — second call exits 0 with informational message', async () => {
+    // Self-sufficient: explicitly ensure DEVELOPER_KEY is registered first
+    // (idempotent — no-op if a prior test already registered it), then
+    // assert on the deterministic second invocation.
+    await runRegister({
       registerKey: DEVELOPER_KEY,
       factoryAddress: fixture.factoryAddress,
       rpcUrl: fixture.rpcUrl,
     });
-    const combined = result.stdout + result.stderr;
-    expect(combined).not.toContain(DEVELOPER_KEY);
-    expect(combined).not.toContain(DEVELOPER_KEY.slice(2));
-    expect(combined).not.toMatch(/0x[0-9a-fA-F]{64}/);
-  }, 60_000);
 
-  it('register_handles_already_registered — second call exits 0 with informational message', async () => {
-    // First call may already be the register from the happy-path test; if it
-    // is, this one is the second invocation. Either way, the second runRegister
-    // here must exit 0 and report "Already registered."
     const result = await runRegister({
       registerKey: DEVELOPER_KEY,
       factoryAddress: fixture.factoryAddress,
@@ -333,18 +325,52 @@ describeIfReady('scripts/register.ts (CLI)', () => {
     });
     expect(result.code, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(0);
     expect(result.stdout).toMatch(/Already registered\. Vault: 0x[0-9a-fA-F]{40}/);
+    // No Tx line emitted on the already-registered path — assert it.
+    expect(result.stdout).not.toContain('Tx:');
   }, 60_000);
 
-  it('register_rejects_malformed_key — exit 2, stderr omits the input', async () => {
-    const malformed = 'not-a-key-totally-garbage';
-    const result = await runRegister({
-      registerKey: malformed,
+  it('register_never_prints_key — no 32-byte hex appears in stdout or stderr', async () => {
+    // Run against the ALREADY-REGISTERED path so the deterministic output
+    // is "Already registered. Vault: 0x..." (40 hex chars, not 64) — the
+    // broad-pattern check is meaningful here because no legitimate 32-byte
+    // hex (e.g. tx hash) can appear. Ensure registration first.
+    await runRegister({
+      registerKey: DEVELOPER_KEY,
       factoryAddress: fixture.factoryAddress,
       rpcUrl: fixture.rpcUrl,
     });
-    expect(result.code).toBe(2);
-    expect(result.stderr).not.toContain(malformed);
-    expect(result.stdout).not.toContain(malformed);
+
+    const result = await runRegister({
+      registerKey: DEVELOPER_KEY,
+      factoryAddress: fixture.factoryAddress,
+      rpcUrl: fixture.rpcUrl,
+    });
+    expect(result.code).toBe(0);
+    const combined = result.stdout + result.stderr;
+    expect(combined).not.toContain(DEVELOPER_KEY);
+    expect(combined).not.toContain(DEVELOPER_KEY.slice(2));
+    expect(combined).not.toMatch(/0x[0-9a-fA-F]{64}/);
+  }, 60_000);
+
+  it('register_rejects_malformed_key — exit 2, stderr omits the input', async () => {
+    // Exercise multiple malformed shapes (per test-reviewer L1): pure
+    // garbage, 0x-prefix with too-short length, and uppercase hex with bad
+    // length. The CLI must reject all with exit 2 and never echo the input.
+    const malformedInputs = [
+      'not-a-key-totally-garbage',
+      '0x' + 'a'.repeat(30), // 0x-prefix but only 30 hex chars
+      '0xZZZ' + 'b'.repeat(61), // 0x-prefix, right length, non-hex chars
+    ];
+    for (const malformed of malformedInputs) {
+      const result = await runRegister({
+        registerKey: malformed,
+        factoryAddress: fixture.factoryAddress,
+        rpcUrl: fixture.rpcUrl,
+      });
+      expect(result.code, `input: ${malformed}`).toBe(2);
+      expect(result.stderr).not.toContain(malformed);
+      expect(result.stdout).not.toContain(malformed);
+    }
   });
 
   it('register_handles_missing_key — exit 2 with canonical message', async () => {
@@ -388,6 +414,11 @@ describeIfReady('scripts/register.ts (CLI)', () => {
     });
     expect(result.code).toBe(3);
     expect(result.stderr).toMatch(/disabled|unknown/i);
+    // Per test-reviewer L2: even on the rejected-network path, no part of
+    // the developer key may appear in either stream.
+    const combined = result.stdout + result.stderr;
+    expect(combined).not.toContain(DEVELOPER_KEY);
+    expect(combined).not.toContain(DEVELOPER_KEY.slice(2));
   });
 
   it('register_help_flag — --help prints usage and exits 0', async () => {

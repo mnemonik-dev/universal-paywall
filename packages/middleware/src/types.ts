@@ -84,14 +84,15 @@ export interface PaymentPayload {
 /**
  * Typed D18 SecurityLogger event catalog (per tech-spec D18 + task-8 spec).
  *
- * Event names follow the task-8 catalog (`signature_invalid`, `nonce_replay`).
+ * Event names follow the tech-spec D18 catalog (`signature_invalid`,
+ * `nonce_replay_attempt`).
  * Hash-shaped fields (`payerHash`, `developerEoaHash`, `nonceHash`) are the
  * canonical 10-char form: `'0x' + keccak256(input).slice(2, 10)` (per
  * iteration-3 addendum §5). Raw addresses and raw nonces never appear in
  * event payloads.
  *
  * `payerHash` provenance: events emitted AFTER EIP-712 recovery
- * (settlement_failed, nonce_replay, authorization_expired,
+ * (settlement_failed, nonce_replay_attempt, authorization_expired,
  * authorization_not_yet_valid, signature_invalid, to_mismatch,
  * relayer_low_balance) hash the cryptographically recovered signer. Events
  * emitted BEFORE recovery (paused_request, vault_not_deployed, the early
@@ -103,7 +104,7 @@ export interface PaymentPayload {
  */
 export interface SecurityEventCatalog {
   signature_invalid: { payerHash: string; network: string };
-  nonce_replay: { payerHash: string; nonceHash: string };
+  nonce_replay_attempt: { payerHash: string; nonceHash: string };
   authorization_expired: { payerHash: string };
   authorization_not_yet_valid: { payerHash: string };
   network_mismatch: { expected: string; received: string };

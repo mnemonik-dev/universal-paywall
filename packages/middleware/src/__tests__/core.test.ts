@@ -370,6 +370,48 @@ describe('paywall pipeline', () => {
     expect(second.kind).toBe('passthrough');
   });
 
+  // ─── SEC-T9-03: stale paused cache + zero vault on refresh still short-circuits BEFORE verify ─
+  // Twin of the non-stale `vault_not_deployed short-circuits BEFORE verify` test
+  // above (line 272). Here we exercise the stale paused-cache + zero-vault
+  // code path: first request finds vaults() = 0x0 (so the cached `paused`
+  // entry is created but no permanent vault is pinned), the TTL boundary is
+  // crossed, the next request refreshes `paused` AND re-reads `vaults` (the
+  // ZERO_ADDRESS cached entry is not "final" per D3, so re-fetch runs). If
+  // vaults() still returns 0x0, the vault_not_deployed short-circuit MUST
+  // fire BEFORE verify — otherwise an attacker crafting
+  // `authorization.to=0x0` would pass the to_mismatch check.
+  it('stale paused-cache + zero vault on refresh still short-circuits BEFORE verify', async () => {
+    vi.useFakeTimers();
+    try {
+      // Start with vaults() = 0x0 so the cache never pins a non-zero vault.
+      publicClientStub.readContract.mockImplementation(
+        async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'paused') return false;
+          if (functionName === 'vaults') return ZERO;
+          throw new Error('unexpected');
+        },
+      );
+      const headerValue = encodeXPayment(makePayload());
+      const first = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+      expect(first).toMatchObject({ kind: '402', body: { error: 'vault_not_deployed' } });
+      expect(verifySpy).not.toHaveBeenCalled();
+      // Cross the 5s TTL so paused() refresh runs; vaults still returns 0x0.
+      vi.advanceTimersByTime(6_000);
+      verifySpy.mockClear();
+      const logger = makeLogger();
+      const second = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
+      expect(second).toMatchObject({ kind: '402', body: { error: 'vault_not_deployed' } });
+      // Critical security invariant: verify must NOT be called with
+      // expectedVaultAddress=ZERO_ADDRESS — short-circuit fires first.
+      expect(verifySpy).not.toHaveBeenCalled();
+      expect(logger.securityEvent).toHaveBeenCalledWith('vault_not_deployed', {
+        developerEoaHash: developerEoaHash(DEV_EOA),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ─── SEC-T8-01: stale cache + RPC error surfaces as rpc_5xx ─────────────
   // The cache must NOT fail-open: if the entry is older than the 5s TTL and
   // the refresh RPC fails, we surface 402 settlement_failed/rpc_5xx rather
@@ -577,7 +619,7 @@ describe('paywall pipeline', () => {
   // ─── verify error → D18 event mapping ────────────────────────────────────
   it.each([
     ['invalid_signature', 'signature_invalid'],
-    ['nonce_already_used', 'nonce_replay'],
+    ['nonce_already_used', 'nonce_replay_attempt'],
     ['authorization_expired', 'authorization_expired'],
     ['authorization_not_yet_valid', 'authorization_not_yet_valid'],
     ['network_mismatch', 'network_mismatch'],

@@ -536,7 +536,7 @@ export async function paywall(
         emit(opts, 'signature_invalid', { payerHash: payerH, network: network.id });
         return build402(402, requirements, 'invalid_signature');
       case 'nonce_already_used':
-        emit(opts, 'nonce_replay', {
+        emit(opts, 'nonce_replay_attempt', {
           payerHash: payerH,
           nonceHash: nonceHash(payload.payload.authorization.nonce),
         });
