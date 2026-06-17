@@ -319,3 +319,50 @@ post-completion entries here following the `do-task` skill template.
 - T10 (Wave 7 forked-e2e): the cross-adapter NonceStore singleton claim is verified at the unit level here (`NonceStore module-scope singleton — verify receives the same instance across calls`). T10's forked-e2e test should still exercise the same NonceStore through BOTH adapters in a single process (pay via withPaywall, retry the same X-PAYMENT on fastifyPaywall → assert 402 `nonce_already_used`) to lock in cross-adapter behavior against real network traffic.
 - README operational guide (pre-deploy): the `relayer_low_balance` event with `balanceUsdc` is now a dedicated D18 channel. Operational alerting should subscribe to `relayer_low_balance` (with a configurable threshold above `MIN_RELAYER_USDC_BALANCE = 1_000_000n`) rather than parsing the generic `settlement_failed` reason field. Document the alerting recipe.
 - `fastify` peer-dep version range pinned to `^4.0.0 || ^5.0.0`. When Fastify v6 ships, validate the `Symbol.for('skip-override')` bubbling trick still works (it has been stable since v3, but is an unofficial-API affordance — `fastify-plugin` uses the same mechanism, and the pattern was reviewed by code-reviewer-t8 in round 1).
+
+## Task 11: Deploy script (forge + TS post-step) + register CLI + README
+
+**Status:** Done (pending user verification of README onboarding walkthrough)
+**Commits:** ef9752a (impl) + e14734f (security R1 fixes) + 1d2be23 (test R1 fixes absorbed by parallel T9 commit) + 869478b (chore attribution for test R1) + 5d8c2bd (code R1 fixes) + 0c215d0 (review reports)
+**Agent:** deploy-cli
+**Summary:** Wired the two-step deploy pipeline + developer CLI + README onboarding per iter-4 §4 T11. `contracts/script/Deploy.s.sol` is a Foundry script that broadcasts a single `new PaymentSplitterFactory(IERC20(usdc), treasury, uint16(feeBps))` deploy (3-arg canonical constructor per iter-3 §1) — the inner `PaymentVaultImpl` CREATE surfaces in `additionalContracts[0]` of the broadcast artifact. `contracts/scripts/post-deploy.ts` reads `broadcast/Deploy.s.sol/<chainId>/run-latest.json`, extracts both addresses, and patches `packages/middleware/src/networks.ts` via sentinel-anchored regex (per systemic-fix §13 — T6 owns the sentinels; this script only substitutes). Idempotent; refuses to overwrite already-populated `arc-testnet` without `--force` (exit 4). `scripts/register.ts` is the tsx-executable developer CLI: wraps `REGISTER_KEY` in `OpaqueRelayerKey` at the env-read line (D13), imports `getRelayerKeySecret` from the internal `../packages/middleware/src/relayer-key.js` path (iter-3 §12, NOT from the public entry point), runs a pre-flight `factory.vaults(eoa)` check for idempotency, calls `factory.register()` via viem on first run. `packages/middleware/src/__tests__/register-cli.test.ts` is 8 spawn-based tests against a local anvil node with the factory deployed programmatically via viem reading the forge artifact at `contracts/out/PaymentSplitterFactory.sol/PaymentSplitterFactory.json`. README documents the four-step developer onboarding (faucet → register → install → run) plus a maintainer-only forge-script + post-deploy.ts callout; no Hardhat references anywhere; canonical env-var names only.
+
+**Deviations:**
+- Test file uses NODE_ENV='test' guarded `test-anvil` branch in register.ts that reads `TEST_FACTORY_ADDRESS` + `TEST_RPC_URL` from env, bypassing the production `NETWORKS` lookup so the test does not need to mutate `networks.ts`. Per security-auditor SA-T11-02 round 1, the original `--allow-test-network` flag was REMOVED — gate is now exclusively `process.env.NODE_ENV === 'test'`.
+- `classifyError()` in register.ts scrubs `err.message` via `scrubSecrets()` BEFORE pattern matching (security-auditor SA-T11-01 defense-in-depth) so a future maintainer adding stderr forwarding cannot leak a hex key through the message path.
+- `post-deploy.ts` parser tolerates BOTH single and double quotes around the address literal in the sentinel match (T6 currently ships single-quoted; a future prettier change to double-quote does not break the substitution).
+- README `usdcEip712Name` examples use literal `"USDC"` per the T3-verified on-chain value (decisions.md Task 3 bba2942) — NOT the user-spec example's `"USD Coin"`. Declined a finding from both test-reviewer (L3 round 1) and code-reviewer (T11-04 round 1) on this point: the wire body emitted by the middleware uses whatever NETWORKS holds, and NETWORKS reads the T3 artifact (`"USDC"`). The user-spec amendment is already a deferred follow-up (SA-T6-INFO-02 in Task 6 open items).
+- T9 ran in parallel and committed against the working tree at the same moment a round-2 test fix landed; the substantive changes are in commit 1d2be23 with attribution recorded in empty commit 869478b. No conflict in the file content.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t11: approve_with_minor_fixes (4 minor — T11-01 missing tx receipt timeout, T11-02 dead createServer in waitForPort, T11-03 arcscan URL, T11-04 USDC name) → [logs/working/task-11/code-reviewer-t11-round1.json](logs/working/task-11/code-reviewer-t11-round1.json)
+- security-auditor-t11: conditional_pass (2 medium SA-T11-01/02, 2 low SA-T11-03/04, 1 info SA-T11-05) → [logs/working/task-11/security-auditor-round1.json](logs/working/task-11/security-auditor-round1.json)
+- test-reviewer-t11: needs_improvement (3 medium M1/M2/M3, 3 low L1/L2/L3) → [logs/working/task-11/test-reviewer-t11-round1.json](logs/working/task-11/test-reviewer-t11-round1.json)
+
+*Round 2 (after fixes):*
+- code-reviewer-t11: approved (all 4 round-1 findings verified; T11-04 decline accepted) → [logs/working/task-11/code-reviewer-t11-round2.json](logs/working/task-11/code-reviewer-t11-round2.json)
+- security-auditor-t11: PASS — cleared to ship (1 advisory OBS-R2-01 non-blocking: HttpRequestError branch returns rpc_5xx for ALL HTTP status codes including 4xx; consider follow-up post-ship) → [logs/working/task-11/security-auditor-round2.json](logs/working/task-11/security-auditor-round2.json)
+- test-reviewer-t11: passed (all 3 medium + 2 low resolved; L3 decline accepted on T3-artifact grounds) → [logs/working/task-11/test-reviewer-t11-round2.json](logs/working/task-11/test-reviewer-t11-round2.json)
+
+**Verification:**
+- `cd contracts && forge build` → exit 0, no warnings (54 files compiled with solc 0.8.20).
+- `cd contracts && anvil --chain-id 31337 --port 8545` + `DEPLOYER_KEY=0xac09… PLATFORM_TREASURY_ADDRESS=0x70997… USDC_ADDRESS=0x70997… forge script script/Deploy.s.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast` → exit 0, wrote `broadcast/Deploy.s.sol/31337/run-latest.json`, console2 logged FACTORY_ADDRESS=0x5fbdb… and VAULT_IMPL_ADDRESS=0xa16e0… in stdout.
+- `npx tsx contracts/scripts/post-deploy.ts --chain-id 31337` → exit 0, printed FACTORY_ADDRESS=… and VAULT_IMPL_ADDRESS=… on stdout, patched networks.ts at the two sentinel positions; subsequent `git diff packages/middleware/src/networks.ts` shows ONLY the two address literals changed (sentinels untouched, no other lines).
+- Re-run `npx tsx contracts/scripts/post-deploy.ts --chain-id 31337` against the patched file → zero additional diff (idempotent).
+- `npx tsx contracts/scripts/post-deploy.ts --chain-id 5042002 --broadcast-dir contracts/broadcast/Deploy.s.sol/31337` against the already-patched arc-testnet entry → exit 4 with `networks.ts already has non-zero addresses for arc-testnet — pass --force to overwrite`.
+- `tsx scripts/register.ts --help` → exit 0; usage block includes REGISTER_KEY, ARC_RPC_URL, PAYWALL_RELAYER_KEY mention.
+- `NODE_ENV=test REGISTER_KEY=<anvil-account-1-key> TEST_FACTORY_ADDRESS=<deployed-factory> TEST_RPC_URL=http://127.0.0.1:8545 tsx scripts/register.ts --network test-anvil` → first run prints `Registered. Vault: 0x<deterministic>` + `Tx: 0x<hash>`; second run prints `Already registered. Vault: 0x<same>`.
+- Malformed `REGISTER_KEY=not-a-key`, missing env, `--network arc-mainnet` (enabled:false) → exit 2/2/3 respectively, no input substring or key shape in stderr.
+- `npm test --workspace=@universal-paywall/middleware` → 246/246 pass across 12 suites (8 new in register-cli.test.ts).
+- `npx tsc --noEmit -p packages/middleware/tsconfig.json` and `… -p contracts/tsconfig.json` → both exit 0.
+- `npm run lint` → exit 0.
+- gitleaks pre-commit hook on every commit → 0 leaks.
+- Circle faucet URL `https://faucet.circle.com` returns HTTP 200; verified the URL is reachable. README also documents the thirdweb fallback per task hints.
+
+**Open items for future tasks:**
+- T16 (Wave 12 deploy + npm publish): runs the same `forge script script/Deploy.s.sol:Deploy --rpc-url $ARC_RPC_URL --broadcast --verify` + `npx tsx contracts/scripts/post-deploy.ts` chain against Arc Testnet. Commits the resulting `networks.ts` diff. Publishes `@universal-paywall/middleware@0.1.0-alpha.0`. The `--verify` flag's arcscan call may need a re-run via the standalone `forge verify-contract` recipe in the README maintainer callout if arcscan indexing races.
+- Post-ship security follow-up (SA-T11 OBS-R2-01, non-blocking): `classifyError()` in register.ts returns `rpc_5xx` for all `HttpRequestError` regardless of status code, including 4xx like 429 rate-limit. No security impact (reason strings are fixed tokens, key invariant holds) but the classification is semantically imprecise. Consider a follow-up to distinguish 4xx → `rpc_5xx` (current) vs. a new `rpc_4xx` reason, or document the choice explicitly.
+- User-spec amendment (carried forward from T6 SA-T6-INFO-02): user-spec examples reference `usdcEip712Name = "USD Coin"`, but the T3-verified on-chain value (and what NETWORKS / the README ship with) is `"USDC"`. Update user-spec examples to match the live chain.
+- T17 (Wave 13 post-deploy verification) consumes the patched `networks.ts` produced by T11 + T16. The factory address read from `PAYMENT_SPLITTER_FACTORY_ADDRESS` env var must match the value substituted by `post-deploy.ts` (or the sentinel-anchored literal directly read from networks.ts).
