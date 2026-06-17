@@ -1,0 +1,117 @@
+{
+  "reviewer": "security-auditor-t11",
+  "task": 11,
+  "round": 1,
+  "timestamp": "2026-06-17",
+  "verdict": "conditional_pass",
+  "summary": "Task 11 is well-structured from a security perspective. Private key handling follows the OpaqueRelayerKey pattern correctly. No real secrets in README. However, four issues require attention before this ships: one medium (env var scrub gap in classifyError), one medium (test-anvil bypass activated by --allow-test-network without NODE_ENV gate), one low (README exposes DEPLOYER_KEY usage in a forge verify-contract example that includes the treasury address), and one low (post-deploy.ts propagates the raw error message from JSON.parse into stderr without scrubbing, which could leak a path containing sensitive directory structure on some CI setups).",
+
+  "findings": [
+    {
+      "id": "SA-T11-01",
+      "severity": "medium",
+      "category": "Private Key Handling — incomplete scrub in classifyError",
+      "file": "scripts/register.ts",
+      "lines": "149-166",
+      "title": "classifyError() reads err.message and .name without scrubbing before writing to stderr",
+      "description": "In register.ts:149-166, classifyError(err) inspects err.message (lowercased) and err.name to derive a classification string. The classification string itself is sanitized (only one of the fixed reason tokens is returned). However, if none of the recognized patterns match, the function falls through to return 'unknown' without ever logging err.message. The issue is the reverse: if a viem error wraps the private key in its message (e.g., an RPC library that embeds the raw request in a TransportError.message), the message reaches classifyError where it is only .toLowerCase()-d — which does NOT strip a 0x hex key. The classification result ('unknown') is safe, but a future maintainer adding a catch arm that emits err.message for debugging would fall into the same trap. More concretely: the test register_never_prints_key passes a DEVELOPER_KEY through a happy-path (no error), so it never exercises the error branch. A separate test for classifyError receiving an error whose .message contains a 32-byte hex string is absent. Recommendation: wrap the err.message access in scrubSecrets() before the comparison, or at minimum document in a code comment that err.message must never be forwarded to stderr in this function.",
+      "recommendation": "In classifyError(), wrap any err.message access with scrubSecrets() before the toLowerCase() comparison. Or add a comment explicitly noting that the raw message is only used for pattern-matching and is never emitted.",
+      "accepted_risk": "The immediate risk is low because the current return value is always one of the fixed reason tokens and never the raw message. The risk is architectural: future modifications to the error path are likely to inadvertently emit the raw message."
+    },
+    {
+      "id": "SA-T11-02",
+      "severity": "medium",
+      "category": "Test Bypass / Production Guard Weakening",
+      "file": "scripts/register.ts",
+      "lines": "81-82, 193-199",
+      "title": "--allow-test-network flag activates test-anvil branch without requiring NODE_ENV=test",
+      "description": "The test-anvil code path (buildTestNetwork()) is gated on: (process.env['NODE_ENV'] === 'test' || args.allowTestNetwork). The --allow-test-network flag is accepted from the CLI argument parser (line 81-82) and does NOT require NODE_ENV=test. This means a developer who accidentally or intentionally passes --allow-test-network on a production invocation will activate the branch, which reads TEST_FACTORY_ADDRESS from env instead of NETWORKS, sets usdcAddress to ZERO_ADDRESS, and can route payments to an arbitrary factory address supplied via TEST_FACTORY_ADDRESS. In a production deployment where TEST_FACTORY_ADDRESS is misconfigured or poisoned via a CI environment variable, this becomes a payment-routing vulnerability: the developer registers their EOA against a controlled factory, not the canonical one. The task spec says 'gate the branch on process.env.NODE_ENV === \"test\" OR a non-default flag --allow-test-network', so the implementation matches the spec. However, the spec's intent was for test infrastructure use only — the --allow-test-network escape hatch widens the attack surface beyond the intended test-only scope. Recommendation: either remove --allow-test-network entirely and require NODE_ENV=test only, or add a prominent stderr warning when --allow-test-network is used and add it to the disallowed flags list in the README.",
+      "recommendation": "Remove the --allow-test-network flag. Gate exclusively on NODE_ENV=test. The test suite already sets NODE_ENV=test in the spawn env (register-cli.test.ts:227), so this is sufficient. If --allow-test-network must remain, emit a loud stderr warning ('WARNING: --allow-test-network is for CI/test use only; do not use in production') and validate that TEST_FACTORY_ADDRESS passes the address regex before use (it does — line 129-131, so that part is fine).",
+      "accepted_risk": "Medium. TEST_FACTORY_ADDRESS validation is present (lines 129-131). The actual harm requires an attacker who can both inject an env var and influence the CLI invocation arguments simultaneously."
+    },
+    {
+      "id": "SA-T11-03",
+      "severity": "low",
+      "category": "Information Disclosure — post-deploy.ts JSON parse error message forwarded to stderr",
+      "file": "contracts/scripts/post-deploy.ts",
+      "lines": "258-264",
+      "title": "JSON.parse failure message propagated verbatim to stderr",
+      "description": "In the main() function, when JSON.parse(raw) throws, the code catches and re-throws a new Error that includes (err as Error).message in the string. This error then reaches the top-level catch at lines 307-311, which writes it verbatim to stderr. In most environments this is fine (the message would be something like 'Unexpected token at position N'). However, on some runtimes, a malformed broadcast file could produce an error message that includes a snippet of the raw content. Since the broadcast file is produced by forge's broadcast pipeline (trusted), the risk is very low. Recommendation: when re-throwing the JSON parse error, truncate or redact the inner message: 'failed to parse broadcast JSON at ${broadcastPath}: <parse error>' without forwarding (err as Error).message.",
+      "recommendation": "Replace (err as Error).message with a static placeholder string in the JSON parse catch block to prevent any content from the broadcast file appearing in stderr.",
+      "accepted_risk": "Very low. The broadcast file is written by forge (trusted toolchain), not by user input."
+    },
+    {
+      "id": "SA-T11-04",
+      "severity": "low",
+      "category": "README — DEPLOYER_KEY usage in forge verify-contract example",
+      "file": "README.md",
+      "lines": "163-169",
+      "title": "README forge verify-contract example references $PLATFORM_TREASURY_ADDRESS in a cast abi-encode command",
+      "description": "The forge verify-contract re-run example in README.md (lines 163-169) includes $PLATFORM_TREASURY_ADDRESS as a positional argument to cast abi-encode. While this is correct and uses an env var reference (not a hardcoded value), the example also shows the USDC address hardcoded as 0x3600000000000000000000000000000000000000. This is correct and not a secret, but the same section implies DEPLOYER_KEY is in scope (it's exported just above in the same bash session). A developer copy-pasting the block into a CI pipeline might inadvertently expose PLATFORM_TREASURY_ADDRESS in CI logs if the shell echoes commands. This is standard shell hygiene territory (not a code vulnerability), but worth noting as a documentation guidance gap. Recommendation: add a note '# ensure $PLATFORM_TREASURY_ADDRESS is set in your shell session and not echoed by CI' in the README comment for that block.",
+      "recommendation": "Add a one-line comment in the README forge verify-contract block reminding operators to prevent shell echo of PLATFORM_TREASURY_ADDRESS in CI logs.",
+      "accepted_risk": "Very low. PLATFORM_TREASURY_ADDRESS is a public address, not a secret. No keys are echoed."
+    },
+    {
+      "id": "SA-T11-05",
+      "severity": "info",
+      "category": "Test Coverage Gap — no scrub-regex assertion on error path in register-cli.test.ts",
+      "file": "packages/middleware/src/__tests__/register-cli.test.ts",
+      "lines": "313-323",
+      "title": "register_never_prints_key only tests the happy path, not the error classification path",
+      "description": "The register_never_prints_key test (lines 313-323) spawns the register CLI on the happy path (valid key, valid factory) and asserts no 0x[0-9a-fA-F]{64} appears in stdout+stderr. It does NOT exercise the register_failed error path where classifyError() might receive an error with the key embedded. The test_malformed_key test (lines 338-348) catches the exit-2 path but only checks that the malformed input string itself doesn't appear in stderr — it does not check for the 0x[a-fA-F]{64} pattern. Adding a test that simulates a transport error containing a hex pattern (e.g., inject an intentionally bad rpcUrl that produces a deterministic error message) would catch future regressions in classifyError.",
+      "recommendation": "Add a test case: spawn register.ts with a valid REGISTER_KEY but an invalid RPC URL that causes a transport error. Assert the combined stdout+stderr does not match /0x[0-9a-fA-F]{64}/. This covers the error path not reached by the happy-path scrub test.",
+      "accepted_risk": "Informational. Current behavior is safe; this closes a test coverage gap against future regressions."
+    }
+  ],
+
+  "confirmed_safe": [
+    {
+      "id": "CS-T11-01",
+      "description": "REGISTER_KEY is wrapped in OpaqueRelayerKey at line 190 of register.ts — the raw string is never stored in a local variable, passed to a function, or forwarded via any path after that point. The only extraction is at line 231 via getRelayerKeySecret(), which returns a value immediately consumed by privateKeyToAccount(). The raw secret never reaches a variable that is in scope of any logging or error-formatting code path."
+    },
+    {
+      "id": "CS-T11-02",
+      "description": "OpaqueRelayerKey in relayer-key.ts uses a WeakMap-backed secret store (not a class field), making the secret unreachable via Object.keys(), JSON.stringify(), structuredClone(), Object.getOwnPropertyDescriptor(), or direct property access. The [util.inspect.custom] hook, toJSON(), and toString() all return the literal '<redacted:relayer-key>'."
+    },
+    {
+      "id": "CS-T11-03",
+      "description": "Deploy.s.sol precondition assertions (require treasury != address(0), require usdc != address(0), require feeBpsRaw <= 1000) appear BEFORE vm.startBroadcast(), so a misconfigured deploy fails without spending gas or producing a broadcast artifact. The uint16 cast is preceded by the bounds check — no overflow possible."
+    },
+    {
+      "id": "CS-T11-04",
+      "description": "Deploy.s.sol reads DEPLOYER_KEY via vm.envUint() — the key exists only as a uint256 in Solidity memory during the script execution. forge-std does not log env-var values in its default output. The NatSpec comment documents the env vars but does not include their values. console2.log only emits the factory and vault addresses, not the deployer key."
+    },
+    {
+      "id": "CS-T11-05",
+      "description": "post-deploy.ts validates both extracted addresses against /^0x[0-9a-fA-F]{40}$/ before use and before writing to networks.ts. The sentinel regex requires a valid 40-hex address, so injection of a non-address value cannot reach the file write path."
+    },
+    {
+      "id": "CS-T11-06",
+      "description": "post-deploy.ts treats networks.ts as a text file (no dynamic require/import). The sentinel-anchored regex substitution cannot execute arbitrary code. The output is written back with fs.writeFileSync, which is atomic on most filesystems."
+    },
+    {
+      "id": "CS-T11-07",
+      "description": "README uses 0x<your-key> and 0x<your-developer-eoa-private-key> as placeholders throughout. No real keys, no real RPC tokens, no working examples that include committed secrets. The canonical env-var names table lists all five variables without revealing values."
+    },
+    {
+      "id": "CS-T11-08",
+      "description": "The test-anvil buildTestNetwork() function validates TEST_FACTORY_ADDRESS against /^0x[0-9a-fA-F]{40}$/ (lines 129-131) and validates TEST_RPC_URL is non-empty (lines 132-134) before constructing the NetworkConfig. This prevents an empty or malformed address from reaching the viem readContract/writeContract call."
+    },
+    {
+      "id": "CS-T11-09",
+      "description": "forge shell injection: all env-var consumption in Deploy.s.sol goes through forge's vm.envUint/vm.envAddress/vm.envOr cheats. These are Solidity VM builtins, not shell interpolation — no shell injection vector exists."
+    },
+    {
+      "id": "CS-T11-10",
+      "description": "The register CLI's --help output (lines 96-120) lists env var names (REGISTER_KEY, ARC_RPC_URL, PAYWALL_RELAYER_KEY) but does NOT print their current values. The PAYWALL_RELAYER_KEY mention correctly clarifies it is unrelated to this script."
+    }
+  ],
+
+  "owasp_coverage": {
+    "A02_cryptographic_failures": "PASS — private key never serialized, OpaqueRelayerKey WeakMap pattern correct",
+    "A03_injection": "PASS — no shell interpolation in Deploy.s.sol (forge cheats); no dynamic code eval in post-deploy.ts",
+    "A05_security_misconfiguration": "PASS with note — feeBps and address preconditions in Deploy.s.sol correct; SA-T11-01 advisory on error path",
+    "A07_identification_authentication": "PASS — register CLI validates key format before use; wraps immediately",
+    "A09_logging_monitoring_failures": "PASS — README documents relayer_low_balance event correctly per D18; SA-T11-05 test coverage advisory"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "reviewer": "code-reviewer-t11",
+  "task": "11",
+  "round": 1,
+  "verdict": "approve_with_minor_fixes",
+  "summary": "Solid implementation overall. Three minor issues found; one correctness concern about a missing receipt timeout in register.ts; no blocking issues. The forge deploy script and post-deploy patcher are well-structured and production-ready. The test suite covers all 7 required cases with appropriate skip guards.",
+  "issues": [
+    {
+      "id": "T11-01",
+      "severity": "minor",
+      "dimension": "Correctness / Error Handling",
+      "file": "scripts/register.ts",
+      "line": 261,
+      "title": "waitForTransactionReceipt missing timeout parameter",
+      "description": "The call `publicClient.waitForTransactionReceipt({ hash: txHash })` has no timeout option. The tech-spec (§7e) and the task description specify `waitForTransactionReceipt({hash, timeout: 30_000})`. Without a timeout, a lost transaction hangs the process indefinitely. The settle.ts pattern in T7 sets this explicitly. The `mine_timeout` error reason is also absent from `classifyError` — a viem timeout error from receipt polling would fall through to `rpc_timeout` (which is technically incorrect but functionally acceptable). Fix: add `timeout: 30_000` to the call; optionally add `mine_timeout` to `classifyError` if viem throws a distinct error type for this.",
+      "recommendation": "Change line 261 to: `const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 30_000 });`"
+    },
+    {
+      "id": "T11-02",
+      "severity": "minor",
+      "dimension": "Readability / Dead Code",
+      "file": "packages/middleware/src/__tests__/register-cli.test.ts",
+      "line": 105,
+      "title": "Dead createServer instance inside waitForPort",
+      "description": "Inside `waitForPort`, a `createServer()` is created, `unref()`-ed, and immediately `close()`-d before the `fetch()` call. The comment acknowledges that 'a TCP connect via net.connect would be ideal', but this abandoned server object is inert dead code — it neither blocks the test nor serves a purpose. The function works entirely via the `fetch` loop. The spurious `createServer` is misleading to future readers.",
+      "recommendation": "Remove the `const socket = createServer(); socket.unref(); socket.close();` lines (105–109). The `fetch`-based poll is sufficient and already correct."
+    },
+    {
+      "id": "T11-03",
+      "severity": "minor",
+      "dimension": "Accuracy / Documentation",
+      "file": "README.md",
+      "line": 44,
+      "title": "Arcscan URL in README differs from tech-spec canonical URL",
+      "description": "The README uses `https://testnet.arcscan.network` as the block explorer link. The tech-spec (user-spec ACs and tech-spec §Acceptance Criteria) consistently uses `https://testnet.arcscan.app`. While `.network` may redirect to `.app`, using the non-canonical URL can confuse users if the redirect lapses and makes the README inconsistent with the rest of the project docs.",
+      "recommendation": "Change the README link on line 44 to use `https://testnet.arcscan.app` to match the tech-spec's canonical URL."
+    },
+    {
+      "id": "T11-04",
+      "severity": "minor",
+      "dimension": "Accuracy / Documentation",
+      "file": "README.md",
+      "line": 126,
+      "title": "Example 402 body uses 'USDC' for EIP-712 name; user-spec specifies 'USD Coin'",
+      "description": "The inline JSON example in the README shows `\"name\":\"USDC\"` in the `extra` field. The user-spec (§Флоу step 2) specifies `\"name\": \"USD Coin\"` (verified from `USDC.name()` at deploy time). The T3 spike would have confirmed the actual value as `USD Coin`. The inline 402 example is illustrative, but using the wrong EIP-712 name could mislead developers hand-crafting agents who copy it literally — the signature recovery would fail if they use `USDC` instead of `USD Coin` in the EIP-712 domain.",
+      "recommendation": "Update the inline 402 body example to use `\"name\":\"USD Coin\"` to match the user-spec and the value verified by T3. Add a note that this value is read dynamically from the USDC contract at middleware startup."
+    }
+  ],
+  "positive_observations": [
+    "Deploy.s.sol is minimal and correct: pre-condition requires, bounds-checked uint16 cast, startBroadcast/stopBroadcast pattern, console2.log for CI-capture.",
+    "post-deploy.ts has excellent validation: schema drift detection, actionable error messages pointing to the forge broadcast file and T6, loud failure on missing sentinel comments rather than silent placeholder preservation.",
+    "The `--force` guard on already-populated arc-testnet addresses (exit code 4) correctly prevents accidental redeployment overwrites. The local-anvil (chainId 31337) exemption is well-reasoned for iterative smoke testing.",
+    "register.ts wraps REGISTER_KEY in OpaqueRelayerKey on the very first use after validation — the raw string is never held in a variable downstream. The pre-flight vaults() idempotency check is correct and exits 0 (not 1) for already-registered, matching the spec.",
+    "classifyError covers the primary viem failure modes correctly, including the `relayer_no_balance` detection via balance message heuristics.",
+    "The test's describe.skip guard with clear console.warn messages for missing anvil/artifact is exactly right — CI gracefully skips without failing opaquely.",
+    "The SIGTERM → 5s SIGKILL anvil cleanup in afterAll is correct and avoids port-leak across test runs.",
+    "The test spawns `tsx scripts/register.ts` as a child process rather than importing it, keeping the test honest about the CLI's real invocation surface.",
+    "README is clean, well-ordered, contains only canonical env-var names, and has zero Hardhat references."
+  ],
+  "cross_file_consistency": {
+    "checked": [
+      "NETWORKS import in register.ts: confirmed `@universal-paywall/middleware` exports NETWORKS and OpaqueRelayerKey; getRelayerKeySecret is correctly imported from the internal path.",
+      "Sentinel regex in post-deploy.ts matches the actual format in networks.ts (single-quoted address literals with exactly one space before the comment).",
+      "The 3-arg PaymentSplitterFactory constructor in Deploy.s.sol matches the data model in tech-spec (IERC20 usdc, address treasury, uint16 feeBps).",
+      "Test fixture reads `contracts/out/PaymentSplitterFactory.sol/PaymentSplitterFactory.json` — this is the standard Foundry output path; matches T2's forge build output.",
+      "ARC_RPC_URL override is handled correctly: networks.ts reads `process.env['ARC_RPC_URL']` at module load, so the env var is honoured by register.ts via the NETWORKS lookup without any additional code in register.ts."
+    ]
+  }
+}

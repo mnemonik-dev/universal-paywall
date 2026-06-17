@@ -1,0 +1,86 @@
+{
+  "reviewer": "test-reviewer-t11",
+  "task": 11,
+  "round": 2,
+  "status": "passed",
+  "summary": "All 3 medium and 2 of 3 low findings from round 1 are resolved. L3 (README USDC name) was correctly declined: the T3 artifact at contracts/scripts/arc-testnet-usdc-domain.json confirms the on-chain EIP-712 domain name is literally 'USDC', not 'USD Coin'. Using 'USD Coin' in the README example would produce EIP-712 domain-hash mismatches and signature-recovery failures. The decline is correct and well-supported. An additional 8th test (register_never_prints_key_on_rpc_failure) was added proactively by the security-auditor and covers the error-classification path — it is meaningful and non-redundant. No new issues found.",
+  "counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "taskRequired": {
+    "needed": false,
+    "reason": "All actionable findings resolved. Remaining open item (L3) was correctly declined with documented rationale."
+  },
+  "round1_resolution": {
+    "M1_ordering_dependency": {
+      "status": "fixed",
+      "verification": "register_handles_already_registered (line 311) now calls runRegister once unconditionally at the start (lines 315-319) before asserting on the second call (lines 321-329). Test is fully self-contained regardless of execution order. Additional assertion `expect(result.stdout).not.toContain('Tx:')` on line 329 correctly pins the no-tx-line invariant on the already-registered path."
+    },
+    "M2_dead_code_waitForPort": {
+      "status": "fixed",
+      "verification": "waitForPort (lines 99-117) now contains only the fetch() readiness probe. The createServer()/close() dead code is removed. The loop correctly returns immediately on success, waits 200ms on failure, and throws with the last error after timeout."
+    },
+    "M3_broad_regex_on_tx_hash": {
+      "status": "fixed",
+      "verification": "register_calls_factory (lines 275-309) now uses only literal-substring checks (DEVELOPER_KEY, DEVELOPER_KEY.slice(2)) — no broad regex. register_never_prints_key (lines 332-353) explicitly runs on the already-registered path (first call ensures registration, second call asserts) so the 'Tx:' line is absent, making the 0x[0-9a-fA-F]{64} regex assertion meaningful and safe. Comment on line 335-338 documents the rationale clearly."
+    },
+    "L1_malformed_key_coverage": {
+      "status": "fixed",
+      "verification": "register_rejects_malformed_key (lines 355-374) now loops over 3 malformed shapes: 'not-a-key-totally-garbage', '0x' + 'a'.repeat(30), '0xZZZ' + 'b'.repeat(61). Each is asserted for exit code 2 and absence from both streams. The '0x-prefix, right length, non-hex' case ('0xZZZ' + 61 'b's = 0x + 3 non-hex + 61 hex = 64 chars total after 0x but non-hex prefix) would be rejected by PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/ since 'Z' is not in [0-9a-fA-F]. Correct."
+    },
+    "L2_disabled_network_key_leak": {
+      "status": "fixed",
+      "verification": "register_rejects_disabled_network (lines 386-422) now asserts DEVELOPER_KEY and DEVELOPER_KEY.slice(2) absent from combined stdout+stderr (lines 419-421). Comment on lines 417-418 documents the rationale."
+    },
+    "L3_readme_usdc_name": {
+      "status": "declined_accepted",
+      "verification": "T3 artifact at contracts/scripts/arc-testnet-usdc-domain.json confirms 'name': 'USDC'. The on-chain EIP-712 domain name for Arc Testnet USDC is 'USDC', not 'USD Coin'. networks.ts line 87 reads this value directly. Using 'USD Coin' in the README example would cause agents copying the snippet to construct an incorrect EIP-712 domain, producing signature-recovery failures. The decline is technically correct."
+    }
+  },
+  "new_test_review": {
+    "register_never_prints_key_on_rpc_failure": {
+      "location": "lines 455-472",
+      "assessment": "valid_and_meaningful",
+      "notes": "Tests the classifyError() path by routing a valid key to an unreachable RPC (port 1). Asserts: exit non-zero, no DEVELOPER_KEY in output, no 0x{64} pattern, stderr contains 'register_failed:'. This is the only test that exercises the failure-classification code path's key-leak surface, which the other tests do not cover. The broad regex here is meaningful because the failure output should contain only 'register_failed: <short-reason>' (no hex patterns). The 60s timeout is appropriate for a network-error test — viem's default connect timeout may take several seconds."
+    }
+  },
+  "tdd_anchor_coverage": {
+    "register_calls_factory": {
+      "status": "passed",
+      "notes": "Exit code 0, 'Registered. Vault: 0x' in stdout, on-chain vault non-zero, literal key-leak checks. Solid."
+    },
+    "register_never_prints_key": {
+      "status": "passed",
+      "notes": "Runs on already-registered path (no Tx line). Literal checks + broad regex both valid on this path."
+    },
+    "register_handles_already_registered": {
+      "status": "passed",
+      "notes": "Self-sufficient (unconditional pre-register). Asserts exit 0, 'Already registered. Vault: 0x{40}', no 'Tx:' line."
+    },
+    "register_rejects_malformed_key": {
+      "status": "passed",
+      "notes": "Three malformed shapes covered. Each asserted for exit 2 and input-not-echoed."
+    },
+    "register_handles_missing_key": {
+      "status": "passed",
+      "notes": "Canonical message asserted. Solid."
+    },
+    "register_rejects_disabled_network": {
+      "status": "passed",
+      "notes": "Exit 3, /disabled|unknown/i, and key-absence in output all asserted."
+    },
+    "register_help_flag": {
+      "status": "passed",
+      "notes": "Exit 0, 'Usage:', 'REGISTER_KEY', 'ARC_RPC_URL' all asserted. Solid."
+    }
+  },
+  "infrastructure_checks": {
+    "M2_waitForPort": "Clean. Pure fetch() probe, 200ms sleep between attempts, clear timeout error.",
+    "afterAll_cleanup": "SIGTERM + 5s SIGKILL escalation. Correct.",
+    "describe_skip": "ANVIL_AVAILABLE + FACTORY_ARTIFACT_AVAILABLE gate. Correct.",
+    "ordering_independence": "All tests that need DEVELOPER_KEY registered now pre-register unconditionally. Suite is order-independent."
+  }
+}
