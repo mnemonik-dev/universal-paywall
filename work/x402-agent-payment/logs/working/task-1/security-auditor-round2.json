@@ -1,0 +1,82 @@
+{
+  "reviewer": "security-auditor-t1",
+  "task": "1",
+  "round": 2,
+  "commit": "628c1de",
+  "timestamp": "2026-06-17",
+  "verdict": "pass",
+  "summary": "All actionable round-1 findings have been resolved correctly. SA-T1-02 (esbuild HIGH) is fully fixed via npm overrides — all esbuild consumers now deduplicate to 0.28.1. SA-T1-03 (.npmrc) is in .gitignore. SA-T1-04 (prepublishOnly guard) is in place with a clear error message and self-documenting sibling key. SA-T1-01 (vitest CRITICAL) is accepted with explicit in-file documentation and a constraint against adding --ui scripts — this is a reasonable, bounded deferral. No new security issues introduced. Task 1 scaffolding is cleared for merge.",
+  "round1_findings_resolution": [
+    {
+      "id": "SA-T1-01",
+      "round1_severity": "medium",
+      "status": "accepted_with_documentation",
+      "resolution": "vitest stays at ^1.5.0 per task-1 spec pin. A sibling key '//audit-vitest' in scripts documents the advisory (GHSA-5xrq-8626-4rwp) and explicitly prohibits adding `vitest --ui` scripts until upgrade to >=3.2.6. The deferral is bounded and tracked. No --ui flag exists anywhere in the codebase. Accepted.",
+      "verification": "grep for '--ui' in all package.json scripts: not present. //audit-vitest sibling key confirmed in packages/middleware/package.json."
+    },
+    {
+      "id": "SA-T1-02",
+      "round1_severity": "medium",
+      "status": "resolved",
+      "resolution": "overrides.esbuild: '^0.28.1' added to root package.json. npm ls esbuild confirms all consumers (tsup/bundle-require, tsup direct, vitest/vite, tsx) deduplicate to esbuild@0.28.1. GHSA-gv7w-rqvm-qjhr is fixed in >=0.28.1. esbuild HIGH finding is gone from npm audit (was 7 findings, now 5).",
+      "verification": "npm ls esbuild: all resolve to 0.28.1 overridden/deduped. npm audit HIGH count reduced from 5 to 3."
+    },
+    {
+      "id": "SA-T1-03",
+      "round1_severity": "low",
+      "status": "resolved",
+      "resolution": ".npmrc added to .gitignore at line 21. git check-ignore confirms the pattern matches.",
+      "verification": "git check-ignore -v .npmrc → .gitignore:21:.npmrc CONFIRMED IGNORED."
+    },
+    {
+      "id": "SA-T1-04",
+      "round1_severity": "low",
+      "status": "resolved",
+      "resolution": "prepublishOnly script added: 'echo Use Task 16 release pipeline. Do not publish directly. && exit 1'. Sibling //prepublishOnly key documents the intent and the Task 16 removal instruction. Guard is in place and will block any accidental npm publish at this stage.",
+      "verification": "packages/middleware/package.json scripts.prepublishOnly confirmed present and exits 1."
+    },
+    {
+      "id": "SA-T1-05",
+      "round1_severity": "info",
+      "status": "out_of_scope",
+      "resolution": "ws@8.20.1 via viem in contracts/package.json — Task 2 scope. No action required in Task 1. Unchanged."
+    },
+    {
+      "id": "SA-T1-06",
+      "round1_severity": "info",
+      "status": "deferred",
+      "resolution": "HUSKY=0 bypass — CI gitleaks gate to be added as a separate task. No action in Task 1. Acceptable."
+    }
+  ],
+  "remaining_audit_findings": {
+    "counts": { "critical": 1, "high": 3, "moderate": 1, "low": 0, "total": 5 },
+    "vitest_critical": {
+      "advisory": "GHSA-5xrq-8626-4rwp",
+      "status": "accepted",
+      "rationale": "Requires vitest --ui; current scripts use vitest run only. //audit-vitest sibling key documents the constraint."
+    },
+    "vite_high_moderate": {
+      "advisories": ["GHSA-4w7w-66w2-5vf9", "GHSA-v6wh-96g9-6wx3", "GHSA-fx2h-pf6j-xcff"],
+      "status": "accepted",
+      "rationale": "All three vite advisories relate to the vite dev server (path traversal in .map files, Windows NTLMv2 hash, server.fs.deny bypass). vitest run does not start a vite dev server — it uses vite internally for bundling only. Not exploitable in the current scripts. Windows-specific advisories are irrelevant for a macOS/Linux CI target."
+    },
+    "ws_high": {
+      "advisory": "GHSA-96hv-2xvq-fx4p",
+      "status": "deferred_to_task2",
+      "rationale": "Originates from viem in contracts/package.json — Task 2 scope. Not introduced by Task 1."
+    }
+  },
+  "new_issues": [],
+  "positives": [
+    "esbuild override approach is correct: npm overrides in root package.json applies uniformly to all workspaces. All three esbuild consumers (tsup, vitest/vite, tsx) now deduplicate to 0.28.1 — confirmed via npm ls.",
+    "The //audit-vitest sibling key is a good pattern for documenting accepted vulnerabilities directly in the artifact — avoids a separate decision doc that can get out of sync.",
+    "The prepublishOnly guard message is clear and actionable ('Use Task 16 release pipeline'). The //prepublishOnly sibling key makes the guard self-explanatory to future maintainers.",
+    "tsup.config.ts cosmetic change (double to single quotes) is non-security, does not affect the build or security posture.",
+    "npm audit total findings reduced from 7 to 5 — measurable improvement."
+  ],
+  "scope_notes": [
+    "No new files introduced in round 2 that expand the security surface.",
+    "The only security-relevant files modified are .gitignore (+ .npmrc), root package.json (+ overrides), and packages/middleware/package.json (+ prepublishOnly + sibling keys).",
+    "All remaining npm audit findings are either (a) dev-server vulnerabilities with no exploitable path in the current scripts, (b) explicitly documented and deferred, or (c) Task 2 scope."
+  ]
+}

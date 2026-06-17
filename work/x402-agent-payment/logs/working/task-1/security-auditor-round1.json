@@ -1,0 +1,156 @@
+{
+  "reviewer": "security-auditor-t1",
+  "task": "1",
+  "round": 1,
+  "commit": "0272fe3",
+  "timestamp": "2026-06-17",
+  "verdict": "conditional_pass",
+  "summary": "Scaffolding is broadly sound from a security perspective. No secrets committed. Pre-commit hook fails closed on all paths. ESM-only exports posture is correct. Three findings require action before merge: (1) vitest 1.x is flagged CRITICAL by npm audit (GHSA-5xrq-8626-4rwp) — mitigated by not using vitest --ui, but the lockfile should pin a safe version or add an overrides entry to document the decision; (2) tsup's transitive esbuild dependency is flagged HIGH (GHSA-gv7w-rqvm-qjhr — missing binary integrity check) — affects build pipeline supply chain; (3) .npmrc is not in .gitignore — if a developer writes an npm token there during npm publish, it will not be caught. One additional medium finding about missing prepublishOnly guard.",
+  "findings": [
+    {
+      "id": "SA-T1-01",
+      "severity": "medium",
+      "category": "Dependency Vulnerabilities",
+      "title": "vitest 1.6.1 flagged CRITICAL (GHSA-5xrq-8626-4rwp) — arbitrary file read/execute via UI server",
+      "description": "vitest@1.6.1 is installed (pinned by ^1.5.0). npm audit flags it CRITICAL via GHSA-5xrq-8626-4rwp: 'When Vitest UI server is listening, arbitrary file can be read and executed.' The vulnerability requires the UI server to be running (invoked with `vitest --ui`). The package.json scripts use `vitest run` (not `--ui`), so the attack surface is not exposed in the current configuration. However: (a) the lockfile commits vitest@1.6.1 which any npm audit scanner will flag as CRITICAL, potentially blocking CI gates; (b) a developer adding a manual `vitest --ui` invocation in the future would unknowingly expose the vulnerability; (c) the fix is vitest >=3.2.6 which resolves the issue cleanly.",
+      "file": "packages/middleware/package.json",
+      "line": null,
+      "attack_vector": "Developer runs `vitest --ui` locally or in a future script. The UI server at localhost:<port> can be accessed by any script on the machine (or over LAN if bound to 0.0.0.0), allowing arbitrary file reads from the filesystem.",
+      "impact": "High if --ui is ever used; effectively zero with current `vitest run` scripts.",
+      "recommendation": "Upgrade vitest to ^3.2.6 (latest stable as of 2026-06). Also upgrade vite and vite-node transitively — they resolve the same underlying issue. Add an `overrides` entry in root package.json if the major bump creates conflicts:\n  \"overrides\": { \"vitest\": \"^3.2.6\" }\nIf staying on vitest 1.x for now, add an npm audit exception comment in package.json and document that `vitest --ui` MUST NOT be used until upgraded.",
+      "references": ["https://github.com/advisories/GHSA-5xrq-8626-4rwp"],
+      "false_positive_risk": "low — actual exploitation requires --ui flag which is not in any script"
+    },
+    {
+      "id": "SA-T1-02",
+      "severity": "medium",
+      "category": "Dependency Vulnerabilities — Supply Chain",
+      "title": "tsup@8.x pulls in esbuild@0.27.7 (HIGH: GHSA-gv7w-rqvm-qjhr — missing binary integrity in Deno module)",
+      "description": "tsup@8.5.1 depends on esbuild@0.27.7. esbuild has two HIGH advisories: (1) GHSA-gv7w-rqvm-qjhr: esbuild does not verify the integrity of downloaded binaries when a custom NPM_CONFIG_REGISTRY is set, enabling RCE if a developer points npm at a malicious registry and runs tsup. (2) GHSA-67mh-4wv8-2f99: esbuild's dev server forwards any origin's requests. The dev server advisory (GHSA-67mh-4wv8-2f99) is irrelevant here — tsup/esbuild are used for bundling, not as a dev server. The RCE advisory (GHSA-gv7w-rqvm-qjhr) is a supply-chain risk if NPM_CONFIG_REGISTRY is ever overridden in CI (e.g., via a compromised .npmrc or CI env var). Fixed in esbuild >=0.28.1.",
+      "file": "package.json (root)",
+      "line": null,
+      "attack_vector": "Attacker compromises NPM_CONFIG_REGISTRY in CI environment. When `npm run build` (tsup) executes, esbuild downloads its platform binary from the attacker-controlled registry without verifying integrity — RCE on the CI runner.",
+      "impact": "Critical in a compromised CI environment; low risk in a developer's local environment with a trusted registry.",
+      "recommendation": "Pin esbuild to >=0.28.1 via npm overrides in root package.json:\n  \"overrides\": { \"esbuild\": \"^0.28.1\" }\nVerify that tsup@8.x is compatible with esbuild@0.28.x (it is — tsx already uses 0.28.1 successfully in this lockfile). Alternatively, check if tsup@9.x resolves this transitively. Lock CI to use npm ci (which respects package-lock.json) and ensure NPM_CONFIG_REGISTRY is not overridable by PRs.",
+      "references": [
+        "https://github.com/advisories/GHSA-gv7w-rqvm-qjhr",
+        "https://github.com/advisories/GHSA-67mh-4wv8-2f99"
+      ],
+      "false_positive_risk": "medium — the Deno/registry exploit path requires a specifically compromised CI environment"
+    },
+    {
+      "id": "SA-T1-03",
+      "severity": "low",
+      "category": "Secrets Management",
+      "title": ".npmrc not in .gitignore — npm publish token leak vector",
+      "description": "The project's .gitignore does not include `.npmrc`. During Task 16 (npm publish), a developer may run `npm login` or `npm config set //registry.npmjs.org/:_authToken <TOKEN>`, which writes an auth token to `~/.npmrc` (global) or `./.npmrc` (local). The global path is safe, but if the developer uses the local path (e.g., for provenance CI token injection), the .npmrc file containing a live npm publish token would not be blocked by .gitignore or gitleaks (gitleaks useDefault=true should catch token-shaped strings, but .npmrc may not be in the default gitleaks ruleset).",
+      "file": ".gitignore",
+      "line": null,
+      "attack_vector": "Developer writes `//registry.npmjs.org/:_authToken=npm_<token>` into project-level .npmrc, then `git add -A` includes it in a commit. gitleaks may catch the token string, but defense-in-depth requires .gitignore to also block the file.",
+      "impact": "If an npm publish token is committed and pushed, an attacker can publish malicious versions of @universal-paywall/middleware — a supply-chain attack affecting all downstream users.",
+      "recommendation": "Add `.npmrc` to .gitignore. One line:\n  .npmrc\nThis does not affect the CI workflow because CI tokens should be injected via environment variables (NODE_AUTH_TOKEN), not written to .npmrc files.",
+      "references": ["OWASP A08:2021 – Software and Data Integrity Failures"],
+      "false_positive_risk": "none"
+    },
+    {
+      "id": "SA-T1-04",
+      "severity": "low",
+      "category": "Software and Data Integrity",
+      "title": "No prepublishOnly guard — accidental `npm publish` before Task 16",
+      "description": "packages/middleware/package.json has `publishConfig.access=public` and `provenance=true` but lacks a `prepublishOnly` script. Without this guard, running `npm publish` from inside `packages/middleware/` or from the workspace root with `--workspace=packages/middleware` would immediately publish version 0.0.0 to the public npm registry. While version 0.0.0 is unlikely to be installed by downstream users (it is not a valid release version), it would pollute the npm registry with an incomplete package and consume the 0.0.0 version slot permanently.",
+      "file": "packages/middleware/package.json",
+      "line": null,
+      "attack_vector": "Developer accidentally runs `npm publish` during development (e.g., muscle memory from another project). No guard prevents publication of an incomplete package.",
+      "impact": "Low — version 0.0.0 pollution on npm, incomplete package available publicly.",
+      "recommendation": "Add a prepublishOnly script that fails with an informative error unless explicitly released:\n  \"prepublishOnly\": \"echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1\"\nRemove this guard in Task 16 as part of the publish step.",
+      "references": [],
+      "false_positive_risk": "none"
+    },
+    {
+      "id": "SA-T1-05",
+      "severity": "info",
+      "category": "Dependency Vulnerabilities",
+      "title": "ws@8.20.1 (HIGH: GHSA-96hv-2xvq-fx4p) — Memory DoS — from viem in contracts workspace, not middleware",
+      "description": "ws@8.20.1 is flagged HIGH via GHSA-96hv-2xvq-fx4p (memory exhaustion from tiny fragments). This dependency originates from `viem@2.52.2` in `contracts/package.json` — not from `packages/middleware`. Task 1 does not introduce viem; this was added in Task 2 (Hardhat/contracts setup). The vulnerability affects ws WebSocket server usage; viem uses ws only as a WebSocket client for JSON-RPC subscriptions. In the middleware context, the facilitator calls transferWithAuthorization via publicClient.readContract/writeContract — these are HTTP calls (JSON-RPC over HTTP), not WebSocket subscriptions. The ws library is effectively unused in the data path that matters for MVP.",
+      "file": "contracts/package.json",
+      "line": null,
+      "attack_vector": "Requires establishing a WebSocket connection and sending crafted tiny fragments to the ws server. viem uses ws as a client, not a server — exploitation would require the facilitator to connect to a malicious WebSocket RPC endpoint that sends crafted fragments back.",
+      "impact": "Theoretical memory exhaustion of the middleware process if using WebSocket transport to a malicious RPC. Mitigated by using HTTP transport (the default for JSON-RPC calls in this codebase).",
+      "recommendation": "Pin ws to >=8.21.0 via overrides when viem is formally added to middleware package.json in later tasks. For now, this is a Task 2 scope issue — flag for the contracts workspace review. No action required in Task 1.",
+      "references": ["https://github.com/advisories/GHSA-96hv-2xvq-fx4p"],
+      "false_positive_risk": "high — viem uses ws as client not server; HTTP transport eliminates this path"
+    },
+    {
+      "id": "SA-T1-06",
+      "severity": "info",
+      "category": "Security Gates",
+      "title": "HUSKY=0 can bypass pre-commit hook — documented limitation, not a defect",
+      "description": "Husky v9 respects the HUSKY=0 environment variable, which disables all hooks. This allows a developer or CI pipeline to skip gitleaks and lint checks by prepending HUSKY=0. Similarly, `git commit --no-verify` bypasses hooks. The task spec's CLAUDE.md explicitly states 'Never skip hooks (--no-verify)' as a guideline. The hook itself cannot prevent this — it is a process control, not a cryptographic guarantee.",
+      "file": ".husky/pre-commit",
+      "line": null,
+      "attack_vector": "Developer with local access runs `HUSKY=0 git commit` or `git commit --no-verify` to commit secrets without triggering gitleaks.",
+      "impact": "Low — requires deliberate bypass by an authorized developer. gitleaks server-side scanning (e.g., GitHub secret scanning, gitleaks in CI) provides the second layer of defense.",
+      "recommendation": "Add gitleaks as a CI step (GitHub Actions / whatever CI is used) as a server-side gate that cannot be bypassed by a local HUSKY=0. This is independent of Task 1 but should be tracked as a CI task. No change to the hook itself is required.",
+      "references": ["OWASP A09:2021 – Security Logging and Monitoring Failures"],
+      "false_positive_risk": "none — documented limitation"
+    }
+  ],
+  "positives": [
+    "Pre-commit hook fails closed on all three paths (gitleaks missing → exit 1, gitleaks finds leak → exit 1, lint fails → exit 1). No fail-open conditions.",
+    "No user-controlled inputs in pre-commit hook — no command injection surface.",
+    "ESM-only exports map is correct: only `import` branch, no `require`, no `default`. Supply-chain consumers cannot accidentally get CJS bundle.",
+    "TypeScript strict mode plus noUncheckedIndexedAccess + exactOptionalPropertyTypes — maximizes type-safety to prevent runtime type confusion bugs in future payment-handling code.",
+    "verbatimModuleSyntax: true — enforces explicit `import type` for type-only imports, preventing accidental runtime imports of type-only modules.",
+    ".gitignore correctly covers: contracts/.env, contracts/broadcast/, contracts/out/, .husky/_/, and root-level .env (which also covers subdirectory .env via gitignore path semantics).",
+    "publishConfig.provenance=true — enables npm provenance attestation, linking the published package to its source commit and CI build. This is a strong supply-chain integrity control.",
+    "files field in package.json restricts published content to dist/ and README.md — no source code, no test fixtures, no tsconfig.json leaked to npm.",
+    "gitleaks.toml with useDefault=true is a solid baseline — covers common secret patterns (AWS, GCP, GitHub tokens, private keys, etc.).",
+    "Empty [allowlist] section in .gitleaks.toml is correct — no exceptions to default rules at this stage.",
+    "No secrets present in the committed diff (scaffolder confirmed; gitleaks verified).",
+    "The //test sibling key in package.json scripts is a good self-documenting practice — prevents accidental removal of --passWithNoTests before T6."
+  ],
+  "dependency_audit": {
+    "tool": "npm audit",
+    "counts": { "critical": 1, "high": 5, "moderate": 1, "low": 0, "total": 7 },
+    "vitest_1_6_1": {
+      "advisory": "GHSA-5xrq-8626-4rwp",
+      "severity": "critical",
+      "exploitable_with_current_scripts": false,
+      "reason": "Requires `vitest --ui`; current scripts use `vitest run`"
+    },
+    "esbuild_0_27_7": {
+      "advisory": "GHSA-gv7w-rqvm-qjhr",
+      "severity": "high",
+      "exploitable_with_current_config": "only if NPM_CONFIG_REGISTRY is compromised in CI"
+    },
+    "ws_8_20_1": {
+      "advisory": "GHSA-96hv-2xvq-fx4p",
+      "severity": "high",
+      "origin": "contracts/package.json via viem — Task 2 scope, not Task 1"
+    },
+    "vite_5_4_21": {
+      "advisory": "GHSA-4w7w-66w2-5vf9",
+      "severity": "high",
+      "exploitable_with_current_scripts": false,
+      "reason": "Vite dev server not used; vitest run uses vite internally for bundling only"
+    },
+    "recommended_overrides": {
+      "vitest": "^3.2.6",
+      "esbuild": "^0.28.1"
+    }
+  },
+  "blocking_issues": [
+    "SA-T1-03 (low): Add .npmrc to .gitignore before Task 16 at the latest; recommended now as it costs one line."
+  ],
+  "non_blocking_recommendations": [
+    "SA-T1-01: Upgrade vitest to ^3.2.6 or add overrides entry.",
+    "SA-T1-02: Add overrides.esbuild: ^0.28.1 to root package.json.",
+    "SA-T1-04: Add prepublishOnly guard script to packages/middleware/package.json.",
+    "SA-T1-06: Add gitleaks as a CI gate (server-side, bypass-proof)."
+  ],
+  "scope_notes": [
+    "This review covers only the Task 1 diff. The ws (GHSA-96hv-2xvq-fx4p) and viem vulnerabilities originate from contracts/package.json which is Task 2 scope.",
+    "Solidity contract security, EIP-712 signature verification, and NonceStore implementation are not part of Task 1 and will be reviewed in Tasks 4-8.",
+    "The relayer key (OpaqueRelayerKey) and D13 redaction are Task 6 deliverables and not assessed here."
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "reviewer": "code-reviewer-t1",
+  "task": "1",
+  "round": 2,
+  "commit": "628c1de",
+  "verdict": "approved",
+  "summary": "All round 1 findings addressed. T1-M1 (tsup.config.ts quote style) fixed. The three new changes from security-auditor findings are well-executed. No new issues found.",
+  "round1_findings_resolved": [
+    {
+      "id": "T1-M1",
+      "status": "fixed",
+      "note": "tsup.config.ts now uses single quotes throughout, consistent with .prettierrc singleQuote: true."
+    },
+    {
+      "id": "T1-M2",
+      "status": "acknowledged",
+      "note": "ajv placement noted in decisions.md as T6 implementer concern. Correct disposition — no T1 action required."
+    }
+  ],
+  "new_changes_review": [
+    {
+      "change": ".gitignore: add .npmrc",
+      "assessment": "correct",
+      "note": ".npmrc is the right place for registry credentials and auth tokens. Adding it to .gitignore prevents accidental secret commit. No issues."
+    },
+    {
+      "change": "root package.json: overrides esbuild to ^0.28.1",
+      "assessment": "correct",
+      "note": "esbuild transitive dependency pinned via npm overrides to address a security advisory. Using ^0.28.1 allows patch updates within 0.28.x while enforcing the minimum. This is the correct npm-native mechanism (not resolutions, which is yarn-specific). No issues."
+    },
+    {
+      "change": "middleware package.json: //audit-vitest sibling comment",
+      "assessment": "correct",
+      "note": "Self-documenting guard for GHSA-5xrq-8626-4rwp — prevents a future developer from accidentally adding --ui scripts while still on vitest ^1.5. The comment is precise: names the advisory, names the fix version (>=3.2.6), and states the constraint clearly. No issues."
+    },
+    {
+      "change": "middleware package.json: prepublishOnly guard",
+      "assessment": "correct",
+      "note": "Prevents accidental `npm publish` before Task 16's release pipeline. The //prepublishOnly sibling comment explains the intent. The guard exits 1 with an actionable message. This is a good safety net — Task 16 will remove it as part of the release prep. No issues."
+    }
+  ],
+  "issues": [],
+  "passing_checks": [
+    {
+      "check": "T1-M1 fix verified",
+      "status": "pass",
+      "note": "All four string literals in tsup.config.ts are now single-quoted."
+    },
+    {
+      "check": "esbuild override correctness",
+      "status": "pass",
+      "note": "npm overrides field is at the root package.json level, which is correct — nested package overrides fields are ignored by npm. The ^0.28.1 range is appropriate."
+    },
+    {
+      "check": "prepublishOnly guard does not break build/test",
+      "status": "pass",
+      "note": "prepublishOnly only runs on npm publish, not on npm install, npm run build, or npm test. Smoke re-verification confirms all scripts still exit 0."
+    },
+    {
+      "check": "No new acceptance criteria violations introduced",
+      "status": "pass",
+      "note": "All original T1 ACs remain satisfied. No new fields, scripts, or dependencies were added that conflict with the task spec."
+    },
+    {
+      "check": "Security posture improved",
+      "status": "pass",
+      "note": "esbuild advisory addressed; .npmrc excluded from git; accidental publish guard added. Net improvement with no regressions."
+    }
+  ],
+  "recommendation": "Approve unconditionally. All round 1 findings resolved. The three additions from security-auditor are correct and well-implemented. Task 1 is complete."
+}
