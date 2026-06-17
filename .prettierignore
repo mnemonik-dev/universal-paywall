@@ -1,0 +1,7 @@
+dist/
+node_modules/
+cache/
+artifacts/
+coverage/
+typechain-types/
+*.sol

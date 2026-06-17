@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# gitleaks must be installed system-wide (brew install gitleaks) — see deployment.md
+command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks not found — install via 'brew install gitleaks'"; exit 1; }
+gitleaks protect --staged --redact || exit 1
+# Lint only middleware (contracts has its own hardhat lint, run separately)
+npm run lint --silent || exit 1

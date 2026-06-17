@@ -1,0 +1,42 @@
+{
+  "name": "@universal-paywall/middleware",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "//test": "keep --passWithNoTests until T6 lands first vitest test; do not remove",
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "vitest run src/__tests__/integration/ --passWithNoTests"
+  },
+  "devDependencies": {
+    "ajv": "^8.12.0",
+    "pino": "^9.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0",
+    "winston": "^3.11.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
