@@ -1,0 +1,132 @@
+{
+  "reviewer": "security-auditor-t9",
+  "task": 9,
+  "round": 1,
+  "commit": "07ef9d5b73847cc54edc11c83762d2385eb48a03",
+  "date": "2026-06-17",
+  "verdict": "CONDITIONAL_PASS",
+  "summary": "The test suite covers all seven spec-required security paths (replay rejection, sig recovery tamper matrix, malformed payload, chain mismatch, vault_not_deployed guard, relayer key opacity, settlement taxonomy). Three security gaps require fixes before this round closes: (1) the ChallengeBody schema uses `additionalProperties: true`, undermining the strict-shape drift detection it is supposed to provide; (2) the D18 `nonce_replay_attempt` event name wired in `core.ts` is `nonce_replay` but the task spec mandates `nonce_replay_attempt`, and no test pins the canonical event name against the tech-spec table; (3) there is no test asserting that `payTo === ZERO_ADDRESS` short-circuits BEFORE `verify` is invoked when factory state is served stale with a zero vault — the `vault_not_deployed_short_circuits_BEFORE_verify` test only covers the non-stale path. No Critical or High-severity bugs found in the production source modules reviewed.",
+  "findings": [
+    {
+      "id": "SEC-T9-01",
+      "severity": "Medium",
+      "category": "Schema Integrity",
+      "title": "ChallengeBody schema uses `additionalProperties: true` — drift in 402 response fields is not caught",
+      "location": "packages/middleware/src/__tests__/fixtures/x402-v1.schema.json:88 (ChallengeBody definition)",
+      "description": "The `ChallengeBody` definition sets `additionalProperties: true`. This means that the ajv validation in `x402.test.ts` and `errors.test.ts` will pass for any object that contains `x402Version:1` and `accepts:[]`, regardless of what other fields are present. The stated purpose of the schema fixture (from task spec §1) is to catch future *drift from the wire format* at unit-test time. That guarantee is not provided for the 402 body: a regression that adds an undocumented top-level field (e.g., typo `eroor` alongside `error`) would silently pass validation. By contrast, `PaymentRequirements`, `ExactEvmPayload`, `PaymentPayload`, and `XPaymentResponse` all correctly use `additionalProperties: false`.",
+      "impact": "If a future change adds an undocumented field to the 402 challenge body (e.g., renaming `reason` to `settlementReason` in some error paths), the schema test will not catch the divergence from the x402 v1 spec. The test provides false confidence about wire-format compliance for the 402 body shape.",
+      "recommendation": "Change `additionalProperties: true` to `additionalProperties: false` in the `ChallengeBody` definition. The current allowed properties (`x402Version`, `accepts`, `error`, `reason`, `settlementReason`, `required`, `received`) are already enumerated in the schema's `properties` block — locking `additionalProperties` to false simply enforces that no unknown fields sneak in. If there are legitimate extension fields (e.g., the `reason` sub-field used for settlement failure), make them part of `properties` explicitly (they already are).",
+      "code_snippet": "\"ChallengeBody\": {\n  \"type\": \"object\",\n  \"additionalProperties\": true,   // <-- should be false\n  \"required\": [\"x402Version\", \"accepts\"],\n  ..."
+    },
+    {
+      "id": "SEC-T9-02",
+      "severity": "Medium",
+      "category": "Security Event Coverage",
+      "title": "D18 `nonce_replay_attempt` event name mismatch: `core.ts` emits `nonce_replay` but no test pins canonical name against spec",
+      "location": "packages/middleware/src/core.ts:539 and packages/middleware/src/__tests__/core.test.ts:579-600",
+      "description": "The tech-spec D18 event catalog (tech-spec.md) defines the event name as `nonce_replay_attempt`. The `core.ts` implementation emits `nonce_replay` (line 539: `emit(opts, 'nonce_replay', {...})`). The `core.test.ts` parameterized test at line 579-600 maps `'nonce_already_used'` → `'nonce_replay'` — that is, the test is written to match the *current implementation* rather than the *spec*. Neither the test nor the source anchors to the canonical name from the D18 table. When a SIEM or security monitoring system is configured against the canonical event catalog (`nonce_replay_attempt`), it will not receive any events because the wire name is `nonce_replay`. This is a naming-contract violation between the implementation and the tech-spec.",
+      "impact": "Security monitoring that subscribes to `nonce_replay_attempt` (per tech-spec D18) receives no events. Replay attacks that are caught by the middleware go undetected in alerting systems. The test suite masks the bug by asserting the wrong string.",
+      "recommendation": "1. In `types.ts` (or wherever `SecurityEventName` is defined), rename `'nonce_replay'` to `'nonce_replay_attempt'` to match the tech-spec D18 catalog. 2. Update `core.ts` line 539 and any related switch/case. 3. In `core.test.ts`, update the parameterized array to map `'nonce_already_used'` → `'nonce_replay_attempt'`. 4. Add a source-level test (similar to the `source-level emission ownership` suite at the bottom of `core.test.ts`) that reads `types.ts` or the event catalog and asserts that every name in the D18 table is present verbatim — so future renames are caught at test-time against the spec document."
+    },
+    {
+      "id": "SEC-T9-03",
+      "severity": "Low",
+      "category": "Test Coverage Gap",
+      "title": "No test for the stale-cache + zero-vault path that must short-circuit BEFORE verify",
+      "location": "packages/middleware/src/__tests__/core.test.ts — missing test case",
+      "description": "The task spec (task 9, TDD anchor `core.test.ts::vault_not_deployed_returns_402`) mandates that when `factory.vaults(eoa) === 0x0`, the 402 `vault_not_deployed` response fires BEFORE `verifyEip3009Authorization` is called. The commit correctly includes a test for this at line 272 (`vault_not_deployed short-circuits BEFORE verify is called`). However, the stale-cache code path in `core.ts` (lines 492–511) has a distinct sub-path: when the pre-request factory-state read returns `servedStale: true` and the second factory-state re-read ALSO returns `servedStale: true`, the code surfaces `rpc_5xx` and returns early — that path never reaches `verify`. This is correct behavior. But the stale-cache scenario where the second read SUCCEEDS and returns `vaults = ZERO_ADDRESS` (vault not yet deployed, cache was stale) is not covered by any test. In that sub-case `verify` must still not be called. Without a test, a future refactor could accidentally call `verify` with `expectedVaultAddress = ZERO_ADDRESS` — the ZERO_ADDRESS short-circuit guard would be bypassed, and an attacker crafting `authorization.to = 0x0` would pass the `to_mismatch` check.",
+      "impact": "Low as-written (the production code handles it correctly), but the absence of this test leaves a regression trap. The SEC-T8-05 finding from the prior review wave was exactly this attack vector — the guard was added in `core.ts` lines 492-519 but the test only covers one of two paths into that guard.",
+      "recommendation": "Add a test: `stale_cache_then_vault_not_deployed_still_short_circuits_before_verify`. Warm the cache, advance timers past TTL, configure `readContract` to return `{paused: false, vaults: ZERO_ADDRESS}` on the second call (so `servedStale: false`), send a request with a crafted payload where `authorization.to = ZERO_ADDRESS`, and assert that `verifySpy` was NOT called."
+    }
+  ],
+  "security_path_coverage": {
+    "replay_rejection": {
+      "status": "COVERED",
+      "tests": [
+        "verify.test.ts::duplicate nonce rejected as nonce_already_used",
+        "verify.test.ts::nonce store uses checkAndInsert (production primitive)",
+        "core.test.ts::replay-store entry is retained after settlement failure",
+        "replay-store.test.ts (pre-existing)"
+      ],
+      "notes": "TOCTOU-safe `checkAndInsert` primitive is correctly pinned. Replay-store retention after settlement failure is explicitly asserted through the core orchestrator with the module-scope NonceStore singleton. Strong coverage."
+    },
+    "signature_recovery": {
+      "status": "COVERED",
+      "tests": [
+        "verify.test.ts::tampered chainId fails as invalid_signature",
+        "verify.test.ts::tampered verifyingContract fails as invalid_signature",
+        "verify.test.ts::tampered domain.name fails as invalid_signature",
+        "verify.test.ts::tampered domain.version fails as invalid_signature",
+        "verify.test.ts::malformed signature surfaces as invalid_signature (new in this commit)",
+        "core.test.ts::d18_signature_invalid_event_fires_per_tamper_case (parameterized)"
+      ],
+      "notes": "Full EIP-712 domain tamper matrix covered. The new `malformed signature` test (0xff*65 blob) exercises the `recoverTypedDataAddress throws → catch → invalid_signature` branch which was previously uncovered. The test for `default nowMs` correctly covers the fallback to `Date.now()`. Strong coverage."
+    },
+    "malformed_payload_rejection": {
+      "status": "COVERED",
+      "tests": [
+        "x402.test.ts::decode_rejects_over_4kb (pre-existing)",
+        "x402.test.ts::decode_rejects_malformed_base64 (pre-existing)",
+        "x402.test.ts::decode_rejects_malformed_json (pre-existing)",
+        "x402.test.ts::decode_rejects_extra_payload_fields (pre-existing)",
+        "x402.test.ts::rejects non-decimal validAfter (new)",
+        "x402.test.ts::rejects non-decimal validBefore (new)",
+        "x402.test.ts::rejects empty-string network (new)",
+        "x402.test.ts::rejects non-string network (new)",
+        "core.test.ts::malformed base64 (pre-existing), malformed JSON, wrong shape"
+      ],
+      "notes": "Good expansion. Decimal-integer-string guard for `validAfter`/`validBefore` and non-string network are now explicitly tested. The `malformedShapeHeader` helper in `encode-header.ts` is available but not directly used in `core.test.ts` (it constructs them inline) — minor inconsistency, not a security gap."
+    },
+    "chain_mismatch": {
+      "status": "COVERED",
+      "tests": [
+        "settle.test.ts::d14_chainid_pin_throws_on_first_request_when_mismatched (pre-existing)",
+        "core.test.ts::settle throws NetworkMismatchError → emit chain_id_mismatch (pre-existing)",
+        "verify.test.ts::unknown expected network returns network_mismatch (new)",
+        "settle.test.ts::unknown network throws plain Error referencing the network key (new)"
+      ],
+      "notes": "The new `unknown network` test in `settle.test.ts` correctly pins the `throw new Error(...)` path (not `NetworkMismatchError`) for an unconfigured network key. The `unknown expected network` in `verify.test.ts` covers the defensive `network_mismatch` return for a misconfigured `expectedNetwork`. Chain-replay attack vectors (domain.chainId tamper) covered in verify tamper matrix. Coverage is thorough."
+    },
+    "vault_not_deployed_before_verify": {
+      "status": "PARTIALLY_COVERED",
+      "tests": [
+        "core.test.ts::vault_not_deployed short-circuits BEFORE verify is called"
+      ],
+      "notes": "Covers the non-stale path. Missing: stale-cache + successful refresh + zero-vault path (SEC-T9-03)."
+    },
+    "relayer_key_opacity": {
+      "status": "COVERED",
+      "tests": [
+        "relayer-key.test.ts (pre-existing full suite)",
+        "relayer-key.test.ts::throws when called on a brand-forged object with no associated secret (new)",
+        "core.test.ts::core passes OpaqueRelayerKey opaque to settle — never extracts"
+      ],
+      "notes": "New brand-forging test exercises the `SECRET_TABLE.get(key) === undefined` defensive branch. Core-level test validates the OpaqueRelayerKey is passed by reference without extraction. Strong defense-in-depth coverage."
+    },
+    "settlement_taxonomy": {
+      "status": "COVERED",
+      "tests": [
+        "settle.test.ts (pre-existing: all 7 reasons)",
+        "settle.test.ts::balanceOf RPC throws viem TimeoutError → rpc_timeout (new)",
+        "core.test.ts::settle failure with reason %s (parameterized over all 7)"
+      ],
+      "notes": "New test for balance-read timeout → `rpc_timeout` covers the path where `readContract` throws `TimeoutError` before `writeContract` is ever called (distinct code path from the `writeContract` timeout). Mine_timeout vs rpc_timeout distinction is maintained."
+    }
+  },
+  "positive_observations": [
+    "SEC-T8-05 guard (vault_not_deployed before verify) is tested and the implementation correctly places the factory-state check before the EIP-712 recovery call.",
+    "The `sign.ts` helper uses a well-identified fake private key (0x11...12) that is obviously synthetic and scoped to vitest — no risk of accidental production use.",
+    "The `RecordingLogger` captures typed event payloads without crossing secret material boundaries — `securityEvent` receives only the scrubbed event payload.",
+    "Source-level ownership test (`verify.ts` and `settle.ts` do not import SecurityLogger) structurally prevents a whole class of double-emission bugs regardless of future refactors.",
+    "The `emit` helper carve-out for `txHash` (SAFE_HEX_FIELDS) is tested at the structural level and the baseline is pinned (scrubSecrets WOULD redact it without the carve-out).",
+    "The `forged-brand` test for `getRelayerKeySecret` is a high-value defensive test — it covers the WeakMap-miss branch that cannot be reached through normal usage but could be triggered by cross-realm or prototype-pollution attacks.",
+    "Coverage thresholds (85% lines, 85% functions, 75% branches) enforced at CI level — `vitest.config.ts` threshold block will cause CI failure on regression.",
+    "The ajv schema is loaded once at module scope (not re-parsed per test) — no performance issue from schema validation tests."
+  ],
+  "required_fixes": [
+    "SEC-T9-01 (Medium): Change `ChallengeBody.additionalProperties` from `true` to `false` in `fixtures/x402-v1.schema.json`.",
+    "SEC-T9-02 (Medium): Rename `nonce_replay` to `nonce_replay_attempt` in `types.ts`, `core.ts`, and `core.test.ts` to align with D18 canonical event catalog.",
+    "SEC-T9-03 (Low): Add missing test for stale-cache + successful-refresh + zero-vault path to confirm `verify` is not called with `expectedVaultAddress=ZERO_ADDRESS`."
+  ],
+  "conditional_pass_rationale": "No Critical or High findings. The three findings are: one schema configuration bug (SEC-T9-01) that weakens drift detection but does not cause incorrect production behavior; one event naming mismatch (SEC-T9-02) that breaks security monitoring integration; one test coverage gap (SEC-T9-03) for a known-guarded code path. The test suite can proceed to round 2 once these three items are addressed. The core security invariants (replay rejection, EIP-712 tamper matrix, relayer key opacity, settlement taxonomy, vault guard before verify) are all well-covered."
+}

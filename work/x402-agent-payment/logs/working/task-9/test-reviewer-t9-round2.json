@@ -1,0 +1,55 @@
+{
+  "reviewer": "test-reviewer-t9",
+  "task": "9",
+  "round": 2,
+  "commits_reviewed": {
+    "f1_f2_fix": "7d0ff14686bd63b33c4bf5ab2224515013c6814a",
+    "f3_fix": "1d2be230d64f9a81263340d83585da5981d6b3a4"
+  },
+  "status": "passed",
+  "summary": "All three medium findings from round 1 are resolved. The fixes are correct, well-scoped, and introduce no new issues. Test count is now 247/247. Coverage holds at 96.87% lines / 89.15% branches / 100% functions. No new findings.",
+
+  "findings_resolution": [
+    {
+      "id": "T9-F1",
+      "round_1_severity": "medium",
+      "status": "RESOLVED",
+      "fix_commit": "7d0ff14",
+      "verification": "fastify.test.ts lines 100-116 add the test 'handler exception propagates via Fastify error path (not swallowed by plugin)'. Mock returns passthrough, downstream route throws 'handler-boom', asserts res.statusCode === 500. This correctly exercises the Fastify error handler path. The assertion is on the actual HTTP status, not on mock call counts — a real behavioral assertion. If the preHandler were to swallow the exception (e.g. via a bare try/catch without re-throw), the route handler would still run but Fastify would return 200, which would correctly fail this test."
+    },
+    {
+      "id": "T9-F2",
+      "round_1_severity": "medium",
+      "status": "RESOLVED",
+      "fix_commit": "7d0ff14",
+      "verification": "networks.test.ts now uses existsSync gate at module level (line 18). The T3-dependent test ('arc-testnet usdcEip712Name + version match T3 JSON artefact') is guarded by itIfT3 (line 43). The comment on lines 13-17 correctly notes the subtle ordering: networks.ts itself reads the artefact at module-load, so if the artefact is truly absent the import above will have already thrown. The test-level guard is a defensive fallback for a future relaxation of that source-level check. The remaining 6 tests in the describe block are unguarded and run against NETWORKS constants directly — correct."
+    },
+    {
+      "id": "T9-F3",
+      "round_1_severity": "medium",
+      "status": "RESOLVED",
+      "fix_commit": "1d2be23",
+      "verification": "The parameterized verify-error-to-event-name table in core.test.ts:580 now maps 'nonce_already_used' → 'nonce_replay_attempt', matching the tech-spec D18 catalog exactly. The four additional event names (authorization_expired, authorization_not_yet_valid, to_mismatch, insufficient_amount) are documented in types.ts SecurityEventCatalog as intentional extensions beyond the D18 core 10. The schema fixture (x402-v1.schema.json) also received a related fix: ChallengeBody.additionalProperties changed from true to false and txHash was added to the explicit property allowlist. This tightens drift detection on the 402 challenge body shape and was needed after the security review. The round 1 finding and the security finding together produced a better outcome than either alone."
+    }
+  ],
+
+  "additional_fix_quality_notes": [
+    "The SEC-T9-03 fix in commit 1d2be23 adds a security-important test: 'stale paused-cache + zero vault on refresh still short-circuits BEFORE verify'. This covers the edge case where vaults() returns ZERO_ADDRESS on refresh after TTL expiry, and verifies that verify is never called with expectedVaultAddress=ZERO_ADDRESS. This was not in the round 1 findings but is a valid hardening of the vault_not_deployed short-circuit invariant.",
+    "The schema fixture tightening (additionalProperties: false on ChallengeBody) means all error body tests now validate strictly — any extra field introduced by future core.ts changes will immediately fail the ajv assertions in errors.test.ts and core.test.ts. This strengthens the suite's drift-detection capability."
+  ],
+
+  "new_findings": [],
+
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+
+  "verdict": {
+    "status": "passed",
+    "task_required": false,
+    "message": "All round 1 medium findings are resolved. The fixes are correct and well-targeted. No new issues introduced. The test suite satisfies all Task 9 acceptance criteria: 247 tests passing, 96.87% line coverage (threshold 85%), all TDD anchors present, all D18 event names correct per catalog, Fastify exception propagation covered, no cold-checkout fragility. Round 2 review is complete."
+  }
+}
