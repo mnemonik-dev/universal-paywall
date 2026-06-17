@@ -40,6 +40,13 @@ contract PaymentVaultImpl is Initializable, ReentrancyGuard {
     /// @dev Locks the implementation contract so it can never be initialized
     ///      directly; only EIP-1167 clones produced by the factory may run
     ///      `initialize`. Satisfies D15 (impl lock-down).
+    ///
+    ///      EIP-1167 clones skip this constructor, so ReentrancyGuard._status
+    ///      is never set to NOT_ENTERED (1) on a clone; it starts at 0. This
+    ///      is safe: the guard reverts only when `_status == ENTERED (2)`, so
+    ///      the zero-default passes the entry check. After the first withdraw,
+    ///      _status transitions 0 -> ENTERED (2) -> NOT_ENTERED (1) and remains
+    ///      at 1 thereafter.
     constructor() {
         _disableInitializers();
     }
@@ -54,10 +61,6 @@ contract PaymentVaultImpl is Initializable, ReentrancyGuard {
         if (_developer == address(0)) revert ZeroAddress();
         developer = _developer;
         factory = msg.sender;
-        // ReentrancyGuard._status is intentionally NOT set here: EIP-1167 clones
-        // skip the constructor, leaving slot 0 at zero. OZ 5.x checks
-        // `_status == ENTERED (2)`, so the zero-default is safe for the first
-        // withdraw and the guard transitions through ENTERED→NOT_ENTERED on use.
     }
 
     /**
