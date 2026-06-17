@@ -223,6 +223,14 @@ contract PaymentSplitterFactoryTest is Test {
         factory.register();
     }
 
+    function test_Unpause_OwnerOnly() public {
+        factory.pause();
+        address nonOwner = makeAddr("nonOwner");
+        vm.prank(nonOwner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, nonOwner));
+        factory.unpause();
+    }
+
     function test_Unpause_RestoresRegister() public {
         factory.pause();
         factory.unpause();
