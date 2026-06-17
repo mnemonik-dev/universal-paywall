@@ -96,4 +96,23 @@ describe('fastifyPaywall — Fastify adapter', () => {
     expect(res.headers['x-payment-response']).toBe('value');
     await app.close();
   });
+
+  it('handler exception propagates via Fastify error path (not swallowed by plugin)', async () => {
+    paywallMock.mockResolvedValueOnce({
+      kind: 'passthrough',
+      responseHeaders: { 'X-PAYMENT-RESPONSE': 'value' },
+    });
+    const app = Fastify();
+    await app.register(fastifyPaywall(baseOpts));
+    app.get('/api', async () => {
+      throw new Error('handler-boom');
+    });
+    const res = await app.inject({ method: 'GET', url: '/api' });
+    // Fastify's default error handler converts uncaught throws to 500.
+    // If the plugin swallowed the exception we'd see 200 (or hang); a 500
+    // proves Fastify's error path handled it instead of the plugin
+    // suppressing it.
+    expect(res.statusCode).toBe(500);
+    await app.close();
+  });
 });

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -9,10 +9,17 @@ const T3_ARTEFACT_PATH = resolve(
   here,
   '../../../../contracts/scripts/arc-testnet-usdc-domain.json',
 );
-const t3 = JSON.parse(readFileSync(T3_ARTEFACT_PATH, 'utf8')) as {
-  name: string;
-  version: string;
-};
+
+// On a cold checkout (T3 hasn't run yet) the artefact is absent and the
+// import of `../networks.js` above will already have thrown — so reaching
+// this line means the file IS present. We still guard the read so a future
+// race between T3 and T9 produces a descriptive skip rather than a raw
+// ENOENT crash.
+const t3Available = existsSync(T3_ARTEFACT_PATH);
+const t3: { name: string; version: string } = t3Available
+  ? (JSON.parse(readFileSync(T3_ARTEFACT_PATH, 'utf8')) as { name: string; version: string })
+  : { name: '', version: '' };
+const itIfT3 = t3Available ? it : it.skip;
 
 describe('NETWORKS registry', () => {
   it("keys 'arc-testnet' and 'eip155:5042002' are the SAME reference", () => {
@@ -33,7 +40,7 @@ describe('NETWORKS registry', () => {
     expect(NETWORKS['arc-testnet'].chainId).toBe(5042002);
   });
 
-  it('arc-testnet usdcEip712Name + version match T3 JSON artefact', () => {
+  itIfT3('arc-testnet usdcEip712Name + version match T3 JSON artefact', () => {
     expect(NETWORKS['arc-testnet'].usdcEip712Name).toBe(t3.name);
     expect(NETWORKS['arc-testnet'].usdcEip712Version).toBe(t3.version);
   });
