@@ -1,0 +1,55 @@
+{
+  "reviewer": "code-reviewer-t10",
+  "round": 1,
+  "task": 10,
+  "verdict": "approve_with_minors",
+  "summary": "Both integration suites are well-structured, cover all required test cases from the task spec, and follow the vitest API correctly. No critical or major issues. Three minor concerns are noted below.",
+  "issues": [
+    {
+      "id": "T10-R1-M1",
+      "severity": "minor",
+      "dimension": "Separation of Concerns / Code Readability",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "lines": "749-775",
+      "title": "vault_not_deployed test: unused variable suppressed with `void`",
+      "description": "`developerBEoa` is extracted from `walletDeveloperB.account!.address` on line 753 and then immediately suppressed with `void developerBEoa` on line 771. The variable is never used in the test body. This is a lint-escape pattern that adds noise without value.",
+      "recommendation": "Remove the `developerBEoa` declaration entirely. The `walletDeveloperB` is pulled from `state` only to satisfy the destructuring pattern but its address is not needed — the middleware is already configured for developer B via `configB` built in `beforeAll`. Delete lines 753 and 771."
+    },
+    {
+      "id": "T10-R1-M2",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "lines": "671-719",
+      "title": "Fastify happy path does not assert X-PAYMENT-RESPONSE shape",
+      "description": "The node-http happy path (lines 643-652) decodes and asserts the full `X-PAYMENT-RESPONSE` JSON shape (`success`, `transaction` regex, `network`, `payer`). The Fastify happy path only asserts the header is defined (line 703) but does not decode or assert any of its fields. This is an asymmetry: a bug where the Fastify adapter writes a malformed `X-PAYMENT-RESPONSE` body would pass this test.",
+      "recommendation": "Add the same decoded-shape assertions after line 703 as are present in the node-http test (lines 643-652): decode the header, assert `success === true`, `network === NETWORK_ID`, `transaction` matches the hash pattern, and `payer.toLowerCase() === signed.authorization.from.toLowerCase()`."
+    },
+    {
+      "id": "T10-R1-M3",
+      "severity": "minor",
+      "dimension": "Resource Management",
+      "file": "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts",
+      "lines": "223-227",
+      "title": "Arc Testnet afterAll does not close the PublicClient transport",
+      "description": "The `afterAll` closes the HTTP server (line 224-226) but does not call `publicClient.transport.close()` or equivalent. viem's `http` transport does not keep persistent sockets by default, so this is unlikely to cause test hangs in practice, but it is worth noting for completeness. The analogous `forked-e2e` also does not close the viem transport (only the anvil child process and HTTP servers), but there the process death of anvil clears the connections anyway.",
+      "recommendation": "For the arc-testnet suite, consider calling `await (publicClient as any).transport?.close?.()` in afterAll after closing the server, or document the known non-issue with a comment. In the forked-e2e suite this is acceptable because the anvil child process is killed in afterAll and no persistent connections survive."
+    }
+  ],
+  "positives": [
+    "Anvil spawn-and-kill lifecycle is correct: SIGTERM with 2 s escalation to SIGKILL in `killAnvil`, called unconditionally in afterAll. The stderr pipe and console.error on waitForPort failure gives good CI diagnostics.",
+    "TEST_PORT env var documented at top of file; default 8545; CI parallel-shard guidance present.",
+    "Cross-adapter NonceStore replay test correctly captures the raw header string from the first response and re-uses it verbatim to the second adapter, satisfying the spec's 'do not re-encode' requirement.",
+    "patchNetworksForAnvil correctly uses Object.defineProperty and stores the previous value for teardown, making the mutation reversible.",
+    "PaymentSplitterFactory deployed with the canonical 3-arg constructor (usdc, platformTreasury, initialFeeBps=50) per iter-3 addendum §1; vaultImpl read back from factory.vaultImpl() rather than being passed in.",
+    "Foundry artifacts consumed via JSON.parse + readFileSync with a clear 'run forge build first' error when files are missing.",
+    "Workspace package import `@universal-paywall/middleware` used throughout (not relative dist/ paths).",
+    "Arc Testnet suite uses `describe.skipIf(!SHOULD_RUN, ...)` (vitest canonical) with the `runCounter` structural proof that inner `it` bodies never execute when the flag is absent.",
+    "Canonical error strings match systemic-fix §4 exactly: `nonce_already_used`, `vault_not_deployed`, `paused`.",
+    "vitest.config.ts adds `testTimeout: 60_000` and `hookTimeout: 30_000` as required by the task spec, with a comment explaining the anvil and cache-TTL needs.",
+    "paused branch correctly calls factory.unpause() in a finally block to prevent state leaking into parallel reruns.",
+    "requireEnv helper in arc-testnet suite throws with a descriptive error identifying the missing var name and the required flag."
+  ],
+  "blocking": false,
+  "recommended_action": "Fix T10-R1-M2 (missing Fastify response shape assertions) before merge; T10-R1-M1 and T10-R1-M3 are cosmetic/defensive and can be addressed opportunistically."
+}

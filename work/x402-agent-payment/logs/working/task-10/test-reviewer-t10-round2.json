@@ -1,0 +1,72 @@
+{
+  "reviewer": "test-reviewer-t10",
+  "task": "10",
+  "round": 2,
+  "commits_reviewed": ["4cb88d9", "13f25d4", "cee0c18"],
+  "status": "passed",
+  "summary": "All three required fixes from round 1 (F1, F2, F3) are correctly applied and verified on disk. F4 was addressed by the code-reviewer in commit 13f25d4. F5 is also applied. No new issues found. The implementation satisfies all task-10 acceptance criteria.",
+
+  "fix_verification": {
+    "F1_paused_sleep": {
+      "required": true,
+      "status": "resolved",
+      "evidence": "Line 861: `await new Promise((r) => setTimeout(r, 8_000));` — confirmed. Comment cites T10-R1-F1 and explains the 3 s margin rationale. The 8 s sleep is well within the 60 s testTimeout."
+    },
+    "F2_vault_not_deployed_to_address": {
+      "required": true,
+      "status": "resolved",
+      "evidence": "Lines 499–504: `factory.computeVaultAddress(walletDeveloperB.account!.address)` is called in beforeAll and the result stored in `state.developerBComputedVault`. Lines 801+811: the vault_not_deployed test destructures `developerBComputedVault` from state and uses it as `to` in the authorization. The middleware now reaches `vault_not_deployed` on its own merits (factory.vaults(devB) === 0x0) regardless of check ordering."
+    },
+    "F3_networks_mutation_isolation": {
+      "required": true,
+      "status": "resolved",
+      "evidence": "vitest.config.ts line 15: `isolate: true` added. Comment at patchNetworksForAnvil (line 337) updated to reference the guarantee. The NETWORKS mutation is now bounded to the test file's module registry, not the shared worker registry."
+    },
+    "F4_fastify_xpr_shape": {
+      "required": false,
+      "status": "resolved",
+      "evidence": "Fastify happy path (lines 741–752) now fully decodes X-PAYMENT-RESPONSE and asserts success===true, network===NETWORK_ID, transaction matches /^0x[0-9a-fA-F]{64}$/, and payer matches signed.authorization.from. Mirrors the node-http assertions exactly. Addressed in commit 13f25d4 (code-reviewer)."
+    },
+    "F5_ajv_validate_forked_402": {
+      "required": false,
+      "status": "resolved",
+      "evidence": "validate402 compiled in beforeAll (lines 396, and the ajv compile block after patchNetworks). Node-http happy path (lines 641–647) calls validate402(r402.body), logs schema errors to console, and asserts ok402===true before the per-field assertions. Any missing required field in the 402 body now surfaces in the CI-default path."
+    }
+  },
+
+  "rubric_final": {
+    "forked_fork_canonical_block_height": {
+      "result": "pass",
+      "notes": "Anvil spawned with --chain-id 31337. No --fork-url. Local node only."
+    },
+    "deterministic_no_flaky_races": {
+      "result": "pass",
+      "notes": "F1 fixed: 8 s wait gives 3 s margin above the 5 s cache TTL. waitForPort remains correct. No other timing-sensitive code paths identified."
+    },
+    "live_e2e_gated_skips_cleanly": {
+      "result": "pass",
+      "notes": "describe.skipIf(process.env['ARC_TESTNET_E2E'] !== '1') correct. Gate-assertion describe always runs and verifies runCounter===0 when flag absent. afterAll closes server unconditionally. Canonical env var names correct."
+    },
+    "cross_adapter_nonce_store_replay": {
+      "result": "pass",
+      "notes": "Identical header string reused across adapters. Both adapters share the same module-scope NonceStore. Error string 'nonce_already_used' matches systemic-fix §4."
+    }
+  },
+
+  "new_findings": [],
+
+  "decision_matrix": {
+    "critical_count": 0,
+    "high_count": 0,
+    "medium_count": 0,
+    "low_count": 0,
+    "verdict": "No issues remaining → passed"
+  },
+
+  "task_required": {
+    "needed": false,
+    "rationale": "All required fixes verified. No new issues. Task 10 acceptance criteria fully met."
+  },
+
+  "recommendation": "Approve. Task 10 may be marked completed."
+}
