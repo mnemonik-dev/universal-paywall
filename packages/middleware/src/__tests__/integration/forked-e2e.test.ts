@@ -700,6 +700,17 @@ describe('forked e2e', () => {
     expect(r200.status).toBe(200);
     expect(r200.body).toBe('ok');
     expect(r200.headers['x-payment-response']).toBeDefined();
+    const xpr = r200.headers['x-payment-response']!;
+    const xprDecoded = JSON.parse(Buffer.from(xpr, 'base64').toString('utf8')) as {
+      success: boolean;
+      transaction: string;
+      network: string;
+      payer: string;
+    };
+    expect(xprDecoded.success).toBe(true);
+    expect(xprDecoded.network).toBe(NETWORK_ID);
+    expect(xprDecoded.transaction).toMatch(/^0x[0-9a-fA-F]{64}$/);
+    expect(xprDecoded.payer.toLowerCase()).toBe(signed.authorization.from.toLowerCase());
 
     const balanceAfter = (await publicClient.readContract({
       address: usdcAddress,
@@ -748,9 +759,8 @@ describe('forked e2e', () => {
 
   it('vault_not_deployed rejection: developer EOA has never called register() → 402 vault_not_deployed', async () => {
     if (state === undefined) throw new Error('state not initialized');
-    const { walletDeveloperB, usdcAddress, nodeServerBOrigin } = state;
+    const { usdcAddress, nodeServerBOrigin } = state;
 
-    const developerBEoa = walletDeveloperB.account!.address;
     const developerBVault = '0x0000000000000000000000000000000000000000' as const;
 
     // Sign for the (non-existent) developer B vault — middleware will reject
@@ -768,7 +778,6 @@ describe('forked e2e', () => {
     });
     const header = encodeXPaymentHeader(signed, NETWORK_ID);
 
-    void developerBEoa;
     const r = await httpGet(nodeServerBOrigin, { 'X-PAYMENT': header });
     expect(r.status).toBe(402);
     expect((r.body as Record<string, unknown>)['error']).toBe('vault_not_deployed');

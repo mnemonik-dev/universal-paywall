@@ -224,6 +224,9 @@ describe.skipIf(!SHOULD_RUN)('arc testnet e2e', () => {
     if (server !== undefined) {
       await new Promise<void>((resolve) => server!.close(() => resolve()));
     }
+    // viem `http` transport opens no persistent sockets — each readContract
+    // call is a one-shot fetch — so there is nothing to close on the
+    // PublicClient. vitest exits cleanly after the server.close() above.
   });
 
   it('402 body matches the x402 v1 JSON Schema', async () => {
