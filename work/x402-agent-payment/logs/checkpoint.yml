@@ -9,7 +9,7 @@ feature_dir: work/x402-agent-payment
 execution_plan: work/x402-agent-payment/logs/execution-plan.md
 team_name: x402-agent-payment
 
-last_completed_wave: 9
+last_completed_wave: 10
 total_waves: 13
 
 tasks:
@@ -24,11 +24,11 @@ tasks:
   9: done
   10: done
   11: done
-  12: planned
-  13: planned
-  14: planned
+  12: done
+  13: done
+  14: done
   15: planned
   16: planned
   17: planned
 
-next_wave: 10
+next_wave: 11
