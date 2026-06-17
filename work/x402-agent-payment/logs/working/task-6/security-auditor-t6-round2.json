@@ -1,0 +1,85 @@
+{
+  "reviewer": "security-auditor-t6",
+  "task": "6",
+  "round": 2,
+  "commit": "eb4b845",
+  "timestamp": "2026-06-17T11:00:00Z",
+  "verdict": "APPROVED",
+  "summary": "All three required changes from round 1 are correctly addressed. SA-T6-01 (scrubSecrets cycle bug) is fixed by switching from WeakSet to Map<original, scrubbed_copy> with pre-registration before child walks — the algorithm is now provably correct and the cycle test strengthened to assert out.self === out and out.self.v contains REDACTED. SA-T6-02 (getRelayerKeySecret on public index) is fixed by removing the export with a clear explanatory comment. SA-T6-03 (_extract public static) is resolved more strongly than requested: the entire static _extract method is removed and the secret is moved to a module-private WeakMap<OpaqueRelayerKey, string>, eliminating the extraction bypass path at the class level entirely.",
+
+  "finding_resolution": [
+    {
+      "id": "SA-T6-01",
+      "round1_severity": "MEDIUM",
+      "status": "RESOLVED",
+      "resolution": "scrubSecrets now uses Map<object, unknown> (seen) instead of WeakSet<object>. The output container ([] for arrays, {} for objects) is registered in seen BEFORE its children are walked. A cycle back-edge returns seen.get(v) which is the partially-built scrubbed copy, not the original. Algorithm trace verified: a = { v: SECRET, self: a } → out = { v: REDACTED, self: out } → out.self === out ✓, out.self.v contains REDACTED ✓.",
+      "additional_fixes_in_round2": [
+        "Cycle test strengthened: now asserts out.self === out, out.self.v contains REDACTED, out.self.v does NOT contain RAW_HEX_NO_PREFIX, and a JSON.stringify-via-replacer pass does NOT contain the raw hex.",
+        "New test 'handles cycles through arrays': arr = [SECRET]; arr.push(arr) → out[0] is REDACTED, out[1] === out.",
+        "New test 'preserves shared references (DAG)': shared = { x: SECRET }; root = { a: shared, b: shared } → out.a === out.b (same scrubbed copy, no false splitting)."
+      ],
+      "edge_cases_verified": [
+        "Empty objects/arrays registered in seen before child walk: seen.set(v, []) or seen.set(v, {}) — these are !== undefined, so cycle detection correctly returns the partial copy.",
+        "OpaqueRelayerKey instances are handled BEFORE the seen.get/set block (by the is() check), so they are never cached in the Map and always produce REDACTED.",
+        "Memory: the seen Map is a local variable scoped to the scrubSecrets call frame — no persistent memory leak compared to WeakSet."
+      ]
+    },
+    {
+      "id": "SA-T6-02",
+      "round1_severity": "MEDIUM",
+      "status": "RESOLVED",
+      "resolution": "getRelayerKeySecret removed from index.ts exports. The export line now reads 'export { OpaqueRelayerKey, scrubSecrets } from ./relayer-key.js' with an explanatory NOTE comment documenting why getRelayerKeySecret is intentionally absent. settle.ts imports directly from ./relayer-key.js — zero production impact. No npm consumer of @universal-paywall/middleware can now reach the extraction function through the public package API."
+    },
+    {
+      "id": "SA-T6-03",
+      "round1_severity": "LOW",
+      "status": "RESOLVED_STRONGER_THAN_REQUESTED",
+      "resolution": "The static _extract method was removed entirely (not just marked private). The secret storage was moved to a module-private WeakMap<OpaqueRelayerKey, string> (SECRET_TABLE) at the top of relayer-key.ts. The class carries only the brand stamp (set via Object.defineProperty in the constructor). No class member — public, protected, or otherwise — can extract the secret; only getRelayerKeySecret in the same module has closure access to SECRET_TABLE. This eliminates the extraction bypass path at the language level rather than relying on a TypeScript access modifier.",
+      "additional_security_properties": [
+        "Brand-spoofed objects: fake with BRAND=true passes OpaqueRelayerKey.is() but SECRET_TABLE.get(fake) returns undefined → throws 'instance has no associated secret' (explicit, typed error).",
+        "Proxy-wrapped key: Proxy object has BRAND=true via trap but was never registered in SECRET_TABLE → same TypeError thrown.",
+        "Class object itself: typeof OpaqueRelayerKey === 'function', so OpaqueRelayerKey.is(OpaqueRelayerKey) returns false (typeof check fails) → cannot be passed to getRelayerKeySecret.",
+        "structuredClone: clone is {} with no BRAND → OpaqueRelayerKey.is returns false → correctly rejected."
+      ]
+    }
+  ],
+
+  "additional_changes_in_round2": [
+    {
+      "file": "packages/middleware/package.json",
+      "change": "test and test:e2e scripts now prefix with UP_SUPPRESS_T3_NOTES=1 to silence the arc-dual-decimal and gas-fallback console.warn lines that fire on every networks.ts module load. The env var comment explains why. Operators still see the notes outside the test runner.",
+      "security_assessment": "No security impact. The T3 notes are informational operator warnings, not secrets. The suppression flag is documented clearly. The notes still fire in production because UP_SUPPRESS_T3_NOTES is not set in production environments."
+    },
+    {
+      "file": "packages/middleware/src/__tests__/replay-store.test.ts",
+      "change": "TTL eviction test now also asserts store.size() === 1 before eviction and store.size() === 0 after eviction.",
+      "security_assessment": "Positive: pinpoints size-tracking correctness around TTL eviction."
+    },
+    {
+      "file": "packages/middleware/src/__tests__/x402.test.ts",
+      "change": "Added missing leaf test for 'payload' key being undefined (was one of the eleven required leaves specified in task spec but missing from the original table-driven test). Cleaned up the 'rejects zero' test from try/catch antipattern to toThrowError(expect.objectContaining({ reason: 'zero' })).",
+      "security_assessment": "Positive: the missing payload leaf test closes a gap where decodeXPayment({ ..., payload: undefined }) was not explicitly tested."
+    },
+    {
+      "file": "packages/middleware/src/replay-store.ts",
+      "change": "insert() primitive now has a JSDoc comment marking it as 'test-only', warning that it skips TTL eviction, and directing production callers to checkAndInsert.",
+      "security_assessment": "Positive: reduces risk of insert() being used in production paths where the TOCTOU contract would be violated."
+    }
+  ],
+
+  "relayer_key_surface_final_assessment": {
+    "secret_storage": "Module-private WeakMap<OpaqueRelayerKey, string> — inaccessible from outside the module",
+    "class_extraction_methods": "None — _extract removed entirely",
+    "public_index_surface": "OpaqueRelayerKey (constructor + is() + toJSON/toString/inspect), scrubSecrets — no extraction function",
+    "extraction_gate": "PASS — getRelayerKeySecret in relayer-key.ts only; not re-exported from index.ts",
+    "non_enumerable": "PASS — class private fields are gone; WeakMap entry is fully opaque to Object.keys/JSON.stringify/structuredClone",
+    "serialization_paths": "PASS — toJSON/toString/inspect.custom all return REDACTED; pino/winston tests confirm",
+    "cycle_scrubbing": "PASS — Map<original, scrubbed_copy> approach correctly handles cycles and DAGs"
+  },
+
+  "no_new_findings": true,
+  "informational_notes_status": {
+    "SA-T6-INFO-01": "No change — DECIMAL_INT_RE remains unbounded, acceptably bounded by 4 KB header cap.",
+    "SA-T6-INFO-02": "No change in Task 6 scope — acknowledged. gasCostExceedsThreshold=true and USDC vs USD Coin discrepancy tracked for Task 8 startup warning and user-spec update respectively."
+  }
+}

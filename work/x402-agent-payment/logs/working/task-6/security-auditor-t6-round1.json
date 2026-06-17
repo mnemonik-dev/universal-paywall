@@ -1,0 +1,123 @@
+{
+  "reviewer": "security-auditor-t6",
+  "task": "6",
+  "round": 1,
+  "commit": "b5dfd2c",
+  "timestamp": "2026-06-17T10:00:00Z",
+  "verdict": "REQUEST_CHANGES",
+  "summary": "The implementation is architecturally sound and demonstrates solid defense-in-depth thinking. The non-enumerable #key field, toJSON/toString/inspect.custom redaction, scrubSecrets pattern ordering, synchronous checkAndInsert, and module-load blocker for missing T3 artefact are all correct. Three issues require changes before merge: (1) scrubSecrets returns the original unscrubbed object for cyclic back-references — the cycle-safe test passes but does not assert that the back-reference itself is free of secrets; (2) getRelayerKeySecret is exported from the public index.ts, making the key extraction API part of the package's public surface contrary to the D13 intent; (3) OpaqueRelayerKey._extract has no TypeScript access modifier, so anyone importing the class can call it directly. Two informational notes follow.",
+
+  "findings": [
+    {
+      "id": "SA-T6-01",
+      "severity": "MEDIUM",
+      "file": "packages/middleware/src/relayer-key.ts",
+      "lines": "135-352",
+      "title": "scrubSecrets returns the original unscrubbed object node for cyclic back-references",
+      "description": "When scrubSecrets encounters a cyclic back-reference (seen.has(v) === true), it returns the ORIGINAL input value unchanged rather than the partially-scrubbed output copy being built. Trace: given a = { v: SECRET_HEX, self: a }, walk(a) correctly replaces a.v with '<redacted:relayer-key>' in the output object 'out', but when it reaches a.self it returns the ORIGINAL 'a' (which still has .v === SECRET_HEX). The result is out.self === a_original, so out.self.v leaks the unscrubbed secret. The existing cycle test (relayer-key.test.ts:387-397) asserts out.v is redacted and out.self is defined, but does NOT assert out.self.v is free of secrets — so the test passes while the leak exists.",
+      "reproduction": "const raw = '0x' + 'a'.repeat(64); const a = { v: raw }; a.self = a; const out = scrubSecrets(a); console.log(out.self.v === raw); // true — unscrubbed",
+      "impact": "If a cyclic object containing a raw private-key string is passed through scrubSecrets (e.g. an error object with a context reference), the cycle's back-reference node in the output will still expose the raw string. In the security-logger boundary (D18) this could result in the raw key appearing in a log line. Severity is medium because: (a) cyclic error objects are uncommon in normal code paths; (b) the primary protection (non-enumerable #key field, toJSON/toString redaction) is upstream and typically prevents the key from ever reaching scrubSecrets as a plain string.",
+      "fix": "Track a Map<original, scrubbed> rather than a WeakSet<original> so cycle back-references can return the already-being-built scrubbed output:\n\nexport function scrubSecrets(input: unknown): unknown {\n  const seen = new Map<object, unknown>();\n  function walk(v: unknown): unknown {\n    if (typeof v === 'string') return scrubString(v);\n    if (v === null || typeof v !== 'object') return v;\n    if (OpaqueRelayerKey.is(v)) return REDACTED;\n    if (seen.has(v)) return seen.get(v); // return partial scrubbed copy\n    if (Array.isArray(v)) {\n      const out: unknown[] = [];\n      seen.set(v, out);\n      for (const item of v) out.push(walk(item));\n      return out;\n    }\n    const out: Record<string, unknown> = {};\n    seen.set(v, out); // register before recursing\n    for (const [k, val] of Object.entries(v)) {\n      out[k] = walk(val);\n    }\n    return out;\n  }\n  return walk(input);\n}\n\nThe test should also be strengthened to assert out.self.v === REDACTED."
+    },
+    {
+      "id": "SA-T6-02",
+      "severity": "MEDIUM",
+      "file": "packages/middleware/src/index.ts",
+      "lines": "70",
+      "title": "getRelayerKeySecret is exported from the public package index, making key extraction part of the public API",
+      "description": "index.ts line 70 exports getRelayerKeySecret: `export { OpaqueRelayerKey, getRelayerKeySecret, scrubSecrets } from './relayer-key.js'`. This means any consumer of @universal-paywall/middleware can call `import { getRelayerKeySecret } from '@universal-paywall/middleware'` and extract the raw private key from any OpaqueRelayerKey they hold. The D13 intent is that extraction is gated and only settle.ts should import that function — but with the current index.ts export, the constraint is documentation-only and not enforced by the module boundary.",
+      "impact": "A vulnerable application that logs its config object (or passes it to a third-party library) while also importing from this package could have the OpaqueRelayerKey extracted by a compromised dependency or SSRF payload. The attacker needs access to an OpaqueRelayerKey instance — which requires access to PaywallConfig — so the exploitability is limited, but the export unnecessarily widens the attack surface.",
+      "fix": "Remove getRelayerKeySecret from index.ts exports. settle.ts already imports directly from './relayer-key.js' (not from index.ts), so removing it from index.ts does not break the production code path. The function remains importable by settle.ts via the direct module path. Only scrubSecrets (needed by D18 SecurityLogger integrators) and OpaqueRelayerKey (needed for constructor calls) should stay in the public index. If downstream test utilities need extraction, they should import from the internal module path."
+    },
+    {
+      "id": "SA-T6-03",
+      "severity": "LOW",
+      "file": "packages/middleware/src/relayer-key.ts",
+      "lines": "113-115",
+      "title": "OpaqueRelayerKey._extract has no TypeScript access modifier — comment 'NOT exported from index.ts' is misleading",
+      "description": "The static method `static _extract(key: OpaqueRelayerKey): string` has no TypeScript `private` keyword. The comment says 'NOT exported from index.ts; settle.ts uses the getRelayerKeySecret wrapper below', but since the CLASS is exported from index.ts (line 70), any consumer can call `OpaqueRelayerKey._extract(someKey)` directly, bypassing the getRelayerKeySecret guard that enforces the is() brand check. The _extract call on a genuine OpaqueRelayerKey extracts the secret in one fewer step than going through getRelayerKeySecret.",
+      "impact": "Low because: (a) the private field (#key) enforcement is at the V8 level — _extract still throws TypeError if called on a fake object (one that passes the Symbol.for brand spoof); (b) an attacker who can call _extract could also call getRelayerKeySecret; (c) practical exploitability requires code that already has access to an OpaqueRelayerKey instance. The misleading comment is the more immediate maintenance risk.",
+      "fix": "Add the TypeScript `private` modifier: `private static _extract(key: OpaqueRelayerKey): string`. This prevents TypeScript callers from calling it (compile-time enforcement). For stronger defense, rename to `static #_extract` (true runtime private), but that requires TypeScript 4.3+ private class field support for static members (available in the target). Update the comment to accurately state that the method is private to the class."
+    },
+    {
+      "id": "SA-T6-INFO-01",
+      "severity": "INFO",
+      "file": "packages/middleware/src/x402.ts",
+      "lines": "140",
+      "title": "DECIMAL_INT_RE allows unbounded-length integer strings for value/validAfter/validBefore",
+      "description": "The regex `/^\\d+$/` used to validate value, validAfter, and validBefore does not enforce a maximum length. A client could send a 1000-character decimal string for the 'value' field. This is accepted by decodeXPayment and passed downstream to verify.ts which will compare it as BigInt. BigInt construction from a very large decimal string is O(n) in JavaScript but bounded by the 4 KB total header limit. Maximum decimal digits in a 4 KB header is approximately 4096, well within safe BigInt range. No DoS risk exists within the 4 KB envelope. This is informational only — the 4 KB cap is the effective bound.",
+      "fix": "No action required for MVP. Optional: add a max-length check (e.g., <= 78 chars for uint256 max) as belt-and-suspenders. Document the 4 KB envelope as the effective bound in the code comment."
+    },
+    {
+      "id": "SA-T6-INFO-02",
+      "severity": "INFO",
+      "file": "packages/middleware/src/networks.ts + contracts/scripts/arc-testnet-usdc-domain.json",
+      "lines": "186-188, T3 artefact",
+      "title": "T3 artefact has usdcEip712Name = 'USDC'; user-spec examples say 'USD Coin' — clarification needed",
+      "description": "The T3 artefact (arc-testnet-usdc-domain.json) contains name: 'USDC'. The user-spec lines 57 and 64 show example domain.name = 'USD Coin'. The tech-spec correctly calls this out as a comment 'likely USD Coin' (line 342). The networks.ts implementation correctly loads the T3 artefact value (authoritative on-chain read). The 402 response body will show extra.name = 'USDC', and verify.ts will use the same 'USDC' for EIP-712 domain construction — so the verification chain is internally consistent. The concern is that the user-spec examples could mislead developers who hard-code 'USD Coin' in hand-crafted agents. The notes array in the T3 artefact also flags the arc-dual-decimal note but no check is made on gasCostExceedsThreshold at module load.",
+      "fix": "No code change needed in Task 6. Recommend: (1) update user-spec example comments to say 'USDC' instead of 'USD Coin'; (2) in Task 8 core.ts or startup logic, surface a warning if gasCostExceedsThreshold is true in the T3 artefact (since the notes indicate 1260 micro-USDC gas cost on a 10000 micro-USDC payment = 12.6%, well above the 5% threshold mentioned in the spec risks section)."
+    }
+  ],
+
+  "positive_findings": [
+    "Non-enumerable #key private field correctly prevents JSON.stringify, Object.keys, and Object.getOwnPropertyNames from exposing the secret.",
+    "toJSON / toString / [Symbol.for('nodejs.util.inspect.custom')] all return '<redacted:relayer-key>' — pino and winston serialization tests confirm these paths.",
+    "scrubSecrets regex application order is correct: 130-hex (ECDSA signature) replaced FIRST, then 64-hex with 0x prefix, then bare 64-hex word-boundary-anchored. This prevents partial-match leaks on full signatures.",
+    "Buffer.byteLength(header, 'utf8') correctly counts wire octets (not UTF-16 code units) for the 4 KB size cap.",
+    "decodeXPayment assertExactKeys enforces strict shape at every level (top-level, payload, authorization) — rejects both extra keys and missing keys. Tests cover all 11 required leaves plus extra-key and extra-top-level cases.",
+    "checkAndInsert is a single synchronous block with no await between has and insert — correct TOCTOU protection for single-process MVP.",
+    "TTL eviction runs lazily per-from before every checkAndInsert — O(k) hot-path cost. Cap eviction scans globally O(n) only on overflow — acceptable for 100k absolute ceiling.",
+    "Entry retention-on-failure is correct by design and tested: there is no delete() API, so settlement failure leaves the nonce blocked.",
+    "networks.ts throws a loud BLOCKER error at module load if T3 artefact is missing — not a silent stub. This prevents verify.ts from shipping with wrong EIP-712 domain values.",
+    "arc-mainnet placeholder correctly uses chainId: 0, id: 'eip155:0' — avoids false-positive match against Arbitrum One (eip155:42161).",
+    "NETWORKS['arc-testnet'] === NETWORKS['eip155:5042002'] object identity verified by test.",
+    "No real private keys in committed test files — all use 'a'.repeat(64) style placeholder literals.",
+    "MalformedPaymentHeaderError detail.hint includes only derived numbers (byteLen) and hardcoded strings — no user-controlled data injected into error messages."
+  ],
+
+  "eip712_domain_assessment": {
+    "name_source": "T3 artefact (on-chain read) — value is 'USDC'",
+    "version_source": "T3 artefact (on-chain read) — value is '2'",
+    "chainId_source": "NETWORKS[id].chainId hardcoded — value is 5042002",
+    "verifyingContract_source": "NETWORKS[id].usdcAddress hardcoded — value is '0x3600000000000000000000000000000000000000'",
+    "integrity_assessment": "PASS — all four domain components are hardcoded from authoritative sources (on-chain T3 read + spec constants). verify.ts (Task 7) will use these same NETWORKS values for ecrecover domain construction. The 402 response extra.name will match because core.ts populates it from the same NETWORKS row. Domain integrity is maintained throughout the stack.",
+    "notes": "The T3 artefact name 'USDC' vs user-spec example 'USD Coin' is a documentation discrepancy only — see SA-T6-INFO-02."
+  },
+
+  "relayer_key_surface_assessment": {
+    "non_enumerable_field": "PASS — #key is a class private field, invisible to Object.keys/Object.getOwnPropertyNames/JSON.stringify/structuredClone",
+    "toJSON": "PASS — returns '<redacted:relayer-key>'",
+    "toString": "PASS — returns '<redacted:relayer-key>'",
+    "util_inspect": "PASS — Symbol.for('nodejs.util.inspect.custom') returns '<redacted:relayer-key>'",
+    "pino_serialization": "PASS — test confirms log line contains REDACTED and not the raw key",
+    "winston_serialization": "PASS — test confirms log line contains REDACTED and not the raw key",
+    "error_stack_scrubbing": "PASS — scrubSecrets correctly redacts 0x{64} patterns in error messages",
+    "extraction_gate": "PARTIAL — getRelayerKeySecret enforces is() brand check but is exported from public index.ts (SA-T6-02); _extract lacks private modifier (SA-T6-03)",
+    "cycle_scrubbing": "FAIL — cyclic back-references return original unscrubbed node (SA-T6-01)"
+  },
+
+  "nonce_replay_assessment": {
+    "toctou": "PASS — checkAndInsert is synchronous, no await between has and insert",
+    "address_normalization": "PASS — from and nonce are lowercased on every public-API boundary",
+    "ttl_eviction": "PASS — lazy per-from eviction before every has/checkAndInsert",
+    "cap_eviction": "PASS — FIFO oldest-validBefore scan on overflow; correctly removes one entry at a time",
+    "retention_on_failure": "PASS — no delete API; nonce stays blocked after settlement failure",
+    "expiry_safety_net": "PASS — checkAndInsert rejects validBefore <= now; prevents inserting already-dead authorizations",
+    "count_tracking": "PASS — #count is consistent between insert/evictExpired/evictOldest"
+  },
+
+  "required_changes": [
+    {
+      "finding_id": "SA-T6-01",
+      "action": "Fix scrubSecrets cycle handling to return the partial scrubbed copy instead of the original node. Strengthen the cycle test to assert out.self.v === REDACTED."
+    },
+    {
+      "finding_id": "SA-T6-02",
+      "action": "Remove getRelayerKeySecret from index.ts exports. settle.ts imports directly from './relayer-key.js' so no production code path is broken."
+    },
+    {
+      "finding_id": "SA-T6-03",
+      "action": "Add TypeScript 'private' modifier to _extract. Correct the comment to not say 'NOT exported from index.ts' since that was always inaccurate — the class is exported."
+    }
+  ]
+}

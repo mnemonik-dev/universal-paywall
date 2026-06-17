@@ -1,0 +1,93 @@
+{
+  "reviewer": "test-reviewer-t6",
+  "task": 6,
+  "round": 2,
+  "commit": "eb4b845",
+  "date": "2026-06-17",
+  "status": "passed",
+  "summary": "All three medium findings from round 1 (M1, M3, M4) are correctly addressed. The scrubSecrets cycle fix is a genuine correctness improvement that closes a secret-leak bug. 105 tests pass. No new issues introduced.",
+  "counters": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 1
+  },
+  "round1_findings_resolution": {
+    "M1_parseUsdPrice_silent_catch": {
+      "status": "resolved",
+      "verification": "The for-loop now uses `expect(() => parseUsdPrice(input)).toThrowError(expect.objectContaining({ reason: 'zero' }))`. This pattern causes the test to fail if the function does not throw, and also asserts the reason property directly — no silent catch path remains. Fix is correct."
+    },
+    "M2_structuredClone_extraction_guard": {
+      "status": "deferred_by_submitter",
+      "note": "Marked optional in round 1; still not addressed. The existing JSON-serialization assertion is sufficient to catch enumerable-field regressions. Acceptable to leave deferred."
+    },
+    "M3_TTL_size_tracking": {
+      "status": "resolved",
+      "verification": "Lines inserted: `expect(store.size()).toBe(1)` before the now=2000 has() call, and `expect(store.size()).toBe(0)` after. The #count decrement in #evictExpired is now verified. The before-assertion (size=1) also pins that the initial insert correctly increments the count. Fix is correct and thorough."
+    },
+    "M4_missing_payload_leaf": {
+      "status": "resolved",
+      "verification": "Row `['payload', { ...samplePayload, payload: undefined as unknown }]` added to the it.each table. JSON.parse(JSON.stringify(bad)) strips the undefined value, leaving a top-level object with 3 keys — assertExactKeys fires correctly. The table now covers all 11 required leaves as specified. Fix is correct."
+    }
+  },
+  "new_changes_assessment": [
+    {
+      "change": "scrubSecrets: WeakSet → Map<original, scrubbed_copy>",
+      "assessment": "Correct fix for a genuine bug. The old WeakSet approach returned the ORIGINAL un-walked object on cycle detection, meaning a back-edge like `{v: SECRET, self: <-self}` would return `out.self` pointing at the input — not the scrubbed copy — so `out.self.v` would still hold the raw secret. The Map approach maps each input reference to its scrubbed output BEFORE walking children, so a back-edge resolves to the partially-built scrubbed copy. This is the standard correct cycle-handling pattern for recursive transformers. The implementation is sound."
+    },
+    {
+      "change": "relayer-key.ts: #key private field → module-private WeakMap",
+      "assessment": "The security-auditor's finding that `static _extract` was accessible as a public static method has been addressed correctly. The WeakMap is unreachable outside the module; `getRelayerKeySecret` is the only extraction path. The removal of `static readonly [BRAND]` is also correct — the brand is stamped per-instance in the constructor, not on the class static; the dead static field was misleading.",
+      "test_coverage": "The existing relayer-key tests cover all the redaction paths and getRelayerKeySecret extraction. The WeakMap change does not require new tests — the observable contract is identical and the existing tests verify it."
+    },
+    {
+      "change": "index.ts: getRelayerKeySecret removed from public exports",
+      "assessment": "Correct. The function should only be imported directly by settle.ts, not discoverable on the npm package surface. The relayer-key.test.ts imports it directly from `../relayer-key.js` — the test still works and continues to verify the extraction path."
+    },
+    {
+      "change": "scrubSecrets cycle test strengthened — out.self === out assertion",
+      "assessment": "The new assertions `expect(out.self).toBe(out)` and `expect(out.self?.v).toContain(REDACTED)` are the correct way to verify the cycle fix. The first asserts the back-edge points at the scrubbed copy; the second asserts the secret is gone through the back-edge. The JSON.stringify check with a circular-serializer provides belt-and-braces verification. All three assertions together correctly pin the invariant that was previously broken."
+    },
+    {
+      "change": "New scrubSecrets tests: array cycle + DAG preservation",
+      "assessment": "Both tests add real value. The array-cycle test covers a code path (Array.isArray branch + seen.set) that the object-cycle test does not. The DAG-preservation test verifies that shared (non-circular) references produce the same output reference — important for correctness of the Map approach, which reuses the already-walked copy for any second encounter of the same input object.",
+      "litmus_note": "DAG test: if scrubSecrets made a fresh copy on every encounter instead of reusing the cached copy, `out.a === out.b` would be false. The assertion correctly pins the caching behavior."
+    },
+    {
+      "change": "package.json: UP_SUPPRESS_T3_NOTES=1 in test scripts",
+      "assessment": "Correct operational improvement. The T3 artefact may carry notes (e.g., arc-dual-decimal warning) that fire on every networks.ts module load. Suppressing them in tests prevents noise without silencing them in production. The env-guard in networks.ts (`process.env['UP_SUPPRESS_T3_NOTES'] !== '1'`) is already in the production code."
+    },
+    {
+      "change": "replay-store.ts: insert() doc comment",
+      "assessment": "Informational only. The comment correctly documents that insert() does not lazy-evict (no `now` arg) and that production callers should use checkAndInsert. No test impact."
+    }
+  ],
+  "remaining_open_items": [
+    {
+      "id": "L1_deferred",
+      "severity": "low",
+      "note": "Redundant settlement_failed test in errors.test.ts (round 1 L1) — still present but low severity, not blocking."
+    },
+    {
+      "id": "L2_deferred",
+      "severity": "low",
+      "note": "scrubSecrets error-stack test uses err.message not err.stack (round 1 L2) — still present but low severity."
+    },
+    {
+      "id": "L3_deferred",
+      "severity": "low",
+      "note": "networks.test.ts hard-crashes on missing T3 artefact rather than a vitest-friendly skip (round 1 L3) — intentional per spec, acceptable."
+    }
+  ],
+  "new_finding": {
+    "id": "L4",
+    "severity": "low",
+    "file": "packages/middleware/src/__tests__/relayer-key.test.ts",
+    "issue": "DAG-preservation test does not assert `out.a.x === out.b.x` (shared value identity)",
+    "detail": "The test asserts `out.a === out.b` (same reference for the shared sub-object) and `out.a.x` contains REDACTED. This is sufficient. However, the assertion does not verify that `out.a.x === out.b.x` — if scrubSecrets returned different string instances for the two paths, that would be a minor (non-security) inconsistency. This is cosmetic — the security invariant is already verified by the existing assertions.",
+    "replacement": {
+      "approach": "Optional: add `expect(out.a.x).toBe(out.b.x)` to fully pin reference identity through the shared node. Not required for correctness."
+    }
+  },
+  "final_verdict": "APPROVED — all round-1 medium findings are resolved. The scrubSecrets cycle fix closes a genuine secret-leak bug. Implementation and tests are correct. Three low-severity deferred items are acceptable. Task 6 is ready to proceed."
+}

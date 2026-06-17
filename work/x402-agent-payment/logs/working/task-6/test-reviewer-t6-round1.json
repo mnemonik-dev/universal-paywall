@@ -1,0 +1,129 @@
+{
+  "reviewer": "test-reviewer-t6",
+  "task": 6,
+  "round": 1,
+  "commit": "b5dfd2c",
+  "date": "2026-06-17",
+  "status": "passed",
+  "summary": "102 tests across 5 files cover all 43 TDD anchors from the task spec. Coverage is strong on the happy paths, all mandatory throw paths, and security redaction. Four medium-severity gaps identified; no high or critical issues.",
+  "counters": {
+    "critical": 0,
+    "high": 0,
+    "medium": 4,
+    "low": 3
+  },
+  "tdd_anchor_coverage": {
+    "total_anchors_in_spec": 43,
+    "covered": 43,
+    "missing": [],
+    "notes": "All 43 TDD anchors from task 6 'TDD Anchor' section are mapped to at least one test. Notable additions beyond the spec anchors: rejects x402Version != 1, rejects scheme != 'exact', rejects non-decimal value field, rejects JSON that is not an object, distinct nonces accepted, arc-mainnet key-identity invariant, non-secret string preservation."
+  },
+  "findings": [
+    {
+      "id": "M1",
+      "severity": "medium",
+      "file": "packages/middleware/src/__tests__/x402.test.ts",
+      "issue": "parseUsdPrice zero-rejection test uses try/catch loop style that may silently pass if the function throws a different error type",
+      "detail": "The test for 'rejects zero' wraps three inputs in a for-loop with a try/catch and asserts e.reason === 'zero' inside the catch. However the outer expect(() => parseUsdPrice(input)).toThrow(InvalidPriceError) is inside the for loop and would fail correctly on a wrong throw type. The inner try/catch block (lines 698–703) duplicates the assertion for e.reason but would not fail the test if parseUsdPrice does NOT throw at all — because the catch block is never entered and the expect inside it is never evaluated. Vitest requires expect inside a catch to run; if the throw doesn't happen, the silent path means no assertion fires.",
+      "litmus_test": "Delete the `if (result === 0n) throw` line in parseUsdPrice. The outer expect().toThrow() would still catch the missing throw and FAIL — so the outer check is sound. But the inner try/catch reason-check would silently never run. The test as a whole would still fail due to the outer assertion, so this is medium not high.",
+      "replacement": {
+        "approach": "Use vitest's `expect(() => parseUsdPrice(input)).toThrow(InvalidPriceError)` and then assert the reason by catching or by using `expect.assertions(n)` to ensure inner assertions run. Simpler: use a helper that calls the function and asserts both throw type and reason in one expect block, e.g. `expect(() => parseUsdPrice('0')).toThrowError(expect.objectContaining({ reason: 'zero' }))`.",
+        "example": "expect(() => parseUsdPrice('0')).toThrowError(Object.assign(new InvalidPriceError('zero'), {}))"
+      }
+    },
+    {
+      "id": "M2",
+      "severity": "medium",
+      "file": "packages/middleware/src/__tests__/relayer-key.test.ts",
+      "issue": "structuredClone test does not assert that the clone cannot extract the key; it only checks the JSON serialization does not contain the hex",
+      "detail": "Line 268: `expect(JSON.stringify(cloned)).not.toContain(RAW_HEX_NO_PREFIX)`. structuredClone of a class instance drops private class fields and methods, producing a plain object. The test correctly catches JSON leakage. But the spec says 'structuredClone does not expose the secret' — an additional assertion that `getRelayerKeySecret(cloned.k)` throws (because cloned.k is no longer an OpaqueRelayerKey instance) would pin the invariant more precisely. Without it, a regression where structuredClone somehow preserves the key in an enumerable property would only be caught by the JSON check, not by the extraction-path check.",
+      "litmus_test": "Change #key to a regular enumerable property. The JSON check would FAIL. So the test is mostly sound; the gap is that it does not verify the extraction guard also kicks in on the clone.",
+      "replacement": {
+        "approach": "Add after the existing assertion: `expect(OpaqueRelayerKey.is(cloned.k)).toBe(false)` and `expect(() => getRelayerKeySecret(cloned.k as OpaqueRelayerKey)).toThrow(TypeError)` to verify both that the clone lost its brand AND that getRelayerKeySecret refuses it."
+      }
+    },
+    {
+      "id": "M3",
+      "severity": "medium",
+      "file": "packages/middleware/src/__tests__/replay-store.test.ts",
+      "issue": "TTL eviction test uses has() after advancing now, but does not verify that size() decreases — the count tracking in NonceStore could be wrong without being caught",
+      "detail": "The TTL eviction test (lines 482-493) correctly asserts that `has({now: 2000})` returns false after inserting with validBefore=1000. However, `NonceStore.#count` is decremented in `#evictExpired`. If the count decrement had a bug (e.g., off-by-one), no test would detect it here. The 100k cap test does check `size() === cap` after eviction, but only for the cap scenario, not for TTL-driven eviction.",
+      "litmus_test": "Remove `this.#count--` from `#evictExpired`. The has() test still passes (the Map.delete is the relevant call). The size-tracking bug would only be caught by the cap test, which has different preconditions.",
+      "replacement": {
+        "approach": "Add `expect(store.size()).toBe(0)` after the `has({now: 2000})` assertion to verify that TTL eviction correctly decrements the count. This makes the count-tracking invariant explicit."
+      }
+    },
+    {
+      "id": "M4",
+      "severity": "medium",
+      "file": "packages/middleware/src/__tests__/x402.test.ts",
+      "issue": "decodeXPayment missing-required-leaf test table covers 10 leaves but spec specifies 11 (payload itself as a missing top-level key is not tested)",
+      "detail": "The task spec says 'table-driven over the eleven required leaves'. The test.each table (lines 783-854) covers: x402Version, scheme, network, payload.signature, payload.authorization.from, .to, .value, .validAfter, .validBefore, .nonce — that is 10 entries. Missing: `payload` itself as a top-level key (i.e., `{ ...samplePayload, payload: undefined }`). The `assertExactKeys` call at the top level would catch it (undefined is excluded by JSON.parse round-trip in the cleaned = JSON.parse step), but there is no explicit test row for it.",
+      "litmus_test": "Remove the `if (!isPlainObject(payloadRaw))` check. A test for missing payload would then crash on a null-dereference rather than throw MalformedPaymentHeaderError. The existing test table would not catch this regression.",
+      "replacement": {
+        "approach": "Add a test row: `['payload', { ...samplePayload, payload: undefined }]` to the it.each table. The `cleaned = JSON.parse(JSON.stringify(bad))` step will strip the undefined payload, making the top-level object have only 3 keys and failing `assertExactKeys`."
+      }
+    },
+    {
+      "id": "L1",
+      "severity": "low",
+      "file": "packages/middleware/src/__tests__/errors.test.ts",
+      "issue": "it.each test names for the 402-set include 'settlement_failed' as a plain reason, but the dedicated sub-reason loop (lines 82-92) and the single-case test (lines 109-115) duplicate coverage",
+      "detail": "settlement_failed appears in FOUR_HUNDRED_TWO (tested by the plain reason loop) AND in the SETTLEMENT_SUB_REASONS loop AND in the dedicated single-case test at line 109. Three test paths exercise settlement_failed + sub-reason propagation. This is not a bug but is mildly redundant — per the 'Each test earns its place' principle, the plain-reason loop and the dedicated single-case test cover the same scenario.",
+      "replacement": {
+        "approach": "Remove the dedicated single-case test at lines 109-115 since the SETTLEMENT_SUB_REASONS parametric loop (lines 82-92) already verifies all 7 sub-reasons including receipt_reverted. The plain-reason loop at line 77 already checks status=402 for settlement_failed."
+      }
+    },
+    {
+      "id": "L2",
+      "severity": "low",
+      "file": "packages/middleware/src/__tests__/relayer-key.test.ts",
+      "issue": "scrubSecrets error-stack test (lines 399-404) scrubs err.message but the spec says 'error stacks' — the test does not check err.stack",
+      "detail": "The spec (relayer-key.ts task description) says 'Error stacks containing inline 0x{64} hex are redacted by scrubSecrets'. The test only passes `err.message` to `scrubSecrets`, not `err.stack`. While message is part of the stack, the stack also includes the call-site lines. A test that passes `err.stack` would more precisely verify the spec intent.",
+      "replacement": {
+        "approach": "Change line 401 to use `err.stack ?? err.message` so the test exercises the stack string if available, falling back to message."
+      }
+    },
+    {
+      "id": "L3",
+      "severity": "low",
+      "file": "packages/middleware/src/__tests__/networks.test.ts",
+      "issue": "networks.test.ts loads the T3 artefact at module scope (line 173) — if the artefact is missing, the entire test file throws at import time with an uncleared error rather than a vitest-friendly failure",
+      "detail": "The test imports NETWORKS which triggers the blocker throw in networks.ts. The test also reads the artefact itself at lines 173-176. If the file is missing, vitest reports an unhandled module init error rather than a test failure. This is intentional per spec ('loud failure is correct'), but the test file itself would also fail at parse time, making it harder to diagnose. A try/catch with a skipped describe or a beforeAll guard would give a clearer vitest output.",
+      "replacement": {
+        "approach": "This is low severity — the spec explicitly requires the loud failure. No change needed for correctness; optionally wrap the readFileSync in a try/catch in the test and call `test.skipIf` to produce a skip rather than a hard crash in the test reporter."
+      }
+    }
+  ],
+  "positive_observations": [
+    "All 43 TDD anchors from the task spec are covered.",
+    "parseUsdPrice covers all 16 invalid-input categories from addendum §4 (zero, negative, >6 decimals, scientific notation, whitespace, NaN, empty, non-numeric, '.5') across 5 test cases.",
+    "decodeXPayment strict-shape validation is thorough: extra keys at top-level, payload level, and authorization level are each tested separately.",
+    "relayer-key: pino and winston logger serialization tests use real logger instances with a writable stream sink — not mock-return tests. Litmus passes: removing toJSON() would cause text to contain the raw hex and the test would fail.",
+    "replay-store: 100k cap eviction test uses scaled-down cap=1000 with monotonically increasing validBefore, making eviction order unambiguous. The assertion pattern (oldest gone, newest present, size unchanged) is well-structured.",
+    "retention-on-failure semantics are tested via the absence of a delete API, which is the correct way to pin a deliberate design invariant.",
+    "canonical error reason strings are guarded by an explicit test (to_mismatch canonical-string guard) that checks JSON.stringify does not contain 'recipient_mismatch'.",
+    "scrubSecrets cycle-safety test correctly sets up a self-referential object and asserts the output.v is redacted without asserting a specific structure on output.self (which could be anything due to cycle handling).",
+    "networks.test.ts loads the actual T3 artefact and deep-equals to verify the NETWORKS row stays in sync — strong fixture quality.",
+    "No real secrets in test files — all use placeholder hex strings ('a'.repeat(64) etc.) per spec requirement.",
+    "Test file location matches systemic-fix §2 canonical directory (packages/middleware/src/__tests__/).",
+    "Test isolation is clean: each test creates a fresh NonceStore or OpaqueRelayerKey instance; no shared mutable state between tests."
+  ],
+  "coverage_assessment": {
+    "x402_codec": "strong — 34 tests; all TDD anchors hit; strict-shape validation at every nesting level",
+    "errors": "strong — 28 tests; all 11 error reasons + all 7 settlement sub-reasons exercised",
+    "networks": "adequate — 10 tests; alias-identity, arc-mainnet placeholder, T3 artefact sync, normalizeNetworkId all covered",
+    "relayer_key": "strong — 21 tests; all 4 redaction paths + pino/winston + scrubSecrets patterns + cycle-safety + brand check",
+    "replay_store": "adequate — 9 tests; core scenarios covered; minor gap on TTL size-tracking (M3)"
+  },
+  "spec_compliance": {
+    "canonical_error_strings": "pass — to_mismatch, invalid_signature, insufficient_amount all present and guarded",
+    "tdd_approach": "pass — commit message confirms tests written before/alongside production code",
+    "test_directory": "pass — packages/middleware/src/__tests__/ matches systemic-fix §2",
+    "no_real_secrets": "pass — all hex strings are placeholder patterns",
+    "pino_winston_devdeps": "pass — used as devDependencies in logger serialization tests",
+    "t3_artefact_sync": "pass — networks.test.ts loads the JSON file and deep-equals",
+    "100k_cap_test": "pass — uses scaled cap=1000 with distinct validBefore values"
+  },
+  "decision": "pass — no high or critical issues. Four medium findings and three low findings; all are additive improvements. The implementation is ready to proceed. Recommend addressing M1 (silent catch path), M3 (TTL size-tracking assertion), and M4 (missing 'payload' leaf row) before merging as they are low-effort fixes that close small but real regression gaps."
+}

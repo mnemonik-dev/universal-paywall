@@ -198,3 +198,43 @@ post-completion entries here following the `do-task` skill template.
 - T10 (Wave 6 forked-e2e): the unit suite proves split math and reentrancy guard; forked-e2e should re-exercise the happy path against real Arc Testnet USDC (`0x3600000000000000000000000000000000000000`) to verify the EIP-3009 settlement path lands USDC into the vault and the withdraw split works against the production token contract.
 - T13 (security audit, Wave 7): the Foundry suite covers all 12 custom error selectors and the D15/D16/D17 invariants; auditor input may flag SA-T5-01 (TransferOrderRecorder mock) as a prereq for direct developer-first ordering assertion. Deferred from T5 with auditor concurrence.
 - CI workflow (separate task): the lcov-threshold check the addendum §4 T5 anticipates should grep `BRH:`/`BRF:` in `contracts/lcov.info` for `src/PaymentSplitterFactory.sol` and `src/PaymentVaultImpl.sol` against a 95% gate. Concrete grep command not written here per task-5 scope.
+
+## Task 6: Middleware primitives (types, NETWORKS, x402 codec, errors, relayer-key, replay-store)
+
+**Status:** Done
+**Commits:** b5dfd2c (impl + tests) + eb4b845 (review round 1 fixes)
+**Agent:** middleware-primitives
+**Summary:** Implemented all six pure middleware modules per tech-spec D1/D5/D13/D14/D18. `types.ts` exposes the byte-for-byte interface surface from tech-spec lines 333–397. `networks.ts` reads `contracts/scripts/arc-testnet-usdc-domain.json` (T3 artefact) at module load — surfaces a blocker error if missing rather than ship silent stubs — and exports both alias (`arc-testnet`) and canonical CAIP-2 (`eip155:5042002`) keys pointing at the same `NetworkConfig` object reference; arc-mainnet placeholder uses `chainId: 0` + `id: 'eip155:0'` (NOT `eip155:42161`) per systemic-fix §8. `x402.ts` provides `build402Body` (pure), `parseUsdPrice` (strict — rejects zero, negatives, NaN, scientific notation, whitespace, >6 decimals per addendum §4), `decodeXPayment` (4 KB byte cap via `Buffer.byteLength`, exact-keys validation at every level, strict hex shapes), `encodeXPaymentResponse`. `errors.ts` uses CANONICAL reason strings (`to_mismatch`, `invalid_signature`, `insufficient_amount`) and splits HTTP 400/402 per the x402 v1 body schema. `relayer-key.ts` implements `OpaqueRelayerKey` with a module-private `WeakMap<OpaqueRelayerKey, string>` (no class member can extract the secret — strictly stronger than the spec's `#privateField` proposal), brand-stamped `is()` predicate via `Symbol.for('@universal-paywall/middleware/OpaqueRelayerKey')`, four-pattern + cycle-safe `scrubSecrets`. `replay-store.ts` provides `NonceStore` with synchronous `checkAndInsert` (no TOCTOU window), lazy per-`from` TTL eviction, 100k cap with oldest-`validBefore` FIFO eviction, address+nonce case normalization. 105 vitest tests pass; `tsc --noEmit` clean under strict; tsup build + ESLint clean.
+
+**Deviations:**
+- Secret-storage architecture for `OpaqueRelayerKey`: the spec proposed a `#privateField` (class-private). I shipped a module-private `WeakMap<OpaqueRelayerKey, string>` with the class carrying only the brand marker. This is strictly stronger — no class member, public or otherwise, can extract the key; the only path is via the module-private `getRelayerKeySecret(key)` function, which is intentionally NOT re-exported from `index.ts`. The structural `OpaqueRelayerKey` interface in `types.ts` remains empty (per tech-spec) so the WeakMap is invisible to the public type system. (Driven by code-reviewer T6-R1-02 + security-auditor SA-T6-03 — see [logs/working/task-6/code-reviewer-t6-round1.json](logs/working/task-6/code-reviewer-t6-round1.json) and [logs/working/task-6/security-auditor-t6-round1.json](logs/working/task-6/security-auditor-t6-round1.json).)
+- `scrubSecrets` cycle handling: switched from `WeakSet<object>` (which leaked the secret through cycle back-edges) to `Map<original, scrubbed_copy>`, registering output containers in `seen` BEFORE walking children so back-edges resolve to the partial scrubbed copy. (Driven by security-auditor SA-T6-01.)
+- Vitest test scripts in `packages/middleware/package.json` prefix `UP_SUPPRESS_T3_NOTES=1` to silence the T3 USDC-domain boot warnings (gas-fallback + arc-dual-decimal) inside the runner. Outside the test runner, the notes still fire on module load so operators see them in boot logs.
+- `.eslintrc.cjs` adds `packages/middleware/src/__tests__/` to ignorePatterns: middleware `tsconfig.json` excludes tests, and the project's typed-linting cannot parse files outside the referenced tsconfig project. Vitest enforces test-file correctness; this is a Task-1 config gap, not a Task-6 concern.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t6: approved_with_issues — 2 major (T6-R1-01 public `getRelayerKeySecret` re-export, T6-R1-02 public `OpaqueRelayerKey._extract`), 5 minor (T6-R1-03 leading-zero accept [deferred], T6-R1-04 boot-warning noise, T6-R1-05 `insert()` TTL gap, T6-R1-06 cycle handling, T6-R1-07 dead `static [BRAND]` field) → [logs/working/task-6/code-reviewer-t6-round1.json](logs/working/task-6/code-reviewer-t6-round1.json)
+- security-auditor-t6: REQUEST_CHANGES — SA-T6-01 medium (scrubSecrets cycle bug — raw secret leaked through back-edge), SA-T6-02 medium (`getRelayerKeySecret` on public surface), SA-T6-03 low (`_extract` callable through exported class); 2 informational deferred → [logs/working/task-6/security-auditor-t6-round1.json](logs/working/task-6/security-auditor-t6-round1.json)
+- test-reviewer-t6: PASSED — 4 medium (M1 silent try/catch in zero-rejection test, M2 structuredClone test optional, M3 missing size() assertion in TTL test, M4 missing 'payload' top-level leaf row); 3 low optional → [logs/working/task-6/test-reviewer-t6-round1.json](logs/working/task-6/test-reviewer-t6-round1.json)
+
+*Round 2:*
+- code-reviewer-t6: APPROVED — all R1 findings resolved; T6-R1-02 fix went beyond scope (WeakMap is stronger than private `#extract`) → [logs/working/task-6/code-reviewer-t6-round2.json](logs/working/task-6/code-reviewer-t6-round2.json)
+- security-auditor-t6: APPROVED — all 3 required changes resolved; cycle fix traced through and verified → [logs/working/task-6/security-auditor-t6-round2.json](logs/working/task-6/security-auditor-t6-round2.json)
+- test-reviewer-t6: APPROVED — M1/M3/M4 resolved; 1 new low cosmetic (DAG test could add reference-identity assertion) not blocking → [logs/working/task-6/test-reviewer-t6-round2.json](logs/working/task-6/test-reviewer-t6-round2.json)
+
+**Verification:**
+- `test -f contracts/scripts/arc-testnet-usdc-domain.json` → present (T3 handoff confirmed).
+- `npm test --workspace=@universal-paywall/middleware` → 5 suites, 105 tests passed (35 x402 + 28 errors + 10 networks + 23 relayer-key + 9 replay-store).
+- `npx tsc --noEmit -p packages/middleware/tsconfig.json` → clean under `--strict` / `exactOptionalPropertyTypes` / `noUncheckedIndexedAccess`.
+- `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts both succeed.
+- `npm run lint` → clean.
+- gitleaks pre-commit hook on b5dfd2c + eb4b845 → 0 leaks.
+
+**Open items for future tasks:**
+- T7 (Wave 6 `verify.ts`): consumes `decodeXPayment`, `NETWORKS`, `normalizeNetworkId`, `NonceStore.checkAndInsert`, and the `MalformedPaymentHeaderError` / `buildErrorResponse` pair from this task. The 5-second safety margin (`validBefore > now + 5_000ms`) is enforced by verify.ts; `NonceStore.checkAndInsert` has its own `validBefore <= now → authorization_expired` safety net as a second line of defence.
+- T8 (Wave 6 `settle.ts`): imports `getRelayerKeySecret` from `./relayer-key.js` directly (NOT from `index.ts`). Security-auditor SA-T6-INFO-02 flagged that the T3 artefact's `gasCostExceedsThreshold: true` (1260 micro-USDC gas on a 10000 micro-USDC payment = 12.6%) should be surfaced as a startup warning here — track in T8.
+- T11 (Wave 7 deploy script): `sed`-anchored replacement of `factoryAddress` / `vaultImplAddress` placeholders in `networks.ts` keys on the sentinel comments `/* deploy-script:factoryAddress */` and `/* deploy-script:vaultImplAddress */`; verified present in this commit.
+- User-spec amendment (SA-T6-INFO-02, deferred): user-spec examples reference `usdcEip712Name = "USD Coin"`, but the T3-verified on-chain value is `"USDC"`. Update user-spec examples to match the live chain so agent implementors don't hard-code the wrong domain name.
+- ESLint config (Task 1 follow-up, deferred): middleware tsconfig excludes test files, so typed-linting cannot parse `packages/middleware/src/__tests__/`. Added to `.eslintrc.cjs` ignorePatterns for now. Long-term: separate `tsconfig.test.json` referenced by the eslint parserOptions would let typed-linting run on test files too.
