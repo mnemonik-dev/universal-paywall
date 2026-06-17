@@ -238,3 +238,43 @@ post-completion entries here following the `do-task` skill template.
 - T11 (Wave 7 deploy script): `sed`-anchored replacement of `factoryAddress` / `vaultImplAddress` placeholders in `networks.ts` keys on the sentinel comments `/* deploy-script:factoryAddress */` and `/* deploy-script:vaultImplAddress */`; verified present in this commit.
 - User-spec amendment (SA-T6-INFO-02, deferred): user-spec examples reference `usdcEip712Name = "USD Coin"`, but the T3-verified on-chain value is `"USDC"`. Update user-spec examples to match the live chain so agent implementors don't hard-code the wrong domain name.
 - ESLint config (Task 1 follow-up, deferred): middleware tsconfig excludes test files, so typed-linting cannot parse `packages/middleware/src/__tests__/`. Added to `.eslintrc.cjs` ignorePatterns for now. Long-term: separate `tsconfig.test.json` referenced by the eslint parserOptions would let typed-linting run on test files too.
+
+## Task 7: Verify + Settle (off-chain EIP-712 gate + on-chain settlement)
+
+**Status:** Done
+**Commits:** e98ece8 (impl + tests) + e7ce27d (review round 1 fixes) + 40d3510 (test-review round 1 fixes) + e8ce2e0 (review round 2 fixes) + 0f0c813 (review reports)
+**Agent:** verify-settle
+**Summary:** Implemented `packages/middleware/src/verify.ts` (EIP-712 recovery via viem.recoverTypedDataAddress against `NETWORKS`-derived domain, seven Solution-7c checks in canonical order, ms-throughout time math with `SAFETY_MARGIN_MS = 5_000`, `NonceStore.checkAndInsert` as the documented atomic primitive) and `packages/middleware/src/settle.ts` (sole owner of per-network `WalletClient` cache, sole call site of `getRelayerKeySecret` per D13, first-write chainId pin via core-owned `PublicClient` per D14, proactive `USDC.balanceOf` check against module-level constant `MIN_RELAYER_USDC_BALANCE = 1_000_000n` with strict less-than, seven-way classifier with case-insensitive `"authorization is used"` substring match — no 4-byte selector — and undecoded-revert fallback to `receipt_reverted`). Added `NetworkMismatchError` class (with `expectedChainId`/`observedChainId` fields) defined in settle.ts and re-exported from errors.ts + index.ts. Both modules: no `SecurityLogger` import, no `securityEvent` call. `settle.ts` does not touch the replay-store (structural retention on failure). 36 task-7 tests (15 verify + 21 settle); full middleware suite 141/141 green; tsc strict + tsup + ESLint clean. Added viem ^2.52.0 as a runtime dependency in packages/middleware/package.json.
+
+**Deviations:**
+- `verify.ts` switched from the spec's `nonceStore.has(...) → insert(...)` pair to `nonceStore.checkAndInsert(...)` per security-auditor SEC-T7-02 round 1. Rationale: replay-store.ts marks `insert` as "test-only primitive"; `checkAndInsert` is the documented production primitive and adds a defense-in-depth `validBefore <= now` safety net. Net behavior is unchanged; canonical reason strings (`nonce_already_used`, `authorization_expired`) flow through `checkAndInsert`'s return value.
+- HttpRequestError classification: any HttpRequestError (not only `status >= 500`) classifies as `rpc_5xx`. The task spec said `>= 500`, but security-auditor SEC-T7-03 round 1 flagged that 4xx (429 rate-limit, 401 auth) falling through to `rpc_timeout` was misleading for operators reading event logs. The 7-reason taxonomy has no 4xx slot; `rpc_5xx` is the closest bucket and is documented in the source comment.
+- Parsesignature v-fallback: when viem's `parseSignature` returns neither `yParity` nor `v` (pathological EIP-2098 compact-form edge case), the impl refuses to broadcast and returns `{ ok: false, reason: 'gas_estimate_revert' }` rather than silently defaulting `yParity = 0` and corrupting v (which would have produced an on-chain revert after off-chain verify already accepted). The `gas_estimate_revert` classification is semantically approximate (it's a pre-broadcast parse failure) but is the correct bucket within the constrained 7-reason taxonomy. Driven by security-auditor SEC-T7-01 round 1 (HIGH).
+- Unknown network passed to `settleOnChain` throws a plain `Error` (with the unknown network key in the message) rather than `NetworkMismatchError(0, 0)`. Original choice collided visually with the arc-mainnet placeholder chainId. Driven by code-reviewer R1-M2 + security-auditor SEC-T7-04.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t7: approved_with_minors (3 minor — R1-M1 bigint cast, R1-M2 misleading NetworkMismatchError(0,0), R1-M3 sync-block test timing) → [logs/working/task-7/code-reviewer-t7-round1.json](logs/working/task-7/code-reviewer-t7-round1.json)
+- security-auditor-t7: conditional_pass (2 required — SEC-T7-01 HIGH v-fallback, SEC-T7-02 MED checkAndInsert; 3 recommended — SEC-T7-03/04/05) → [logs/working/task-7/security-auditor-t7-round1.json](logs/working/task-7/security-auditor-t7-round1.json)
+- test-reviewer-t7: needs_improvement (0 critical, 2 medium — T7-TEST-01 vacuous NonceStore spy + T7-TEST-02 superseded by checkAndInsert; 3 low — duplicate test, raw-key opts serialization, +5 boundary) → [logs/working/task-7/test-reviewer-t7-round1.json](logs/working/task-7/test-reviewer-t7-round1.json)
+
+*Round 2 (after fixes):*
+- code-reviewer-t7: approved (one info note — verify.ts docblock update, fixed in e8ce2e0) → [logs/working/task-7/code-reviewer-t7-round2.json](logs/working/task-7/code-reviewer-t7-round2.json)
+- security-auditor-t7: PASS (one new info SEC-T7-R2-01 — defensive bigint guard untested, fixed in e8ce2e0) → [logs/working/task-7/security-auditor-t7-round2.json](logs/working/task-7/security-auditor-t7-round2.json)
+- test-reviewer-t7: passed (two new low — T7-R2-01 verify docblock + T7-R2-02 untested 429 → rpc_5xx, both fixed in e8ce2e0) → [logs/working/task-7/test-reviewer-t7-round2.json](logs/working/task-7/test-reviewer-t7-round2.json)
+
+**Verification:**
+- `npm test --workspace=@universal-paywall/middleware -- src/__tests__/verify.test.ts src/__tests__/settle.test.ts` → exit 0, 36 passed (15 verify + 21 settle).
+- `npm test --workspace=@universal-paywall/middleware` → exit 0, 141/141 across 7 suites.
+- `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0 (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax).
+- `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts emit clean.
+- `npm run lint` → exit 0.
+- gitleaks pre-commit hook on every commit → 0 leaks.
+
+**Open items for future tasks:**
+- T8 (Wave 6 `core.ts`): imports `verifyEip3009Authorization` from `./verify.js` and `settleOnChain` + `MIN_RELAYER_USDC_BALANCE` + `NetworkMismatchError` from `./settle.js`. `core.ts` owns the per-network `PublicClient` cache (per systemic-fixes §5) and passes it through `opts.publicClient` to both modules. `core.ts` is the sole owner of D18 `SecurityLogger` event emission and maps verify/settle return values to the typed event catalogue per systemic-fixes-3 §2. The proactive `relayer_no_balance` result returned by settle.ts surfaces the bigint `balance` in `details.balance` — `core.ts` should emit a D18 `relayer_low_balance` event when this fires (per SA-T6-INFO-02 round-1 follow-up, also relevant here because the T3 spike showed 12.6% gas-on-payment ratio on Arc Testnet).
+- T8 must also handle the `NetworkMismatchError` throw from settle.ts: catch it and emit D18 `chain_id_mismatch` with the `expectedChainId`/`observedChainId` fields the error carries.
+- T9 (Wave 6 vault-state checks): `factory.paused()` and `factory.vaults(developer)` cached reads happen in core.ts BETWEEN verify and settle. settle.ts already does the proactive USDC balance check; the factory-state checks are core.ts's responsibility per the architecture table.
+- Single-relayer-per-process assumption: the per-network WalletClient cache is keyed only on `network.id`. A second `OpaqueRelayerKey` for the same network would be silently ignored. Acceptable for MVP (D6/D13: one relayer per process) but worth documenting in the README operational guide pre-deploy. Security-auditor SEC-T7-05 INFO.
+- Test infra (deferred): vitest `vi.mock('viem', ...)` had to stub `createWalletClient` + `http` but keep the actual `privateKeyToAccount` / `signTypedData` from `viem/accounts` (so verify tests use real cryptography). Pattern works but is non-obvious; if a future task needs the same split, factor a shared test helper.
