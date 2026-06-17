@@ -561,4 +561,19 @@ Test quality dimensions audited:
 - `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0.
 - `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts clean.
 
-**Reviewer verdicts:** _pending — see logs/working/audit-fix/_
+**Reviewer verdicts (round 1):**
+
+- **code-auditor:** **approved** — all five T12 minors cleanly resolved; `SettlementFailedReason` superset welcomed as a cleaner solution than the prescribed taxonomy-widening; no further rounds. Report: [logs/working/audit-fix/code-auditor-round1.json](logs/working/audit-fix/code-auditor-round1.json).
+- **security-auditor:** **APPROVED / CLEAR FOR FINAL WAVE** — T13-M-MW-01 resolved; the consolidated `{64,}` quantifier is preferred over splitting into two patterns. One new informational (I-AF-01, non-blocking, optional ergonomics): the `{64,}` quantifier has no upper bound — for pathological mega-blob inputs the redactor consumes the entire run. Correct security behaviour but loses diagnostic context; an optional `{64,4096}` cap is a post-MVP nice-to-have. Report: [logs/working/audit-fix/security-auditor-round1.json](logs/working/audit-fix/security-auditor-round1.json).
+- **test-auditor:** **PASS_WITH_NOTES** — T14-L1/L2/L3 all resolved; one LOW (T14-R1-L4) and one INFO (T14-R1-I1) raised, both non-blocking:
+  - T14-R1-L4 (post-MVP follow-up): the deleted `errors.test.ts` removed the exhaustive per-reason × ajv-schema iteration. The `additionalProperties: false` schema-drift detector is still active at 3 sites (`x402.test.ts:91`, `forked-e2e.test.ts:649`, `arc-testnet-e2e.test.ts:240`) and `core.test.ts` pins the canonical body shape per reason. Recommended ~15-line follow-up: synthetic per-reason iteration on top of `core.ts:build402` to restore the strongest property of the deleted test.
+  - T14-R1-I1 (pre-existing gap surfaced by T12-03 rename): the unknown-network path at `core.ts:430` emitting `reason='chain_id_mismatch'` is untested. Was untested in round 0 too; not in T14 scope. Post-MVP cleanup.
+  - Report: [logs/working/audit-fix/test-auditor-round1.json](logs/working/audit-fix/test-auditor-round1.json).
+
+**Final coverage delta:** middleware lines 96.69% (was 96.87%), branches 88.88% (was 89.18%). Both above the ≥85% gate. The drop is denominator noise from deleting `errors.test.ts` alongside its `errors.ts` source. Contracts LCOV branch coverage unchanged at 100% on `contracts/src/`.
+
+**Open items for post-MVP:**
+- Restore per-reason schema-iteration test on `core.ts:build402` (T14-R1-L4, ~15 lines).
+- Add a test for the `core.ts:430` unknown-network branch emitting `reason='chain_id_mismatch'` (T14-R1-I1).
+- Optional `{64,4096}` cap on `HEX_BARE_RUN_RE` in `relayer-key.ts` for diagnostic ergonomics on mega-blob inputs (I-AF-01).
+- Pre-existing low/info findings from the original Wave 10 audits (out-of-scope by severity): L-MW-01 (register CLI variable lifetime), L-MW-02 (relayer_low_balance bucket), L-CT-01/02 (event indexing for off-chain monitoring), `.gitleaksignore` for anvil default account-0 key, tech-spec layout refresh for Foundry conventions, T12-06..T12-09 nits.

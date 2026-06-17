@@ -1,0 +1,172 @@
+{
+  "round": 1,
+  "task": "audit-fix re-audit",
+  "auditor": "security-auditor",
+  "commit_under_review": "58a1aae",
+  "commit_message_subject": "fix: address Wave 10 audit findings (T12/T13/T14)",
+  "scope": {
+    "primary": "T13-M-MW-01 scrubSecrets regex tightening",
+    "spillover": [
+      "T12-01: errors.ts + errors.test.ts deletion (dead module)",
+      "T12-02: SettlementFailedReason union (taxonomy formalization)",
+      "T12-03: internal_error → chain_id_mismatch wire reason rename",
+      "T12-04: relayer-key.ts docstring rewrite (accurate WeakMap description)",
+      "T12-05: PaymentVaultImpl.withdraw locals rename usdc→usdcToken, feeBps→currentFeeBps",
+      "T14-L1/L2/L3: test comments only (no logic change)"
+    ]
+  },
+  "verdict": "PASS",
+  "blocking_findings": 0,
+  "new_findings_by_severity": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "informational": 1
+  },
+  "round1_findings_status": {
+    "M-MW-01": "RESOLVED",
+    "L-MW-01": "DEFERRED (not in scope of this fix pass, accepted by audit-fixer)",
+    "L-MW-02": "DEFERRED (not in scope of this fix pass, accepted by audit-fixer)",
+    "L-CT-01": "DEFERRED (post-MVP monitoring, accepted by audit-fixer)",
+    "L-CT-02": "DEFERRED (post-MVP monitoring, accepted by audit-fixer)",
+    "I-*": "DEFERRED (informational, accepted by audit-fixer)"
+  },
+  "m_mw_01_validation": {
+    "old_regex": "/\\b[0-9a-fA-F]{64}\\b/gi",
+    "new_regex": "/(?<![0-9a-fA-F])[0-9a-fA-F]{64,}(?![0-9a-fA-F])/g",
+    "correctness": {
+      "addr40_plus_nonce64_concat": "REDACTED — full 104-char run consumed; previously slipped because word boundary did not fire at the 40/41 split",
+      "two_64hex_keys_concatenated": "REDACTED — full 128-char run consumed in one substitution; both k1 and k2 fully replaced",
+      "raw_130_signature_without_0x": "REDACTED — 130 ≥ 64 matches once with non-hex anchors on either side",
+      "mixed_case_130_hex": "REDACTED — character class [0-9a-fA-F] explicitly covers both cases; `i` flag drop is benign",
+      "single_64_hex_env_var_in_text": "REDACTED — anchors fire against `=`, space, newline, or string edge",
+      "hex_run_short_of_64_chars_e_g_address_40_chars": "NOT REDACTED — below the {64,} floor (correct: addresses are not secrets)"
+    },
+    "false_positive_profile": "Unchanged from previous baseline (32-byte hash without 0x still matches). The greedy {64,} can extend a match further than necessary, but since the entire run is replaced by REDACTED, no partial-secret leak is possible. Two adjacent 64-hex secrets are now both redacted in one shot (previously: both passed)."
+  },
+  "regex_engineering_review": {
+    "lookbehind_lookahead_correctness": "Both anchors are negated character classes — atomic, no backtracking surface. The class `[0-9a-fA-F]` matches the EXACT set used for hex chars elsewhere in the module, so lookarounds and the body class are consistent.",
+    "redos_assessment": "No ReDoS surface. The body is a fixed character class with a `{64,}` quantifier; no nested alternation, no overlap. Worst-case work is O(N) on a length-N input. Confirmed by inspection — no `(a+)+`, no `(a|a)+`, no catastrophic-backtracking shape.",
+    "ordering_with_prefixed_patterns": "scrubString chains: HEX_130_WITH_PREFIX_RE → HEX_64_WITH_PREFIX_RE → HEX_BARE_RUN_RE. For prefixed inputs (`0x` + N hex), the prefixed regex matches first and replaces with literal `<redacted:relayer-key>` — no longer hex, so the bare-run pass cannot re-trigger. For bare runs, HEX_BARE_RUN_RE catches them. The chain is order-correct.",
+    "case_flag_removal": "Removal of the `i` flag is benign because the character class `[0-9a-fA-F]` is already explicit. Mixed-case `'AbCd'.repeat(32) + 'aA'` test confirms.",
+    "consolidation_decision": "Audit-fixer collapsed bare-64 and bare-130 patterns into a single `{64,}` quantifier. Acceptable: any maximal hex run of length ≥ 64 at non-hex boundaries is suspicious; the single-pattern form is simpler and provably covers both shapes. The audit-fixer's note ('say so and I'll split') — I do NOT recommend splitting; the consolidated form is preferable for maintainability and is functionally complete."
+  },
+  "fuzz_test_coverage_review": {
+    "tests_added": [
+      {
+        "name": "redacts 64-bare-hex embedded in a longer hex run (no word boundary)",
+        "assertion": "toContain(REDACTED) AND NOT toContain(nonce64)",
+        "verdict": "CORRECT — anchors verify both the redaction occurs AND the original key text is gone."
+      },
+      {
+        "name": "redacts 130-bare-hex run (raw signature without 0x prefix)",
+        "assertion": "toContain(REDACTED) AND NOT toContain(rawSig)",
+        "verdict": "CORRECT."
+      },
+      {
+        "name": "redacts mixed-case bare 130-hex",
+        "assertion": "toContain(REDACTED) AND NOT toContain(rawSig)",
+        "verdict": "CORRECT — confirms the case-flag removal is benign."
+      },
+      {
+        "name": "redacts two concatenated 64-hex keys (128-char run)",
+        "assertion": "toContain(REDACTED) AND NOT toContain(k1) AND NOT toContain(k2)",
+        "verdict": "CORRECT — strongest assertion of the four (both halves of the concatenation must be redacted)."
+      }
+    ],
+    "coverage_gap_check": "All four scenarios from my round-1 audit finding are explicitly tested. No additional scenarios required."
+  },
+  "spillover_review": {
+    "T12-01_errors_module_deletion": {
+      "files": ["packages/middleware/src/errors.ts (deleted)", "packages/middleware/src/__tests__/errors.test.ts (deleted)"],
+      "verdict": "SAFE",
+      "evidence": "errors.ts was never re-exported from index.ts — confirmed by `grep -n 'errors' packages/middleware/src/index.ts` returning empty. No imports from `./errors.js` anywhere in src/, scripts/, or tests (verified with grep). The two error classes that errors.ts re-exported (`MalformedPaymentHeaderError`, `NetworkMismatchError`) are still defined in x402.ts and settle.ts respectively, and all consumers import them directly from those origin modules. Test suite count drops by 49 (errors.test.ts → 49 tests) and that matches the observed 253→208 delta exactly. No security regression.",
+      "anchor": "D1 (canonical reason strings) — verified: x402.ts:33+ still emits canonical reason strings; core.ts:build402 produces the wire body and uses the canonical reasons."
+    },
+    "T12-02_SettlementFailedReason_union": {
+      "file": "packages/middleware/src/settle.ts",
+      "verdict": "SAFE",
+      "evidence": "Pure type-level documentation. Adds a new exported type `SettlementFailedReason = SettleReason | 'chain_id_mismatch'` that documents the wire-observable superset. No runtime change. No new public API surface (not re-exported from index.ts — verified).",
+      "anchor": "D14 + D18 taxonomy clarity."
+    },
+    "T12-03_internal_error_rename": {
+      "files": ["packages/middleware/src/core.ts:430", "packages/middleware/src/core.ts:599"],
+      "verdict": "SAFE",
+      "evidence": "Replaces wire reason `internal_error` (not in any taxonomy) with `chain_id_mismatch` (D18 event name). Both call sites: (a) unknown-network at request entry, (b) NetworkMismatchError catch from settle. The corresponding chain_id_mismatch event was already emitted at both sites — only the body.reason string changes. No information disclosure change (still a typed token; no echo of attacker input). core.test.ts:567-580 updated consistently. No SecurityLogger payload shape change.",
+      "anchor": "D14, D18 — taxonomy consolidation."
+    },
+    "T12-04_relayer_key_docstring": {
+      "file": "packages/middleware/src/relayer-key.ts (header docstring lines 1-32)",
+      "verdict": "SAFE (and IMPROVES audit traceability)",
+      "evidence": "Rewrites the doc to accurately describe the WeakMap implementation instead of the spec-original `#key` claim. The new doc explicitly notes the WeakMap is strictly stronger than `#private`. Useful audit-trail clarity; no code change.",
+      "anchor": "D13."
+    },
+    "T12-05_PaymentVaultImpl_locals_rename": {
+      "file": "contracts/src/PaymentVaultImpl.sol:80-99",
+      "verdict": "SAFE",
+      "evidence": "Pure local-variable rename: `usdc` → `usdcToken`, `feeBps` → `currentFeeBps`. Eliminates shadowing of the `IPaymentSplitterFactory.usdc()` and `IPaymentSplitterFactory.feeBps()` interface methods (style improvement). Control flow identical: balance read, fee math, developer transfer first, treasury transfer second, event emission. `nonReentrant` modifier preserved. CEI ordering preserved. Slither re-run shows IDENTICAL 4 findings as the pre-fix baseline — no new detector triggered. test_Withdraw_HappyPathDeveloperFirst, test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury, test_Withdraw_FeeBps0_NoSecondTransfer, test_Withdraw_FeeBps1000_Splits90_10, test_Withdraw_DustGrossTruncatesFee, test_Withdraw_UsesCurrentFeeBpsAtWithdrawTime, test_Withdraw_Boundary199, test_Withdraw_Boundary200 all PASS after the rename. forge_test counts unchanged at 52/52.",
+      "anchor": "D4 (note-only) + D8 reentrancy guard preservation."
+    },
+    "T14_test_comments_only": {
+      "files": ["packages/middleware/src/__tests__/integration/forked-e2e.test.ts", "contracts/src/PaymentSplitterFactory.sol (LCOV comment)"],
+      "verdict": "SAFE",
+      "evidence": "Comment-only changes for T14-L1 (8s sleep rationale), T14-L2 (MOCK_USDC_NAME constant extraction is data-only — same string, single source of truth), T14-L3 (LCOV instrumentation note on pause()/unpause() bodies). No security impact."
+    }
+  },
+  "tooling_results": {
+    "npm_test_middleware": {
+      "command": "npm test --workspace=@universal-paywall/middleware",
+      "exit_code": 0,
+      "test_files": 13,
+      "passed": 208,
+      "skipped": 2,
+      "failed": 0,
+      "delta_from_baseline": "208 vs 253 baseline (Δ -45 net): 49 tests removed with errors.test.ts deletion + 4 new fuzz tests in relayer-key.test.ts (relayer-key.test.ts went 24 → 28). Net = -49 + 4 = -45. Math checks out.",
+      "relayer_key_subsuite": "28/28 PASS (4 new T13-M-MW-01 fuzz tests inclusive)"
+    },
+    "forge_test": {
+      "command": "cd contracts && forge test",
+      "exit_code": 0,
+      "passed": 52,
+      "failed": 0,
+      "delta_from_baseline": "Unchanged (52/52). All vault and factory tests still pass after the local rename."
+    },
+    "slither": {
+      "command": "cd contracts && slither src/ --config-file slither.config.json",
+      "exit_code": 0,
+      "result_count": 4,
+      "delta_from_baseline": "IDENTICAL — same 4 findings (incorrect-equality on gross == 0, reentrancy-events on register, naming-convention on _developer, unindexed-event-address on PlatformTreasuryUpdated). No new detector triggered by the rename or comment additions. All findings remain triaged as informational/low against D-anchors per the prior audit."
+    }
+  },
+  "informational_finding": {
+    "id": "I-AF-01",
+    "title": "Greedy {64,} quantifier can extend a match arbitrarily far when an upstream maintainer accidentally introduces a very long bare-hex payload",
+    "severity": "Informational",
+    "location": "packages/middleware/src/relayer-key.ts:54",
+    "anchor": "D13",
+    "description": "The `[0-9a-fA-F]{64,}` quantifier is unbounded on the upper side. For pathological inputs (e.g. a malicious operator pasting an entire 1MB bare-hex blob into a log line), the redactor will replace the entire blob with a single REDACTED token. This is the correct security behaviour but produces a log entry that destroys diagnostic context around the blob. This is NOT a security defect — the redaction succeeds — but a minor operational observation.",
+    "recommendation": "No code change required. Optionally cap the quantifier at a generous upper bound (e.g. `{64,4096}`) so a runaway hex blob doesn't single-handedly replace gigabytes of log context. Not blocking; this is an operational ergonomics note, not a security gap.",
+    "blocks_final_wave": false
+  },
+  "deferred_round1_findings_acceptance": {
+    "L-MW-01_register_cli_var_lifetime": "ACCEPT deferral — single-line lifetime, classifyError scrubs the catch path; not Final-Wave-blocking.",
+    "L-MW-02_relayer_low_balance_bucketing": "ACCEPT deferral — operator documentation concern; not Final-Wave-blocking.",
+    "L-CT-01_PlatformTreasuryUpdated_indexed": "ACCEPT deferral — post-MVP monitoring ergonomics.",
+    "L-CT-02_VaultDeployed_indexed_vault": "ACCEPT deferral — post-MVP monitoring ergonomics.",
+    "I_all": "ACCEPT deferral — informational by definition."
+  },
+  "signoff": {
+    "verdict": "APPROVED — no further audit rounds required for security scope",
+    "round1_required_finding_resolved": true,
+    "regression_introduced": false,
+    "new_blocking_findings": 0,
+    "new_informational_finding": "I-AF-01 (optional upper-bound cap on quantifier) — non-blocking",
+    "tests_clean": true,
+    "slither_unchanged": true,
+    "ready_for_final_wave": true,
+    "rationale": "Round-1 M-MW-01 is resolved with a defensible regex implementation, four explicit fuzz tests, and no test regression. Spillover changes (T12 module deletion + rename, T14 comments) introduce no security regressions: errors.ts was unused dead code, the wire-reason rename is a taxonomy consolidation with consistent test updates, the contract local-variable rename preserves CEI + reentrancy ordering and slither/forge agree. All deferred low/informational findings from my round-1 audit are accepted as post-Final-Wave items per the audit-fixer's scope bound. Recommend audit-fix is CLEAR; no round-2 needed from the security side.",
+    "auditor": "security-auditor",
+    "round": 1
+  }
+}
