@@ -46,6 +46,10 @@ contract VaultHandler is Test {
     }
 
     function withdrawFromVault() external {
+        // We track gross (the vault's pre-withdraw balance), not net-to-dev,
+        // because the integrity invariant compares `mockUsdc.balanceOf(vault)`
+        // against `totalMinted - totalWithdrawn`. Both fee + net leave the
+        // vault during withdraw, so `gross` is the right accounting unit.
         uint256 balBefore = mockUsdc.balanceOf(address(vault));
         if (balBefore == 0) return;
         vm.prank(dev1);

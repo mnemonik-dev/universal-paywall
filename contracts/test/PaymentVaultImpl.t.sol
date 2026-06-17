@@ -249,10 +249,18 @@ contract PaymentVaultImplTest is Test {
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         hostileVault.withdraw();
 
-        // The whole outer call reverted, so all state — including the
-        // developer-first transfer — was rolled back. The expected revert
-        // selector itself proves the re-entry hit `nonReentrant`; the asserts
-        // below pin the rollback completeness.
+        // The whole outer call reverted: all state changes inside it (the
+        // developer-first transfer AND the malicious treasury's reentryCount
+        // increment) were rolled back. The only signal we can read here is the
+        // expected revert selector itself — its presence proves the inner
+        // withdraw() got past `safeTransfer(treasury, fee)`, fired the hook on
+        // MockMaliciousTreasury, and was rejected by OZ ReentrancyGuard inside
+        // `nonReentrant`. No alternative code path in PaymentVaultImpl emits
+        // ReentrancyGuardReentrantCall, so this selector is a unique
+        // re-entry-was-attempted-and-blocked signature. Empirically verified:
+        // adding `assertEq(malicious.reentryCount(), 1)` after the call fails
+        // with `0 != 1`, confirming reentryCount is reverted along with the
+        // rest of the transaction.
         assertEq(hookedUsdc.balanceOf(address(hostileVault)), vaultBalBefore, "vault state changed after reentrancy revert");
         assertEq(hookedUsdc.balanceOf(dev), 0, "dev got funds despite revert");
     }

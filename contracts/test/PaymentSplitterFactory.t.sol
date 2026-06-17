@@ -294,11 +294,13 @@ contract PaymentSplitterFactoryTest is Test {
     // ---------------------------------------------------------------
 
     function testFuzz_RegisterIdempotent(address dev) public {
-        // Avoid trivially-reverting addresses: zero (the contract itself
-        // checks no zero-developer enforcement on the salt, but
-        // PaymentVaultImpl.initialize rejects address(0)) and precompiles.
+        // Skip the zero address (PaymentVaultImpl.initialize rejects it) and
+        // the precompile range 1..9 where vm.prank cannot route calls through
+        // the precompile. Every other address — including the [10..255] range
+        // adjacent to precompiles — is a valid developer salt and must be
+        // covered by the fuzzer.
         vm.assume(dev != address(0));
-        vm.assume(uint160(dev) > 0xff);
+        vm.assume(uint160(dev) > 9);
 
         vm.prank(dev);
         address vault = factory.register();
