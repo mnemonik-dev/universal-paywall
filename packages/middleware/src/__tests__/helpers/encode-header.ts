@@ -28,9 +28,11 @@ export function encodeValidHeader(payload: PaymentPayload = SAMPLE_VALID_PAYLOAD
 }
 
 /**
- * Construct a base64 header whose UTF-8 byte length exceeds the 4 KB cap.
- * The returned string is a non-base64 ASCII blob of `size` bytes — sufficient
- * to trigger the size guard before any decoding.
+ * Construct a header that exceeds the 4 KB cap. Returns a string of `size`
+ * ASCII characters ('A' — incidentally a valid base64 character, but
+ * irrelevant here). `decodeXPayment` measures the raw header byte length
+ * before any base64 decoding, so any string longer than 4096 bytes trips
+ * the size guard regardless of base64 validity.
  */
 export function oversizedHeader(size = 5000): string {
   return 'A'.repeat(size);

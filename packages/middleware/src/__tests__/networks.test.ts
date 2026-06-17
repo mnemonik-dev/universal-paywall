@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NETWORKS, normalizeNetworkId } from '../networks.js';
 
+const here = dirname(fileURLToPath(import.meta.url));
 const T3_ARTEFACT_PATH = resolve(
-  __dirname,
+  here,
   '../../../../contracts/scripts/arc-testnet-usdc-domain.json',
 );
 const t3 = JSON.parse(readFileSync(T3_ARTEFACT_PATH, 'utf8')) as {
