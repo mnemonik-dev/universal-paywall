@@ -166,3 +166,35 @@ post-completion entries here following the `do-task` skill template.
 - T5 (Wave 3 contract tests, Foundry): implement the 16 TDD anchors listed in `tasks/4.md` lines 96–114; both `ZeroAddress` errors (defined in factory AND vault) must be qualified by contract in `vm.expectRevert(PaymentSplitterFactory.ZeroAddress.selector)` vs `PaymentVaultImpl.ZeroAddress.selector`. Add the security-auditor's suggested coverage: `MockRevertingTreasury` to verify withdraw DoSes (SA-T4-01) and `feeBps=0` workaround test.
 - T6 (Wave 5 middleware `networks.ts`): use `Clones.predictDeterministicAddress` math equivalent in JS — salt is `bytes32(uint256(uint160(developer)))` (left-padded address), deployer is factory address. Match the on-chain formula exactly or off-chain `payTo` will diverge.
 - Pre-deploy wave: README operational guide must document treasury-DoS risk (SA-T4-01) — `platformTreasury` MUST be plain EOA or audited multisig, never a contract with custom token-receive logic. Currently documented in `PaymentVaultImpl.withdraw()` NatSpec only.
+
+## Task 5: Contract tests (Foundry)
+
+**Status:** Done
+**Commits:** 3cf5f71 (impl) + c4c6d3a (code-review round 1 fixes) + aa5b404 (test-reviewer advisories) + f346c67 (security-auditor SA-T5-02 fix)
+**Agent:** contract-tester
+**Summary:** Wrote the full Foundry test suite for `PaymentSplitterFactory` and `PaymentVaultImpl`: 29 unit + 1 fuzz tests in `PaymentSplitterFactory.t.sol`, 20 unit + 1 fuzz tests in `PaymentVaultImpl.t.sol`, and 3 handler-based stateful invariants in `invariants/VaultInvariants.t.sol`, all built on `forge-std/Test.sol` with OZ v5 selectors for custom errors. Added two new mocks under `test/mocks/`: `MockMaliciousTreasury.sol` (re-enters `vault.withdraw()` via USDC receiver hook) and `MockUsdcWithHook.sol` (test-only ERC20 with `_update` callback used solely by the dynamic reentrancy test). All factory deploys use the canonical 3-arg constructor `(usdc, treasury, feeBps)` per iteration-3 §1. CREATE2 invariant test cross-checks `factory.computeVaultAddress` against OZ `Clones.predictDeterministicAddress` directly in Solidity for 3 EOAs (addendum §4 T5).
+**Deviations:** Added `MockUsdcWithHook.sol` as a separate mock rather than retrofitting `MockUsdcEip3009.sol` (which has no callback hook — Task 4 did not implement one). Task spec explicitly permitted either path; this keeps the EIP-3009 mock fixed-purpose and isolates the test-only hook semantics. The hook fires unconditionally (no `try/catch`) by design — the test relies on the inner `ReentrancyGuardReentrantCall` revert propagating through `_update` back to the outer `withdraw()`. SA-T5-01 (TransferOrderRecorder mock for direct developer-first ordering assertion) deferred — order is NatSpec-documented and indirectly proved by the malicious-treasury reentrancy test; auditor explicitly marked as non-blocking.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t5: approve_with_minor_findings (R1-01 fuzz threshold, R1-02 informational, R1-03 reentryCount-observability claim [later retracted], R1-04 handler comment) → [logs/working/task-5/code-reviewer-t5-round1.json](logs/working/task-5/code-reviewer-t5-round1.json)
+- security-auditor-t5: APPROVE_WITH_NOTES (SA-T5-01 transfer order recorder LOW, SA-T5-02 missing test_Unpause_OwnerOnly LOW, SA-T5-03 INFO) → [logs/working/task-5/security-auditor-t5-round1.json](logs/working/task-5/security-auditor-t5-round1.json)
+- test-reviewer-t5: APPROVED (T5-R1-01 event-mirror comment, T5-R1-02 handler pause-exclusion comment, T5-R1-03 confirmed sound) → [logs/working/task-5/test-reviewer-t5-round1.json](logs/working/task-5/test-reviewer-t5-round1.json)
+
+*Round 2:*
+- code-reviewer-t5: APPROVED — R1-01 + R1-04 fixed; R1-03 retracted on reviewer pushback after empirical verification (adding `assertEq(malicious.reentryCount(), 1)` after the expectRevert block fails with `0 != 1`, confirming cross-contract state writes inside the reverting call tree roll back) → [logs/working/task-5/code-reviewer-t5-round2.json](logs/working/task-5/code-reviewer-t5-round2.json)
+- security-auditor-t5 + test-reviewer-t5: no round-2 review file written (advisories accepted, original verdict stands)
+
+**Verification:**
+- `cd contracts && forge test` → 52 passed, 0 failed (29 factory + 20 vault + 3 invariant suites).
+- `cd contracts && forge coverage --report summary --ir-minimum` → `src/PaymentSplitterFactory.sol` **100% branches (6/6)**, `src/PaymentVaultImpl.sol` **100% branches (4/4)** — exceeds the 95% acceptance threshold on both.
+- `cd contracts && forge coverage --report lcov --ir-minimum` writes `contracts/lcov.info` (gitignored).
+- Sanity: `grep -rn "new PaymentSplitterFactory" contracts/test/**/*.t.sol` → only 3-argument deploys `(usdc, treasury, feeBps)`. No 4-arg legacy form.
+- Sanity: imports in `.t.sol` files are forge-std + OZ + local only — no hardhat/chai/mocha/ethers/viem.
+- gitleaks pre-commit hook → 0 leaks across all four commits.
+
+**Open items for future tasks:**
+- T10 (Wave 6 forked-e2e): the unit suite proves split math and reentrancy guard; forked-e2e should re-exercise the happy path against real Arc Testnet USDC (`0x3600000000000000000000000000000000000000`) to verify the EIP-3009 settlement path lands USDC into the vault and the withdraw split works against the production token contract.
+- T13 (security audit, Wave 7): the Foundry suite covers all 12 custom error selectors and the D15/D16/D17 invariants; auditor input may flag SA-T5-01 (TransferOrderRecorder mock) as a prereq for direct developer-first ordering assertion. Deferred from T5 with auditor concurrence.
+- CI workflow (separate task): the lcov-threshold check the addendum §4 T5 anticipates should grep `BRH:`/`BRF:` in `contracts/lcov.info` for `src/PaymentSplitterFactory.sol` and `src/PaymentVaultImpl.sol` against a 95% gate. Concrete grep command not written here per task-5 scope.

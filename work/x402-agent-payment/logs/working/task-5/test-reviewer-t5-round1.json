@@ -1,0 +1,106 @@
+{
+  "reviewer": "test-reviewer-t5",
+  "round": 1,
+  "commit": "3cf5f71",
+  "task": "5",
+  "verdict": "APPROVED",
+  "summary": "Test suite is complete, structurally sound, and materially exceeds the 95% branch coverage requirement (100% on both contracts). All 40 TDD anchor tests are present with correct names, 11 additional tests add positive-path pinning, and fuzz/invariant coverage is well-designed. Three low-severity observations noted; none block approval.",
+
+  "rubric_scores": {
+    "coverage_completeness": {
+      "score": "PASS",
+      "detail": "All 20 factory anchors (tasks/5.md lines 237-258), all 17 vault anchors (lines 260-278), and all 3 invariant anchors (lines 279-284) are present with exact canonical names. 11 extra tests added (bonus positive pins and boundary guards) — none are redundant; each exercises a path not covered by the anchor set."
+    },
+    "naming": {
+      "score": "PASS",
+      "detail": "All test names follow the spec-mandated pattern: prefix_Subject_Condition. Factory test names match anchor list verbatim. Vault test names match anchor list verbatim. Invariant function names: invariant_VaultBalanceIntegrity, invariant_FeeBpsBounded, invariant_DeveloperNonZero — exact match."
+    },
+    "isolation": {
+      "score": "PASS",
+      "detail": "Each test file has its own setUp() that deploys fresh contracts. No shared mutable state across tests. Reentrancy test correctly deploys an isolated harness (hostileFactory + hostileVault + hookedUsdc) instead of mutating the shared setUp() fixture — this is the correct pattern for a state-mutation-intensive test. Invariant handler wraps dev1 in vm.prank per call — correct isolation inside stateful fuzzing."
+    },
+    "fixture_quality": {
+      "score": "PASS",
+      "detail": "MockUsdcEip3009 (from Task 4) used for all standard tests. MockUsdcWithHook correctly introduces the optional ERC-20 receive hook gated behind a hooksEnabled flag, preventing setUp() mints from triggering the callback before the test is ready. MockMaliciousTreasury is minimal and correct: stores a target vault, exposes onUsdcReceived() that calls target.withdraw(). The reentryCount field is declared but — correctly — not asserted post-revert (state rolls back, so reentryCount observation is unsound)."
+    },
+    "fuzz_suitability": {
+      "score": "PASS",
+      "detail": "testFuzz_FeeMath: gross bound [1, 1e18] avoids the zero-balance revert path (correct, tested separately), and 1e18 * 1000 = 1e21 < 2^256, so no overflow risk. feeBps bound [0, 1000] matches the hard cap. Assertions cover: fee + net == gross (split integrity), fee <= gross (no negative net), vault drained. testFuzz_RegisterIdempotent: vm.assume(dev != address(0)) + vm.assume(uint160(dev) > 0xff) correctly filters precompiles that would revert factory.register() for non-EOA reasons unrelated to the idempotency invariant."
+    },
+    "invariant_suitability": {
+      "score": "PASS",
+      "detail": "Handler exposes exactly 3 entry points: depositToVault (bound [1, 1e18]), withdrawFromVault (early-return on zero balance to avoid trivial reverts), setFeeBps (bound [0, 1000]). targetSelector explicitly restricts the fuzzer to these 3 selectors — prevents Foundry from calling arbitrary functions like factory.pause() or vault.initialize() which would break the invariant frame without testing the invariant. totalWithdrawn tracks gross before prank — correct. Three invariants: balance integrity (tight, catches any split-math bug), feeBps cap (redundant with setFeeBps bound, but correct to pin), developer non-zero (structural guarantee, correct). Handler does NOT test factory.pause during invariant runs — this means the fuzzer never exercises withdraw-while-paused in the invariant frame, but this path is covered by a dedicated unit test."
+    },
+    "false_positive_resistance": {
+      "score": "PASS",
+      "detail": "All revert tests use custom error selectors (PaymentSplitterFactory.AlreadyRegistered.selector, Pausable.EnforcedPause.selector, etc.) — no string matching. Events are checked via vm.expectEmit + explicit emit declaration (not merely balance diffs). The happy-path withdraw test asserts dev balance delta, treasury balance delta, and vault balance post-withdraw — three independent assertions, none trivially passing. D17 selector tests use low-level call + assertFalse(ok) — correct approach for non-existent selector detection."
+    },
+    "gas_timing_reliability": {
+      "score": "PASS",
+      "detail": "No block.timestamp or block.number dependencies in any test. No time.sleep or hardcoded gas limits. Fuzz bounds are purely numeric — deterministic. Invariant handler's withdrawFromVault uses balanceOf snapshot before prank — no timing dependency."
+    }
+  },
+
+  "findings": [
+    {
+      "id": "T5-R1-01",
+      "severity": "LOW",
+      "category": "isolation",
+      "title": "test_Register_EmitsVaultDeployed uses vm.expectEmit with topic2=false but VaultDeployed has only one indexed field",
+      "location": "contracts/test/PaymentSplitterFactory.t.sol:269",
+      "detail": "The VaultDeployed event is declared as `event VaultDeployed(address indexed developer, address vault)`. Only `developer` is indexed. The call is `vm.expectEmit(true, false, false, true, address(factory))` — topic1 (developer, indexed) is checked, topic2 is false (non-indexed vault goes into data), data=true. This is correct for the event signature. However, the test mirrors the event in the test contract as `event VaultDeployed(address indexed developer, address vault)` which matches the source exactly — so the emit declaration will encode correctly. No bug, but worth noting for clarity that the mirror event declaration must stay in sync with the source.",
+      "action": "No change required. Consider adding a comment noting the event mirror must stay in sync with PaymentSplitterFactory.sol if the event signature ever changes."
+    },
+    {
+      "id": "T5-R1-02",
+      "severity": "LOW",
+      "category": "invariant_reachability",
+      "title": "Invariant handler does not exercise factory.pause() — paused-withdraw path untestable in invariant frame",
+      "location": "contracts/test/invariants/VaultInvariants.t.sol:37-55",
+      "detail": "The targetSelector call limits the fuzzer to depositToVault, withdrawFromVault, and setFeeBps. factory.pause() is intentionally excluded, meaning invariant_VaultBalanceIntegrity can never be violated via the paused-factory path. This is architecturally correct (withdraw is not blocked by pause per D12), but the invariant does not exercise the case where withdrawFromVault is called with feeBps=0 after a pause/unpause cycle. The unit test test_Withdraw_WorksWhenFactoryPaused covers the path. Low risk: the paused path is a simple read of factory.paused() by the middleware, not by the vault itself.",
+      "action": "No change required. Document in a comment on the handler that pause() is intentionally excluded because vault.withdraw() is not gated by factory.paused() (D12)."
+    },
+    {
+      "id": "T5-R1-03",
+      "severity": "LOW",
+      "category": "false_positive_resistance",
+      "title": "test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury does not assert malicious.reentryCount == 1 before the outer call commits to a state change",
+      "location": "contracts/test/PaymentVaultImpl.t.sol:224-262",
+      "detail": "The commit message and spec both acknowledge this is intentional: 'The test asserts post-revert state only (does not assert malicious.reentryCount because state reverts)'. This is sound — when the outer vm.expectRevert captures the revert, all state including reentryCount rolls back to pre-call values. The test correctly asserts (a) expectRevert with ReentrancyGuardReentrantCall.selector and (b) vault balance unchanged and (c) dev balance unchanged. These three together are sufficient to prove: the reentry attempt was blocked (selector), the developer-first transfer was also rolled back (dev balance = 0), and the vault was not partially drained (vault balance unchanged). The test is not a false positive.",
+      "action": "No change required. The existing comment in the test adequately explains the reasoning."
+    }
+  ],
+
+  "tdd_anchor_coverage": {
+    "factory_anchors_required": 20,
+    "factory_anchors_present": 20,
+    "vault_anchors_required": 17,
+    "vault_anchors_present": 17,
+    "invariant_anchors_required": 3,
+    "invariant_anchors_present": 3,
+    "extra_tests_not_in_anchor_list": 11,
+    "missing_anchors": []
+  },
+
+  "coverage": {
+    "reported": "100% branches on PaymentSplitterFactory.sol and PaymentVaultImpl.sol",
+    "method": "forge coverage --report summary --ir-minimum",
+    "threshold_required": ">=95% branch coverage",
+    "verdict": "EXCEEDS"
+  },
+
+  "mock_quality": {
+    "MockUsdcEip3009": "Reused from Task 4 — standard ERC-20 mock without hooks, appropriate for all non-reentrancy tests.",
+    "MockUsdcWithHook": "New in Task 5. Correctly gates hook via hooksEnabled flag to prevent setup-phase mints from triggering callbacks. Hook fires on _update (post-transfer), which is sound since the reentrancy vector is on the fee transfer.",
+    "MockMaliciousTreasury": "Minimal and correct. onUsdcReceived() re-enters target.withdraw() which hits nonReentrant. reentryCount is present for potential diagnostics but correctly not asserted post-revert."
+  },
+
+  "spec_compliance": {
+    "constructor_3_args": "PASS — all new PaymentSplitterFactory(...) calls use exactly 3 args (usdc, treasury, feeBps). Confirmed by grep: no 4-arg deployments.",
+    "foundry_only": "PASS — no imports of hardhat, chai, mocha, ethers, viem, loadFixture, __dirname in test files.",
+    "oz_clones_in_solidity": "PASS — test_Register_PredictedAddressMatchesClonesPredict uses Clones.predictDeterministicAddress directly in Solidity, not off-chain TS compute.",
+    "register_reentrancy_comment": "PASS — NatSpec comment present at top of PaymentSplitterFactoryTest class explaining structural impossibility and CI slither enforcement.",
+    "event_expectation_pattern": "PASS — vm.expectEmit used for VaultDeployed, FeeBpsUpdated, PlatformTreasuryUpdated, Withdrawal.",
+    "custom_error_selectors": "PASS — all vm.expectRevert calls use .selector or abi.encodeWithSelector, no string matching."
+  }
+}
