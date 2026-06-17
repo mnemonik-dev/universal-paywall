@@ -111,6 +111,20 @@ describe('getRelayerKeySecret', () => {
     expect(OpaqueRelayerKey.is(undefined)).toBe(false);
     expect(OpaqueRelayerKey.is('a string')).toBe(false);
   });
+
+  it('throws when called on a brand-forged object with no associated secret', () => {
+    // Forge the brand symbol so OpaqueRelayerKey.is returns true, but the
+    // WeakMap entry was never populated by the real constructor. This
+    // exercises the defensive "no associated secret" branch in
+    // getRelayerKeySecret.
+    const BRAND = Symbol.for('@universal-paywall/middleware/OpaqueRelayerKey');
+    const forged = Object.defineProperty({}, BRAND, {
+      value: true,
+      enumerable: false,
+    }) as OpaqueRelayerKey;
+    expect(OpaqueRelayerKey.is(forged)).toBe(true);
+    expect(() => getRelayerKeySecret(forged)).toThrow(TypeError);
+  });
 });
 
 describe('scrubSecrets', () => {

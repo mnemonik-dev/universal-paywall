@@ -227,4 +227,38 @@ describe('verifyEip3009Authorization', () => {
     const second = await verifyEip3009Authorization(payload2, opts);
     expect(second).toEqual({ ok: false, reason: 'nonce_already_used' });
   });
+
+  it('unknown expected network returns network_mismatch (defensive branch)', async () => {
+    const payload = await makePayload();
+    const result = await verifyEip3009Authorization(payload, {
+      ...freshOpts(),
+      expectedNetwork: 'unknown-chain-xyz',
+    });
+    expect(result).toEqual({ ok: false, reason: 'network_mismatch' });
+  });
+
+  it('malformed signature surfaces as invalid_signature (recoverTypedDataAddress throws)', async () => {
+    const payload = await makePayload();
+    // Replace signature with a 130-hex blob that parses shape-wise but
+    // viem's recoverTypedDataAddress refuses (invalid s component for ECDSA).
+    const tampered = {
+      ...payload,
+      payload: {
+        ...payload.payload,
+        signature: ('0x' + 'ff'.repeat(65)) as `0x${string}`,
+      },
+    };
+    const result = await verifyEip3009Authorization(tampered, freshOpts());
+    expect(result).toEqual({ ok: false, reason: 'invalid_signature' });
+  });
+
+  it('default nowMs uses Date.now() when not provided', async () => {
+    const payload = await makePayload();
+    const opts = freshOpts();
+    // Build opts WITHOUT nowMs so verify.ts falls back to Date.now().
+    const noNowOpts: typeof opts = { ...opts };
+    delete (noNowOpts as Record<string, unknown>)['nowMs'];
+    const result = await verifyEip3009Authorization(payload, noNowOpts);
+    expect(result).toEqual({ ok: true, recoveredFrom: signer.address });
+  });
 });

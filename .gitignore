@@ -12,6 +12,7 @@ secrets/
 *.sqlite
 *.db
 /data/
+coverage/
 target/
 artifacts/
 cache/

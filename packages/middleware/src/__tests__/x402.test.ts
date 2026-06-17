@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
 import {
   InvalidPriceError,
@@ -8,6 +12,17 @@ import {
   parseUsdPrice,
 } from '../x402.js';
 import type { PaymentPayload, PaymentRequirements } from '../types.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const schema = JSON.parse(readFileSync(resolve(here, 'fixtures/x402-v1.schema.json'), 'utf8')) as {
+  $id?: string;
+  definitions: Record<string, unknown>;
+};
+const ajv = new Ajv({ allErrors: true, strict: false });
+ajv.addSchema(schema, 'x402-v1');
+const validateChallengeBody = ajv.getSchema('x402-v1#/definitions/ChallengeBody')!;
+const validatePaymentPayload = ajv.getSchema('x402-v1#/definitions/PaymentPayload')!;
+const validateXPaymentResponse = ajv.getSchema('x402-v1#/definitions/XPaymentResponse')!;
 
 const ZERO_ADDR: `0x${string}` = '0x0000000000000000000000000000000000000000';
 const SAMPLE_FROM: `0x${string}` = '0x1111111111111111111111111111111111111111';
@@ -69,6 +84,22 @@ describe('build402Body', () => {
   it('omits error field when not provided (does not set undefined)', () => {
     const body = build402Body(sampleRequirements);
     expect('error' in body).toBe(false);
+  });
+
+  it('output validates against vendored x402 v1 JSON Schema', () => {
+    const body = build402Body(sampleRequirements, 'payment_required');
+    const ok = validateChallengeBody(body);
+    if (!ok) {
+      throw new Error(
+        `ChallengeBody validation failed: ${JSON.stringify(validateChallengeBody.errors)}`,
+      );
+    }
+    expect(ok).toBe(true);
+  });
+
+  it('emits canonical CAIP-2 network identifier inside accepts[]', () => {
+    const body = build402Body(sampleRequirements);
+    expect(body.accepts[0]!.network).toBe('eip155:5042002');
   });
 });
 
@@ -311,6 +342,38 @@ describe('decodeXPayment', () => {
     };
     expect(() => decodeXPayment(encodeHeader(bad))).toThrow(MalformedPaymentHeaderError);
   });
+
+  it('rejects non-decimal validAfter', () => {
+    const bad = {
+      ...samplePayload,
+      payload: {
+        ...samplePayload.payload,
+        authorization: { ...sampleAuthorization, validAfter: '1.5' },
+      },
+    };
+    expect(() => decodeXPayment(encodeHeader(bad))).toThrow(MalformedPaymentHeaderError);
+  });
+
+  it('rejects non-decimal validBefore', () => {
+    const bad = {
+      ...samplePayload,
+      payload: {
+        ...samplePayload.payload,
+        authorization: { ...sampleAuthorization, validBefore: 'soon' },
+      },
+    };
+    expect(() => decodeXPayment(encodeHeader(bad))).toThrow(MalformedPaymentHeaderError);
+  });
+
+  it('rejects empty-string network', () => {
+    const bad = { ...samplePayload, network: '' };
+    expect(() => decodeXPayment(encodeHeader(bad))).toThrow(MalformedPaymentHeaderError);
+  });
+
+  it('rejects non-string network', () => {
+    const bad = { ...samplePayload, network: 42 };
+    expect(() => decodeXPayment(encodeHeader(bad))).toThrow(MalformedPaymentHeaderError);
+  });
 });
 
 describe('encodeXPaymentResponse', () => {
@@ -324,5 +387,36 @@ describe('encodeXPaymentResponse', () => {
     const encoded = encodeXPaymentResponse(input);
     const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
     expect(decoded).toEqual(input);
+  });
+
+  it('encoded value decodes to an x402 v1 XPaymentResponse', () => {
+    const input = {
+      success: true,
+      transaction: ('0x' + 'aa'.repeat(32)) as `0x${string}`,
+      network: 'eip155:5042002',
+      payer: SAMPLE_FROM,
+    };
+    const encoded = encodeXPaymentResponse(input);
+    const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+    const ok = validateXPaymentResponse(decoded);
+    if (!ok) {
+      throw new Error(
+        `XPaymentResponse validation failed: ${JSON.stringify(validateXPaymentResponse.errors)}`,
+      );
+    }
+    expect(ok).toBe(true);
+  });
+});
+
+describe('decodeXPayment — schema round-trip', () => {
+  it('decoded valid payload validates against x402 v1 PaymentPayload schema', () => {
+    const decoded = decodeXPayment(encodeHeader(samplePayload));
+    const ok = validatePaymentPayload(decoded);
+    if (!ok) {
+      throw new Error(
+        `PaymentPayload validation failed: ${JSON.stringify(validatePaymentPayload.errors)}`,
+      );
+    }
+    expect(ok).toBe(true);
   });
 });

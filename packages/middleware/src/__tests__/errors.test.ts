@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
 import {
   type ErrorReason,
@@ -6,6 +10,14 @@ import {
   MalformedPaymentHeaderError,
 } from '../errors.js';
 import type { PaymentRequirements } from '../types.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const schema = JSON.parse(readFileSync(resolve(here, 'fixtures/x402-v1.schema.json'), 'utf8')) as {
+  definitions: Record<string, unknown>;
+};
+const ajv = new Ajv({ allErrors: true, strict: false });
+ajv.addSchema(schema, 'x402-v1-errors');
+const validateChallengeBody = ajv.getSchema('x402-v1-errors#/definitions/ChallengeBody')!;
 
 const ZERO_ADDR: `0x${string}` = '0x0000000000000000000000000000000000000000';
 
@@ -122,6 +134,46 @@ describe('buildErrorResponse', () => {
   it('content-type header is application/json; charset=utf-8', () => {
     const r = buildErrorResponse('payment_required');
     expect(r.headers['content-type']).toBe('application/json; charset=utf-8');
+  });
+
+  it.each([...FOUR_HUNDRED, ...FOUR_HUNDRED_TWO])(
+    'body for reason %s validates against x402 v1 ChallengeBody schema',
+    (reason) => {
+      const r = buildErrorResponse(reason, { accepts: [sampleRequirements] });
+      const ok = validateChallengeBody(r.body);
+      if (!ok) {
+        throw new Error(
+          `ChallengeBody validation failed for ${reason}: ${JSON.stringify(validateChallengeBody.errors)}`,
+        );
+      }
+      expect(ok).toBe(true);
+    },
+  );
+
+  it.each(SETTLEMENT_SUB_REASONS)(
+    'settlement_failed body with sub-reason %s validates against schema',
+    (sub) => {
+      const r = buildErrorResponse('settlement_failed', {
+        accepts: [sampleRequirements],
+        settlementReason: sub,
+      });
+      const ok = validateChallengeBody(r.body);
+      if (!ok) {
+        throw new Error(
+          `ChallengeBody validation failed for settlement_failed/${sub}: ${JSON.stringify(validateChallengeBody.errors)}`,
+        );
+      }
+      expect(ok).toBe(true);
+    },
+  );
+
+  it('insufficient_amount body with required/received validates against schema', () => {
+    const r = buildErrorResponse('insufficient_amount', {
+      accepts: [sampleRequirements],
+      required: '10000',
+      received: '5000',
+    });
+    expect(validateChallengeBody(r.body)).toBe(true);
   });
 });
 

@@ -443,4 +443,32 @@ describe('settleOnChain', () => {
     expect(err.expectedChainId).toBe(1);
     expect(err.observedChainId).toBe(2);
   });
+
+  it('balanceOf RPC throws viem TimeoutError → reason rpc_timeout (classifier on balance read)', async () => {
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => {
+        throw new TimeoutError({ body: {}, url: 'https://rpc.local' });
+      }),
+      waitForTransactionReceipt: vi.fn(),
+    };
+    const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
+    expect(result).toMatchObject({ ok: false, reason: 'rpc_timeout' });
+    expect(walletWriteSpy).not.toHaveBeenCalled();
+  });
+
+  it('unknown network throws plain Error referencing the network key', async () => {
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => 10_000_000n),
+      waitForTransactionReceipt: vi.fn(),
+    };
+    const badOpts = {
+      ...makeOpts({ publicClient }),
+      network: 'definitely-not-a-network',
+    };
+    await expect(settleOnChain(makePayload(), SIGNER_ADDR, badOpts)).rejects.toThrow(
+      /definitely-not-a-network/,
+    );
+  });
 });
