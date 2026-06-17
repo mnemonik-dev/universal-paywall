@@ -1,0 +1,128 @@
+{
+  "reviewer": "code-reviewer-t3",
+  "task": "3",
+  "round": 1,
+  "commit": "bba2942",
+  "verdict": "approved_with_minors",
+  "summary": "The implementation is solid and production-ready for a spike script. Prerequisites confirmed (viem ^2.7.0 in contracts devDependencies, tsx present). Architecture is clean, the detection strategy is well-reasoned, and the artifact/stdout parity contract is correctly enforced. Three minor issues found; no majors or criticals.",
+  "dimensions": {
+    "1_architectural_patterns": {
+      "status": "pass",
+      "notes": "Script is a single-concern probe utility. Clean separation: readUsdcDomain, probeAuthorizationState, probeTransferWithAuthorization, readGasPriceWei, microUsdcFromGasCostWei are all coherent single-responsibility functions. withRetry is a generic transport-retry helper that is correctly scoped to transport-level errors only. No architectural anti-patterns."
+    },
+    "2_separation_of_concerns": {
+      "status": "pass",
+      "notes": "Each function has exactly one responsibility. Data collection is separated from analysis (threshold check) which is separated from serialization (artifact write + stdout). The main() function orchestrates but does not re-implement any concern. All functions are under 50 lines. Nesting depth is within limits throughout."
+    },
+    "3_readability_maintainability": {
+      "status": "pass",
+      "notes": "Constants are named and commented. The dual-decimal conversion comment block is the clearest documentation of the 18→6 decimal issue. The method-existence detection strategy JSDoc is thorough and explains non-obvious reasoning. Variable names are unambiguous (gasCostWei, sampleGasCostMicroUsdc). No magic numbers without constants."
+    },
+    "4_error_handling_logging": {
+      "status": "pass_with_minor",
+      "findings": [
+        {
+          "id": "EH-01",
+          "severity": "minor",
+          "location": "verify-usdc-eip3009.ts:241-249 (readGasPriceWei)",
+          "description": "Empty catch blocks on both getGasPrice and estimateFeesPerGas silently swallow errors. The task spec requires gas pricing unavailability to surface via notes[], which this code does correctly at line 251 — but only after both empty catches. The issue is that if getGasPrice throws a non-transport error (e.g. a viem parse error on a malformed response), it falls through to estimateFeesPerGas instead of propagating. The silent catch is intentional here but the comment only says 'Fall through to EIP-1559 fees' without explaining why any error (not just pricing unavailable) should be treated as a fallback signal.",
+          "recommendation": "Add a brief inline comment clarifying that all errors from getGasPrice are treated as 'try EIP-1559 instead', e.g.: `// Any error (not just unavailability) — fall through to EIP-1559 path`. Low impact for a spike script but aids future maintainers."
+        }
+      ]
+    },
+    "5_type_safety": {
+      "status": "pass",
+      "notes": "UsdcEip3009Probe interface is well-defined with correct optional notes field. Address and Hex types are used throughout. parseAbi produces typed ABI. The dummyArgs tuple is typed with `as const` ensuring the literal types are preserved. PublicClient is typed. No any types. The sampleGasCost field is string (correct — it encodes the unit). tsc --noEmit passes per smoke verify."
+    },
+    "6_testing_coverage": {
+      "status": "pass",
+      "notes": "This is a live-RPC spike script, not a unit-testable module. The task spec explicitly states it is NOT part of the automated test suite. The selector self-check (line 268-275) is an inline test guard. The sanity check on gas cost conversion (wildlyLow/wildlyHigh, lines 327-335) is a runtime assertion. Smoke-test protocol via tsx invocation is the appropriate test strategy for this artifact type."
+    },
+    "7_dependencies_management": {
+      "status": "pass",
+      "notes": "viem ^2.7.0 confirmed present in contracts/package.json devDependencies. tsx ^4.7.0 confirmed. No new dependencies added by this task. All imports are from viem or node: builtins. Import of BaseError, ContractFunctionExecutionError, ContractFunctionZeroDataError, HttpRequestError, TimeoutError verified as valid viem 2.x exports."
+    },
+    "8_security_considerations": {
+      "status": "pass",
+      "notes": "Script is read-only (no signing, no DEPLOYER_KEY). The task spec confirms DEPLOYER_KEY is NOT required. No private keys in scope. The stub args (ZERO_ADDRESS, ZERO_BYTES32) cannot be mistaken for real keys — they are structurally different from 64-char hex secrets. USDC_ADDRESS is a well-known public contract address, not a secret. Artifact write is deterministic JSON with no secrets. gitleaks scan passed per smoke verify report."
+    },
+    "9_performance_implications": {
+      "status": "pass",
+      "notes": "Script is a one-shot CLI tool, not a hot path. Three parallel readContract calls in readUsdcDomain (Promise.all) is appropriate. Sequential probing of authorizationState then transferWithAuthorization is correct because each has side effects on the notes array. No performance concerns for an operator-run spike."
+    },
+    "10_cross_file_consistency": {
+      "status": "pass_with_minor",
+      "findings": [
+        {
+          "id": "CF-01",
+          "severity": "minor",
+          "location": "verify-usdc-eip3009.ts:89-96 (arcTestnet defineChain)",
+          "description": "nativeCurrency.name is hardcoded as 'USD Coin' but the live contract returns name() = 'USDC'. This is a cosmetic inconsistency in the chain definition object — the chain definition's nativeCurrency.name is used by viem only for display purposes and does not affect RPC calls or the probe results. However, it contradicts the empirical finding and could mislead a reader who looks at the chain definition expecting it to reflect ground truth.",
+          "recommendation": "Either change nativeCurrency.name to 'USDC' to match what name() actually returns, or add a comment: `// display name only; live contract name() returns 'USDC' per artifact`. Low impact."
+        }
+      ]
+    },
+    "11_resource_management": {
+      "status": "pass",
+      "notes": "PublicClient is created once and reused across all probe functions. No connection pools or heavy resources that need explicit cleanup. The viem http transport manages connections internally and is GC-eligible after process exit. No resource leaks for a short-lived CLI process."
+    }
+  },
+  "acceptance_criteria_check": {
+    "script_exists_and_is_ts": "pass",
+    "uses_viem_not_hre_ethers": "pass",
+    "reads_name_version_decimals": "pass",
+    "selector_self_check": "pass — toFunctionSelector(TWA_SIGNATURE) === 0xe3ee160e asserted at line 268",
+    "proves_authorizationState_exists": "pass — probeAuthorizationState returns exists:true on live RPC",
+    "proves_transferWithAuthorization_exists": "pass — probeTransferWithAuthorization returns exists:true on live RPC (inferred from ContractFunctionExecutionError revert)",
+    "estimates_gas": "pass — fallback path taken (node refused estimate for reverting call), fallback constant 60000 documented in notes[]",
+    "stdout_shape_correct": "pass — {name, version, decimals, supportsEip3009, sampleGasCost, gasCostExceedsThreshold, notes} with notes present because non-empty",
+    "exits_nonzero_if_blockers": "pass — exit(1) for supportsEip3009===false and decimals!==6",
+    "warns_if_threshold_exceeded": "pass — gasCostExceedsThreshold:true, warning printed, exit 0",
+    "artifact_written": "pass — arc-testnet-usdc-domain.json present",
+    "artifact_matches_stdout": "pass — same out object used for both console.log and writeFileSync",
+    "dual_decimal_note_present": "pass — 'arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6' in notes[]",
+    "fallback_note_present": "pass — 'gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)' in notes[]",
+    "notes_key_omitted_when_empty": "pass — `notes.length > 0 ? { ...probe, notes: [...notes] } : probe` pattern at line 350",
+    "no_secrets_on_stdout": "pass",
+    "decisions_md_entry": "not_yet — decisions.md has no Task 3 entry yet; this is a post-completion deliverable the implementer must add",
+    "usdcEip712Name_deviation_noted": "advisory — live name() is 'USDC' not 'USD Coin' as the task example suggested; this is correctly surfaced via the artifact but is not explicitly called out in decisions.md (pending)"
+  },
+  "notable_observations": [
+    "The gas cost of 1290 micro-USDC exceeds the 500 micro-USDC threshold by 2.58x. This is material: at a 0.01 USDC payment price, gas alone costs ~12.9% of the payment value. The tech-spec Risks row is triggered. This must be documented in decisions.md and the 'Per-payment economics at risk' note must appear per post-completion checklist.",
+    "The name() = 'USDC' (not 'USD Coin') is an important empirical finding. The EIP-712 domain for the live contract uses 'USDC' as the domain name. Task 6 must populate usdcEip712Name = 'USDC' from the artifact, not from the task example. The artifact correctly records this; Task 6 consuming it correctly is the critical path.",
+    "The gas fallback of 60,000 is a lower-bound constant that may underestimate real gas. The actual gas cost could be higher, making the 13% figure a floor not a ceiling. decisions.md entry should note this.",
+    "probeTransferWithAuthorization at line 225-228: when ContractFunctionExecutionError is caught, the code correctly returns exists:true with gasEstimate:null. But at line 230-233, an ambiguous error (not ZeroData, not ExecutionError) pushes to notes[] AND returns exists:false. This is the safe/conservative path per the spec comment ('Ambiguous outcomes... DO NOT flip supportsEip3009 to true') and is correct."
+  ],
+  "issues": [
+    {
+      "id": "EH-01",
+      "severity": "minor",
+      "file": "contracts/scripts/verify-usdc-eip3009.ts",
+      "lines": "241-249",
+      "title": "Empty catch blocks lack explanation of error-swallowing intent",
+      "description": "readGasPriceWei has two empty catch blocks. The first swallows any error from getGasPrice (not just 'gas price unavailable'), the second swallows any error from estimateFeesPerGas. The downstream behavior is correct (notes[] gets the 'gas pricing unavailable' entry) but the catch semantics are broader than what the comment implies.",
+      "fix": "Add a comment to each catch block explaining all-errors-treated-as-fallback intent."
+    },
+    {
+      "id": "CF-01",
+      "severity": "minor",
+      "file": "contracts/scripts/verify-usdc-eip3009.ts",
+      "lines": "89-96",
+      "title": "defineChain nativeCurrency.name hardcoded as 'USD Coin' contradicts live contract",
+      "description": "The chain definition has nativeCurrency.name = 'USD Coin' but the actual USDC contract returns name() = 'USDC'. viem uses nativeCurrency for display only (not for any RPC call), so this does not affect correctness. But it is misleading to a reader.",
+      "fix": "Change to 'USDC' or add a clarifying comment."
+    },
+    {
+      "id": "DOC-01",
+      "severity": "minor",
+      "file": "work/x402-agent-payment/decisions.md",
+      "lines": "n/a",
+      "title": "decisions.md Task 3 entry missing",
+      "description": "The task post-completion checklist requires a decisions.md entry with: spike outcome values, literal notes[] array, gas threshold breach note ('Per-payment economics at risk...'), and dual-decimal observation. The file currently has no Task 3 section. This is a post-completion deliverable, not a code issue, but it is an acceptance criterion.",
+      "fix": "Append Task 3 spike outcome section to decisions.md per the post-completion template."
+    }
+  ],
+  "approved": true,
+  "blocking": false,
+  "requires_round_2": false
+}

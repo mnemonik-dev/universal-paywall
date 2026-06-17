@@ -1,0 +1,52 @@
+{
+  "reviewer": "security-auditor-t3",
+  "task": "3",
+  "round": 2,
+  "commits_reviewed": ["3a9fbd3", "75e0399"],
+  "files_audited": [
+    "contracts/scripts/verify-usdc-eip3009.ts"
+  ],
+  "round1_findings_resolution": [
+    {
+      "id": "SEC-T3-01",
+      "status": "RESOLVED",
+      "notes": "scrubUrls() and errMessage() at lines 123-131. Applied at both notes.push sites in probeAuthorizationState (lines 214, 220) and the notes.push site in probeTransferWithAuthorization (line 267). In 75e0399 the note text was tightened ('ambiguous probe outcome' → 'probe inconclusive ...') but both sites still route through errMessage(err). No direct .message or .shortMessage access at these sites."
+    },
+    {
+      "id": "SEC-T3-02",
+      "status": "RESOLVED",
+      "notes": "errMessage() applied to the domain-read console.error (line 332) and main().catch() console.error (line 438). Both sites confirmed in HEAD 75e0399."
+    },
+    {
+      "id": "SEC-T3-INFO-01",
+      "status": "RESOLVED",
+      "notes": "resolveRpcUrl() at lines 89-100 validates the URL scheme before passing to viem. Does not echo the offending value on failure. Called at line 106 inside defineChain — runs at module initialisation, before any network I/O."
+    }
+  ],
+  "new_findings": [],
+  "security_review_of_75e0399_structural_changes": [
+    {
+      "change": "Hard-blockers hoisted above artifact write (lines 345-358)",
+      "security_assessment": "Positive. Previously a failed supportsEip3009 or decimals check exited after writing the artifact, risking a stale or wrong-valued artifact on disk for Task 6. Now the script exits before computing economics or writing any output. Eliminates stale-artifact risk.",
+      "verdict": "No new security concerns. Improvement."
+    },
+    {
+      "change": "GAS_COST_UNAVAILABLE sentinel string (line 310)",
+      "security_assessment": "The sentinel 'unavailable (gas pricing skipped)' is a plain compile-time string literal — no env var, no URL, no key material. Written to sampleGasCost in artifact and stdout when gas pricing fails. The previous code set sampleGasCostMicroUsdc = 0n in this path, which could mislead Task 6 into treating unknown cost as zero. Sentinel is strictly safer from an integrity standpoint.",
+      "verdict": "No new security concerns. Improvement."
+    }
+  ],
+  "checks_passed": [
+    "scrubUrls() covers all error-message paths that reach stdout, stderr, or notes[]. No bypass path found in HEAD 75e0399.",
+    "resolveRpcUrl() validation in place; does not echo raw ARC_RPC_URL value on failure.",
+    "errMessage() consistently used at all seven error-surfacing sites. No direct .message / .shortMessage access outside of errMessage() itself.",
+    "GAS_COST_UNAVAILABLE sentinel contains no dynamic data — compile-time constant.",
+    "Hard-blocker exits at lines 345-358 fire before writeFileSync (line 425) — stale artifact cannot be written on a blocking failure.",
+    "Dual-decimal sanity-band check (wildlyLow / wildlyHigh) remains intact at lines 392-400.",
+    "main().catch() at line 436 still routes through errMessage() for the last-resort error path.",
+    "No new secrets, env-var values, or 0x64-hex strings introduced in 75e0399.",
+    "All round-1 passing checks remain valid. No regressions."
+  ],
+  "verdict": "APPROVED",
+  "verdict_rationale": "All three round-1 findings remain fully resolved in HEAD 75e0399. The structural changes in 75e0399 (hard-blocker hoisting, GAS_COST_UNAVAILABLE sentinel) are security-neutral or slightly positive. No new security issues found. The script is ready to merge."
+}

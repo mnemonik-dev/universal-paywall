@@ -1,0 +1,87 @@
+{
+  "reviewer": "test-reviewer-t3",
+  "task": "3",
+  "round": 2,
+  "methodology": "test-master",
+  "status": "passed",
+  "summary": "All round-1 findings addressed correctly. T3-M1 (hard-blocker ordering) and T3-M2 (gas-unavailable sentinel) are fixed. T3-L1 (note text disambiguation) and T3-L3 (sanity-band comment) are fixed. T3-L2 was correctly left unchanged. Two additional security-review fixes landed in this commit (resolveRpcUrl validation, scrubUrls/errMessage helpers) — both are positive additions that strengthen the spike without affecting test correctness. No new issues found.",
+  "taskRequired": {
+    "needed": false,
+    "reason": "All findings resolved. Script passes all acceptance criteria from task spec. No critical, high, or medium issues remain."
+  },
+  "round1FindingsResolution": [
+    {
+      "id": "T3-M1",
+      "originalSeverity": "medium",
+      "status": "resolved",
+      "verificationNote": "Hard-blocker checks (supportsEip3009===false, decimals!==6) now at lines 345-358, BEFORE gas computation (line 360+), artifact write (line 425), and stdout emission (line 418). A failed spike exits 1 without writing the artifact. Ordering is correct."
+    },
+    {
+      "id": "T3-M2",
+      "originalSeverity": "medium",
+      "status": "resolved",
+      "verificationNote": "GAS_COST_UNAVAILABLE = 'unavailable (gas pricing skipped)' introduced at line 310. When readGasPriceWei returns null, sampleGasCost is set to this sentinel (line 376). No longer ambiguous with a real zero-cost measurement. Artifact currently shows '1260 micro-USDC' from the live run — sentinel path untested in smoke but the code path is clearly correct."
+    },
+    {
+      "id": "T3-L1",
+      "originalSeverity": "low",
+      "status": "resolved",
+      "verificationNote": "Both ambiguous-probe note texts now read 'probe inconclusive (treating as absent to avoid false positive) — <message>' (lines 220, 267). Clearly distinguishable from the 'gas estimation fallback applied' note and from the 'existence inferred from revert' note."
+    },
+    {
+      "id": "T3-L2",
+      "originalSeverity": "low",
+      "status": "no_change_required",
+      "verificationNote": "Correctly left unchanged per round-1 assessment. Selector exit fires before artifact write — no issue."
+    },
+    {
+      "id": "T3-L3",
+      "originalSeverity": "low",
+      "status": "resolved",
+      "verificationNote": "Sanity-band comment at lines 385-391 now spells out what wildlyLow (off-by-12-orders ceil-divide collapse) and wildlyHigh (inverted conversion) actually catch. Comment is clear and auditable."
+    }
+  ],
+  "newAdditionAssessment": [
+    {
+      "id": "NEW-1",
+      "description": "resolveRpcUrl() helper (lines 89-100): validates ARC_RPC_URL is http(s) before use; exits 1 on non-URL value without echoing the raw value (avoids API-key leak). This is a security-review fix.",
+      "verdict": "correct and appropriate — strengthens operator UX and protects against credential leak via env var validation"
+    },
+    {
+      "id": "NEW-2",
+      "description": "scrubUrls() + errMessage() helpers (lines 123-131): strips http(s) URLs from error messages before they land in notes[], stderr, or the artifact. This is a security-review fix.",
+      "verdict": "correct and appropriate — prevents authenticated RPC URLs from being committed to the artifact. The replacement is '<rpc-url>' which preserves diagnostic structure."
+    }
+  ],
+  "coverageAssessment": {
+    "acceptanceCriteriaChecked": [
+      { "criterion": "Script exists, TypeScript-typed, runs under tsx", "status": "pass" },
+      { "criterion": "Uses viem only, no hre.ethers, no Hardhat imports", "status": "pass" },
+      { "criterion": "Reads name(), version(), decimals() from USDC on Arc Testnet", "status": "pass" },
+      { "criterion": "Selector self-check toFunctionSelector(...) === 0xe3ee160e", "status": "pass" },
+      { "criterion": "Proves authorizationState and transferWithAuthorization exist", "status": "pass" },
+      { "criterion": "Estimates gas and converts to USDC cost", "status": "pass" },
+      { "criterion": "Stdout JSON shape correct, notes key omitted when empty", "status": "pass" },
+      { "criterion": "Exit non-zero if supportsEip3009 === false or decimals !== 6", "status": "pass", "note": "Now fires BEFORE artifact write and stdout — correctly ordered." },
+      { "criterion": "Prints warning (exit 0) if gasCostExceedsThreshold === true", "status": "pass" },
+      { "criterion": "arc-testnet-usdc-domain.json written with matching shape", "status": "pass" },
+      { "criterion": "dual-decimal notes entry emitted when conversion performed", "status": "pass" },
+      { "criterion": "Gas fallback path emits notes entry", "status": "pass" },
+      { "criterion": "Script header documents consumer contract (T6 reads notes at module load)", "status": "pass" },
+      { "criterion": "Spike outcomes recorded in decisions.md", "status": "pass", "note": "Confirmed by teammate: written in commit 46600be." },
+      { "criterion": "No secrets / private keys leaked to stdout even on error path", "status": "pass", "note": "scrubUrls() added as additional defense." },
+      { "criterion": "RPC retry up to 3 times with backoff", "status": "pass" },
+      { "criterion": "gasPrice unavailable → notes entry + sentinel sampleGasCost", "status": "pass", "note": "Fixed in this round." },
+      { "criterion": "Stdout/artifact JSON shape byte-identical in field set", "status": "pass" },
+      { "criterion": "Sanity-check band applied to dual-decimal result", "status": "pass" },
+      { "criterion": "Hard blockers fire before artifact write", "status": "pass", "note": "Fixed in this round." }
+    ]
+  },
+  "severityCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "recommendation": "All acceptance criteria met. Spike is ready to gate Wave 3. The gasCostExceedsThreshold=true result (1260 micro-USDC vs 500 threshold) requires decisions.md entry per task spec post-completion checklist — confirmed written. T6 will surface the notes[] entries at module load. No further review rounds needed."
+}

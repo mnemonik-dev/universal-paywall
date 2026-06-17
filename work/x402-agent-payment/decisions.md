@@ -86,7 +86,7 @@ post-completion entries here following the `do-task` skill template.
 ## Task 3: Verify Arc Testnet USDC supports EIP-3009 + measure gas (spike)
 
 **Status:** Done
-**Commit:** bba2942 (impl) + round-1 fix commit (this round)
+**Commit:** bba2942 (impl) + 46600be (round-1 code-review fixes) + 3a9fbd3 (round-1 security-review fixes) + 75e0399 (round-1 test-review fixes)
 **Agent:** usdc-spike
 **Summary:** Wave 2 spike confirmed Arc Testnet USDC (`0x3600000000000000000000000000000000000000`, chain id `5042002`) exposes both `transferWithAuthorization` (selector `0xe3ee160e`) and `authorizationState`, returns `decimals=6` (per-payment fee math safe), and reports EIP-712 domain `{name: "USDC", version: "2"}` — note the chain returns the literal string `"USDC"` rather than the marketing-form `"USD Coin"` assumed in the task example; Task 6 must populate `NETWORKS['arc-testnet'].usdcEip712Name = "USDC"` verbatim or EIP-712 signatures will fail to verify. Measured per-payment gas cost `1212–1290 micro-USDC` (varies run-to-run with live `gasPrice`) which exceeds the 500 micro-USDC / 5%-of-0.01-USDC Risks-table threshold; the spike emits a non-blocking warning and exits 0 per spec. The artifact `contracts/scripts/arc-testnet-usdc-domain.json` is the sole handoff to Task 6 (Wave 5) and carries `notes[]` for module-load surfacing per iter-4 §5 T3.
 **Deviations:** None from spec contract. Empirical surprise: chain reports `name="USDC"` (not `"USD Coin"`); recorded here so T6 picks up the correct value from the artifact rather than hardcoding the spec example.
@@ -113,8 +113,13 @@ post-completion entries here following the `do-task` skill template.
 
 *Round 1:*
 - code-reviewer-t3: approved_with_minors (3 minor: EH-01 empty-catch comments, CF-01 nativeCurrency.name mismatch, DOC-01 decisions.md entry missing) → [logs/working/task-3/code-reviewer-t3-round1.json](logs/working/task-3/code-reviewer-t3-round1.json)
-- security-auditor-t3: pending
-- test-reviewer-t3: pending
+- security-auditor-t3: approve_with_notes (2 low: SEC-T3-01 / SEC-T3-02 RPC URL leakage via err.message in notes[] / stderr; 1 info: SEC-T3-INFO-01 no URL-scheme pre-validation) → [logs/working/task-3/security-auditor-t3-round1.json](logs/working/task-3/security-auditor-t3-round1.json)
+- test-reviewer-t3: needs_improvement (0 critical/high, 2 medium: T3-M1 hard-blocker ordering, T3-M2 gas-unavailable sentinel; 3 low: T3-L1 probe note text, T3-L2 selector exit order [accepted], T3-L3 sanity-band comment) → [logs/working/task-3/test-reviewer-t3-round1.json](logs/working/task-3/test-reviewer-t3-round1.json)
+
+*Round 2 (after fixes):*
+- code-reviewer-t3: closed approved on round 1 (verbal confirmation after fix commit 46600be; no round-2 report file written by reviewer preference)
+- security-auditor-t3: APPROVED — all round-1 findings resolved, no new issues → [logs/working/task-3/security-auditor-t3-round2.json](logs/working/task-3/security-auditor-t3-round2.json)
+- test-reviewer-t3: passed (0 findings at any severity) — all round-1 mediums + lows resolved → [logs/working/task-3/test-reviewer-t3-round2.json](logs/working/task-3/test-reviewer-t3-round2.json)
 
 **Verification:**
 - `cd contracts && npx tsx scripts/verify-usdc-eip3009.ts` → exit 0; JSON output matches artifact byte-for-byte (same `out` object); deterministic shape across 3 consecutive runs.
