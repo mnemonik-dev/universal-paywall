@@ -18,6 +18,7 @@ cache/
 typechain-types/
 .fastembed_cache/
 .husky/_/
+.npmrc
 
 # Foundry contracts workspace artifacts
 contracts/out/

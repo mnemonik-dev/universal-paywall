@@ -24,7 +24,10 @@
     "clean": "rm -rf dist",
     "//test": "keep --passWithNoTests until T6 lands first vitest test; do not remove",
     "test": "vitest run --passWithNoTests",
-    "test:e2e": "vitest run src/__tests__/integration/ --passWithNoTests"
+    "test:e2e": "vitest run src/__tests__/integration/ --passWithNoTests",
+    "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
+    "//prepublishOnly": "guard against accidental publish before Task 16; Task 16 removes this and runs the real release pipeline",
+    "prepublishOnly": "echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1"
   },
   "devDependencies": {
     "ajv": "^8.12.0",
