@@ -17,7 +17,7 @@ export {
 } from './x402.js';
 export type { MalformedHeaderDetail, X402ChallengeBody, XPaymentResponse } from './x402.js';
 
-export { buildErrorResponse } from './errors.js';
+export { buildErrorResponse, NetworkMismatchError } from './errors.js';
 export type {
   ErrorContext,
   ErrorReason,
@@ -26,6 +26,12 @@ export type {
   ErrorResponseEnvelope,
   SettlementSubReason,
 } from './errors.js';
+
+export { verifyEip3009Authorization } from './verify.js';
+export type { VerifyOptions, VerifyReason, VerifyResult } from './verify.js';
+
+export { MIN_RELAYER_USDC_BALANCE, settleOnChain } from './settle.js';
+export type { PublicClientLike, SettleOptions, SettleReason, SettleResult } from './settle.js';
 
 export { NETWORKS, normalizeNetworkId } from './networks.js';
 

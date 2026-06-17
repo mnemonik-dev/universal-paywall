@@ -16,6 +16,7 @@
 import type { PaymentRequirements } from './types.js';
 
 export { MalformedPaymentHeaderError, type MalformedHeaderDetail } from './x402.js';
+export { NetworkMismatchError } from './settle.js';
 
 // ─── Canonical reason strings ──────────────────────────────────────────────────
 

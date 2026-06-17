@@ -30,6 +30,9 @@
     "//prepublishOnly": "guard against accidental publish before Task 16; Task 16 removes this and runs the real release pipeline",
     "prepublishOnly": "echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1"
   },
+  "dependencies": {
+    "viem": "^2.52.0"
+  },
   "devDependencies": {
     "ajv": "^8.12.0",
     "pino": "^9.0.0",
