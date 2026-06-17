@@ -28,9 +28,9 @@ contract PaymentSplitterFactory is Ownable2Step, Pausable {
 
     mapping(address developer => address vault) public vaults;
 
-    event VaultDeployed(address indexed developer, address indexed vault);
+    event VaultDeployed(address indexed developer, address vault);
     event FeeBpsUpdated(uint16 oldBps, uint16 newBps);
-    event PlatformTreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event PlatformTreasuryUpdated(address oldTreasury, address newTreasury);
 
     error AlreadyRegistered();
     error InvalidFeeBps();
@@ -56,6 +56,7 @@ contract PaymentSplitterFactory is Ownable2Step, Pausable {
      * @notice Deploys the caller's vault deterministically.
      * @dev Salt = `bytes32(uint256(uint160(msg.sender)))` so middleware can
      *      compute the payTo address off-chain without an RPC call.
+     * @return vault The deterministic vault address deployed for `msg.sender`.
      */
     function register() external whenNotPaused returns (address vault) {
         if (vaults[msg.sender] != address(0)) revert AlreadyRegistered();

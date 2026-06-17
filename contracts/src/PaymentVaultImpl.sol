@@ -54,6 +54,10 @@ contract PaymentVaultImpl is Initializable, ReentrancyGuard {
         if (_developer == address(0)) revert ZeroAddress();
         developer = _developer;
         factory = msg.sender;
+        // ReentrancyGuard._status is intentionally NOT set here: EIP-1167 clones
+        // skip the constructor, leaving slot 0 at zero. OZ 5.x checks
+        // `_status == ENTERED (2)`, so the zero-default is safe for the first
+        // withdraw and the guard transitions through ENTERED→NOT_ENTERED on use.
     }
 
     /**
@@ -62,6 +66,13 @@ contract PaymentVaultImpl is Initializable, ReentrancyGuard {
      * @dev Transfer order is canonical (systemic-fix §7): developer first,
      *      platform second. Pausable on the factory does NOT block this
      *      function (D12) — withdraw is intentionally unpausable.
+     *
+     *      Operator note: a misconfigured `platformTreasury` that reverts on
+     *      `safeTransfer` (e.g. a contract with custom token-receive logic, a
+     *      paused token vault) DOSes every withdraw with `fee > 0`. Developer
+     *      funds are not lost — they are frozen until the owner sets a working
+     *      treasury via `setPlatformTreasury`. Operational guidance: treasury
+     *      MUST be a plain EOA or audited multisig.
      */
     function withdraw() external nonReentrant {
         if (msg.sender != developer) revert NotDeveloper();
