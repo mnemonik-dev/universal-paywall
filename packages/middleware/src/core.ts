@@ -353,10 +353,25 @@ function readHeader(req: PaywallRequest, name: string): string | undefined {
 // ─── Logger emit helper (single owner per addendum §2) ───────────────────────
 
 /**
+ * Known-safe payload fields that match scrubSecrets' hex patterns but are
+ * NOT secrets. Pre-extracting these before scrubbing and re-attaching
+ * preserves forensic value (a `settlement_failed` event without its
+ * `txHash` cannot be correlated to the on-chain transaction).
+ *
+ * Currently: the only field on the catalog that matches the 0x+64hex
+ * secret pattern but is non-sensitive is `txHash` (32-byte tx hash).
+ */
+const SAFE_HEX_FIELDS = ['txHash'] as const;
+
+/**
  * Fire-and-forget event emit with per-call try/catch so a throw on event N
  * does not block events N+1 within the same handler. Default to no-op when
  * `opts.logger` is undefined — the helper short-circuits without invoking
  * `scrubSecrets`, so the unconfigured path produces no work.
+ *
+ * Before invoking scrubSecrets we lift out known-safe hex fields (txHash)
+ * and re-attach them after — without this, scrubSecrets' 0x+64hex pattern
+ * would redact them as if they were private keys (SEC-T8-02).
  */
 function emit<N extends SecurityEventName>(
   opts: PaywallCoreOptions,
@@ -365,8 +380,18 @@ function emit<N extends SecurityEventName>(
 ): void {
   if (opts.logger === undefined) return;
   try {
-    const scrubbed = scrubSecrets(payload) as SecurityEventCatalog[N];
-    opts.logger.securityEvent(name, scrubbed);
+    const payloadRecord = payload as Record<string, unknown>;
+    const preserved: Record<string, unknown> = {};
+    for (const field of SAFE_HEX_FIELDS) {
+      if (typeof payloadRecord[field] === 'string') {
+        preserved[field] = payloadRecord[field];
+      }
+    }
+    const scrubbed = scrubSecrets(payload) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(preserved)) {
+      scrubbed[k] = v;
+    }
+    opts.logger.securityEvent(name, scrubbed as SecurityEventCatalog[N]);
   } catch {
     // Swallow: a misconfigured logger must not block the request path.
   }
@@ -390,7 +415,11 @@ export async function paywall(
     // should see this in the first request after misconfiguration. We do
     // NOT throw here: a per-request 402 keeps the integrator's service
     // responsive while alerting via the security log.
-    emit(opts, 'chain_id_mismatch', { expected: 0, actual: 0, network: opts.network });
+    emit(opts, 'chain_id_mismatch', {
+      expectedChainId: 0,
+      observedChainId: 0,
+      network: opts.network,
+    });
     return build402(402, null, 'settlement_failed', { reason: 'internal_error' });
   }
 
@@ -401,12 +430,19 @@ export async function paywall(
   // — same source as the on-the-fly check below. If the cache lookup
   // fails on the no-header branch, we still emit a 402 challenge with
   // payTo === 0x0; the agent will retry once the vault is deployed.
+  //
+  // SEC-T8-01: if the cache is stale (servedStale) we DO NOT seed
+  // `factoryState` here — that would let the post-7b factory-state guard
+  // think we already have fresh state and skip the re-read. Leaving them
+  // unset forces the post-7b guard to drive the rpc_5xx surfacing.
   let factoryState: FactoryStateEntry | undefined;
   let payTo: `0x${string}` = ZERO_ADDRESS;
   try {
     const read = await readFactoryState(network, publicClient);
-    factoryState = read.entry;
-    payTo = await readVaultAddress(network, publicClient, factoryState, opts.developerEoa);
+    if (!read.servedStale) {
+      factoryState = read.entry;
+      payTo = await readVaultAddress(network, publicClient, factoryState, opts.developerEoa);
+    }
   } catch {
     // Defer error handling to the per-step branches below; if the request
     // has no X-PAYMENT header we still return a useful 402 challenge.
@@ -442,6 +478,44 @@ export async function paywall(
       return build402(400, requirements, 'malformed_payment_header');
     }
     throw err;
+  }
+
+  // ─── 7d: factory-state checks (moved BEFORE 7c verify per SEC-T8-05) ─────
+  // If the pre-7a factory read failed silently (factoryState undefined) or
+  // returned payTo=0x0, we MUST NOT call verify with
+  // expectedVaultAddress=ZERO_ADDRESS — an attacker who crafts
+  // authorization.to=0x0 would pass the to_mismatch check against that
+  // zero target. Resolve factory state first and short-circuit on
+  // vault_not_deployed (or paused) before running the EIP-712 recovery.
+  // SEC-T8-01: when the cache is stale AND the refresh failed we surface
+  // rpc_5xx rather than using fail-open stale paused/vault state.
+  if (factoryState === undefined || payTo === ZERO_ADDRESS) {
+    try {
+      const read = await readFactoryState(network, publicClient);
+      if (read.servedStale) {
+        emit(opts, 'settlement_failed', {
+          payerHash: payerHash(payload.payload.authorization.from),
+          reason: 'rpc_5xx',
+        });
+        return build402(402, requirements, 'settlement_failed', { reason: 'rpc_5xx' });
+      }
+      factoryState = read.entry;
+      payTo = await readVaultAddress(network, publicClient, factoryState, opts.developerEoa);
+    } catch {
+      emit(opts, 'settlement_failed', {
+        payerHash: payerHash(payload.payload.authorization.from),
+        reason: 'rpc_5xx',
+      });
+      return build402(402, requirements, 'settlement_failed', { reason: 'rpc_5xx' });
+    }
+  }
+  if (factoryState.paused) {
+    emit(opts, 'paused_request', { developerEoaHash: developerEoaHash(opts.developerEoa) });
+    return build402(402, requirements, 'paused');
+  }
+  if (payTo === ZERO_ADDRESS) {
+    emit(opts, 'vault_not_deployed', { developerEoaHash: developerEoaHash(opts.developerEoa) });
+    return build402(402, requirements, 'vault_not_deployed');
   }
 
   // ─── 7c: verify ──────────────────────────────────────────────────────────
@@ -493,30 +567,6 @@ export async function paywall(
     }
   }
 
-  // ─── 7d: factory-state checks ────────────────────────────────────────────
-  if (factoryState === undefined) {
-    try {
-      const read = await readFactoryState(network, publicClient);
-      factoryState = read.entry;
-      payTo = await readVaultAddress(network, publicClient, factoryState, opts.developerEoa);
-    } catch {
-      // Cache stale and refresh failed — surface as settlement_failed/rpc_5xx.
-      emit(opts, 'settlement_failed', {
-        payerHash: payerHash(verifyResult.recoveredFrom),
-        reason: 'rpc_5xx',
-      });
-      return build402(402, requirements, 'settlement_failed', { reason: 'rpc_5xx' });
-    }
-  }
-  if (factoryState.paused) {
-    emit(opts, 'paused_request', { developerEoaHash: developerEoaHash(opts.developerEoa) });
-    return build402(402, requirements, 'paused');
-  }
-  if (payTo === ZERO_ADDRESS) {
-    emit(opts, 'vault_not_deployed', { developerEoaHash: developerEoaHash(opts.developerEoa) });
-    return build402(402, requirements, 'vault_not_deployed');
-  }
-
   // ─── 7e: settle ──────────────────────────────────────────────────────────
   // Use the cryptographically RECOVERED signer (EIP-712 ecrecover output from
   // verify.ts), not the claimed wire-format `authorization.from`. In the
@@ -535,8 +585,8 @@ export async function paywall(
   } catch (err) {
     if (err instanceof NetworkMismatchError) {
       emit(opts, 'chain_id_mismatch', {
-        expected: err.expectedChainId,
-        actual: err.observedChainId,
+        expectedChainId: err.expectedChainId,
+        observedChainId: err.observedChainId,
         network: network.id,
       });
       return build402(402, requirements, 'settlement_failed', { reason: 'internal_error' });
@@ -544,8 +594,25 @@ export async function paywall(
     throw err;
   }
   if (!settleResult.ok) {
+    // SEC-T8-03: when settle classifies as relayer_no_balance, emit a
+    // dedicated D18 relayer_low_balance event carrying the actual balance
+    // alongside the generic settlement_failed event. Operators monitoring
+    // for "relayer wallet needs refilling" get a typed signal with the
+    // balanceUsdc field.
+    if (
+      settleResult.reason === 'relayer_no_balance' &&
+      settleResult.details?.balance !== undefined
+    ) {
+      emit(opts, 'relayer_low_balance', {
+        balanceUsdc: settleResult.details.balance.toString(),
+      });
+    }
     const extra: { reason: string; txHash?: string } = { reason: settleResult.reason };
-    emit(opts, 'settlement_failed', { payerHash: payerH, reason: settleResult.reason });
+    const settlementPayload: SecurityEventCatalog['settlement_failed'] = {
+      payerHash: payerH,
+      reason: settleResult.reason,
+    };
+    emit(opts, 'settlement_failed', settlementPayload);
     return build402(402, requirements, 'settlement_failed', extra);
   }
 

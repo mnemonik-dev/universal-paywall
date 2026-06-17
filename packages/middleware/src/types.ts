@@ -103,7 +103,8 @@ export interface SecurityEventCatalog {
   vault_not_deployed: { developerEoaHash: string };
   header_too_large: { size: number };
   malformed_header: { phase: 'base64' | 'json' | 'shape' };
-  chain_id_mismatch: { expected: number; actual: number; network: string };
+  chain_id_mismatch: { expectedChainId: number; observedChainId: number; network: string };
+  relayer_low_balance: { balanceUsdc: string };
 }
 
 export type SecurityEventName = keyof SecurityEventCatalog;

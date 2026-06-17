@@ -265,6 +265,25 @@ describe('paywall pipeline', () => {
     });
   });
 
+  // ─── SEC-T8-05: vault_not_deployed short-circuits BEFORE verify ─────────
+  // When payTo would be ZERO_ADDRESS, core MUST NOT call verify (which would
+  // accept any authorization.to=0x0 as matching expectedVaultAddress=0x0).
+  // The factory-state check must fire first.
+  it('vault_not_deployed short-circuits BEFORE verify is called', async () => {
+    publicClientStub.readContract.mockImplementation(
+      async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'paused') return false;
+        if (functionName === 'vaults') return ZERO;
+        throw new Error('unexpected');
+      },
+    );
+    const logger = makeLogger();
+    const headerValue = encodeXPayment(makePayload());
+    await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
+    // verify must NOT have been called — vault_not_deployed short-circuits first.
+    expect(verifySpy).not.toHaveBeenCalled();
+  });
+
   // ─── 7d: factory-cache 5s TTL hit ────────────────────────────────────────
   it('factory-state cache hits within 5s TTL — second call does not re-read paused', async () => {
     const headerValue = encodeXPayment(makePayload());
@@ -351,6 +370,36 @@ describe('paywall pipeline', () => {
     expect(second.kind).toBe('passthrough');
   });
 
+  // ─── SEC-T8-01: stale cache + RPC error surfaces as rpc_5xx ─────────────
+  // The cache must NOT fail-open: if the entry is older than the 5s TTL and
+  // the refresh RPC fails, we surface 402 settlement_failed/rpc_5xx rather
+  // than using out-of-date paused/vault state for the access decision.
+  it('factory-state RPC error with STALE cache surfaces as 402 settlement_failed reason rpc_5xx', async () => {
+    vi.useFakeTimers();
+    try {
+      const headerValue = encodeXPayment(makePayload());
+      // Warm the cache.
+      const warmup = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts());
+      expect(warmup.kind).toBe('passthrough');
+      // Cross the 5s TTL boundary so the next request needs to refresh.
+      vi.advanceTimersByTime(6_000);
+      // Reject all future RPC reads.
+      publicClientStub.readContract.mockRejectedValue(new Error('rpc down'));
+      const logger = makeLogger();
+      const second = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
+      expect(second).toMatchObject({
+        kind: '402',
+        body: { error: 'settlement_failed', reason: 'rpc_5xx' },
+      });
+      expect(logger.securityEvent).toHaveBeenCalledWith(
+        'settlement_failed',
+        expect.objectContaining({ reason: 'rpc_5xx' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ─── 7e: settle is called with the recovered signer, NOT the wire `from` ─
   // verifyEip3009Authorization returns the ecrecover output. Core MUST pass
   // that recovered address (the cryptographically authenticated one) to
@@ -426,6 +475,55 @@ describe('paywall pipeline', () => {
     },
   );
 
+  // ─── SEC-T8-02: txHash preserved through scrubSecrets ───────────────────
+  // The 32-byte tx hash matches scrubSecrets' 0x+64hex pattern, so without
+  // an explicit carve-out the emit helper would redact it as if it were a
+  // private key. The carve-out preserves known-safe fields (txHash) by
+  // name. We assert (a) the baseline — scrubSecrets WOULD redact a bare
+  // txHash, so the regex match is real; (b) the emit helper's carve-out
+  // would preserve it (verified at the source level — SAFE_HEX_FIELDS
+  // includes 'txHash'). The integration assertion runs through core only
+  // when settle's failure variant carries txHash; today the variant type
+  // is { reason, details? } only, so this is a defense-in-depth structural
+  // lockdown.
+  it('emit-helper carve-out preserves txHash (settlement_failed forensic value)', async () => {
+    const { scrubSecrets } = await import('../relayer-key.js');
+    // Baseline: scrubSecrets WOULD redact a bare txHash (it matches 0x+64hex).
+    const scrubbedBare = scrubSecrets({ txHash: TX_HASH }) as { txHash: string };
+    expect(scrubbedBare.txHash).toContain('redacted');
+    // Source-level: the emit helper's carve-out list includes 'txHash' so
+    // the round-trip through emit is non-destructive. Read core.ts and
+    // assert the carve-out marker is present.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(resolve(here, '..', 'core.ts'), 'utf8');
+    expect(src).toMatch(/SAFE_HEX_FIELDS\s*=\s*\[\s*['"]txHash['"]/);
+  });
+
+  // ─── SEC-T8-03: relayer_low_balance dedicated event ─────────────────────
+  // When settle classifies as relayer_no_balance with a balance detail, core
+  // MUST emit a distinct relayer_low_balance event carrying balanceUsdc
+  // (per D18). The settlement_failed event still fires too — for backwards
+  // compatibility with monitoring that only watches that channel.
+  it('settle relayer_no_balance with balance details emits relayer_low_balance {balanceUsdc} AND settlement_failed', async () => {
+    settleSpy.mockImplementationOnce(async () => ({
+      ok: false,
+      reason: 'relayer_no_balance',
+      details: { balance: 750_000n },
+    }));
+    const logger = makeLogger();
+    const headerValue = encodeXPayment(makePayload());
+    await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
+    const lowBalanceCalls = logger.securityEvent.mock.calls.filter(
+      (c) => c[0] === 'relayer_low_balance',
+    );
+    expect(lowBalanceCalls).toHaveLength(1);
+    expect(lowBalanceCalls[0]![1]).toEqual({ balanceUsdc: '750000' });
+    const settlementCalls = logger.securityEvent.mock.calls.filter(
+      (c) => c[0] === 'settlement_failed',
+    );
+    expect(settlementCalls).toHaveLength(1);
+  });
+
   // ─── 7e: NetworkMismatchError ────────────────────────────────────────────
   it('settle throws NetworkMismatchError → emit chain_id_mismatch + return 402 settlement_failed reason internal_error', async () => {
     settleSpy.mockImplementationOnce(async () => {
@@ -440,9 +538,10 @@ describe('paywall pipeline', () => {
     });
     const calls = logger.securityEvent.mock.calls.filter((c) => c[0] === 'chain_id_mismatch');
     expect(calls).toHaveLength(1);
+    // SEC-T8-04: field names align with tech-spec D18 (expectedChainId, observedChainId).
     expect(calls[0]![1]).toEqual({
-      expected: 5042002,
-      actual: 1,
+      expectedChainId: 5042002,
+      observedChainId: 1,
       network: arcTestnet.id,
     });
   });
