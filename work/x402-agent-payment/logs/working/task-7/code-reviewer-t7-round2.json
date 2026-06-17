@@ -1,0 +1,89 @@
+{
+  "reviewer": "code-reviewer-t7",
+  "task": 7,
+  "round": 2,
+  "commits": ["e7ce27d", "40d3510"],
+  "verdict": "approved",
+  "summary": "All three round-1 findings are correctly resolved. The migration from raw has+insert to checkAndInsert is a genuine improvement: it uses the documented production primitive, gains the defense-in-depth safety-net inside the store, and the test now verifies the right call. The bigint guard and unknown-network error are clean fixes. One observation noted below (not a blocker) about a subtle semantic change in the verify.ts module-level doc comment that became stale after the checkAndInsert migration.",
+
+  "r1_findings_resolution": {
+    "R1-M1": {
+      "finding": "readContract return cast to bigint without runtime guard",
+      "resolution": "Added `if (typeof raw !== 'bigint') { return { ok: false, reason: 'rpc_5xx' } }` before the cast. Correct fix — classifies as rpc_5xx (data plane broken). The explanation comment is accurate.",
+      "status": "resolved"
+    },
+    "R1-M2": {
+      "finding": "Unknown network threw NetworkMismatchError(0, 0) — misleading",
+      "resolution": "Now throws `new Error('settleOnChain: unknown network ... — not present in NETWORKS registry')`. Distinct from NetworkMismatchError, includes the unknown key in the message. Correct fix.",
+      "status": "resolved"
+    },
+    "R1-M3": {
+      "finding": "Synchronous has+insert test did not actually detect an interleaved await",
+      "resolution": "verify.ts was migrated to use NonceStore.checkAndInsert (the documented production primitive per replay-store.ts). The test now asserts checkAndInsert is called exactly once with the correct arguments, and that the raw has/insert methods are NOT called. This is a better fix than patching the old test — it aligns the implementation with the store's own API contract.",
+      "status": "resolved_with_improvement"
+    }
+  },
+
+  "new_changes_review": [
+    {
+      "change": "settle.ts: HttpRequestError classifier simplified — all HTTP errors now classify as rpc_5xx",
+      "assessment": "The previous branch that collapsed non-5xx HttpRequestError into rpc_timeout was misleading (conflated 429/401 with network timeouts). The new behaviour (all HttpRequestError → rpc_5xx) is documented with a clear comment. Acceptable for MVP: the seven-reason taxonomy does not have a dedicated bucket for 4xx, and rpc_5xx is the closest transport-error bucket. No spec deviation.",
+      "verdict": "pass"
+    },
+    {
+      "change": "settle.ts: v/yParity extraction — missing both fields now returns gas_estimate_revert instead of defaulting yParity to 0",
+      "assessment": "Correct hardening. The old silent-default-to-0 would have sent a corrupted v=27 for half of all compact-form signatures, causing on-chain reverts that would then be misclassified. The new path refuses to broadcast and classifies as gas_estimate_revert (the pre-broadcast bucket). Return shape `{ ok: false, reason: 'gas_estimate_revert' }` matches SettleResult spec. No test was added for this branch, but it covers an edge case that can only occur with a malformed signature from the viem parseSignature output — extremely unlikely in production, and testing would require mocking parseSignature internals.",
+      "verdict": "pass"
+    },
+    {
+      "change": "verify.ts: migrated from raw has+insert to checkAndInsert",
+      "assessment": "checkAndInsert correctly receives `{ from, nonce, validBefore: validBeforeMs, now: nowMs }`. All fields match CheckAndInsertInput interface. The `authorization_expired` return path from checkAndInsert is a subset of VerifyReason (confirmed: line 67 of verify.ts), so the TypeScript assignment `reason: checkResult.reason` is fully type-safe without any cast. The defense-in-depth note in the comment (checkAndInsert refuses already-dead authorizations) is accurate per replay-store.ts line 114.",
+      "verdict": "pass"
+    },
+    {
+      "change": "verify.test.ts: added exact-boundary test validBefore == nowSec+5 fails",
+      "assessment": "Correctly tests the fence-post: validBeforeMs == nowMs + SAFETY_MARGIN_MS must fail (comparison is `<=`). Complements the existing nowSec+4 / nowSec+6 tests.",
+      "verdict": "pass"
+    },
+    {
+      "change": "settle.test.ts: 'undecoded revert' test renamed and rewritten",
+      "assessment": "The old test checked `status === 'reverted'` from waitForTransactionReceipt and expected receipt_reverted. The new test checks a ContractFunctionExecutionError with an unrelated revert reason and expects gas_estimate_revert. Both are valid test scenarios. However, the original spec TDD anchor (`settle.test.ts::undecoded receipt revert falls back to receipt_reverted`) covered the `receipt.status === 'reverted'` branch with no decodeable revert reason — that path is still exercised by the plain `receipt status 'reverted' → receipt_reverted` test that remains in the file, so coverage is not lost.",
+      "verdict": "pass"
+    },
+    {
+      "change": "settle.test.ts: relay-store retention test expanded to simulate production verify+settle flow",
+      "assessment": "The test now pre-plants an entry via checkAndInsert (mimicking what verify.ts does in production), then calls settle, then asserts no additional store mutations occurred. The static grep check (settle.ts does not import replay-store) is retained. The spy-count comparison approach (`insertCallsAfterVerify`) is correct — it counts only calls made by settle, not the pre-plant. Clean improvement.",
+      "verdict": "pass"
+    }
+  ],
+
+  "observations": [
+    {
+      "id": "R2-OBS1",
+      "severity": "informational",
+      "file": "packages/middleware/src/verify.ts",
+      "lines": "29-31",
+      "title": "Module-level doc comment still describes the old has+insert pattern",
+      "description": "The top-of-file JSDoc (lines 29-31) still reads: 'After all checks pass, `nonceStore.has(...)` is followed *synchronously* by `nonceStore.insert(...)` — no `await` between them, no other state mutation in the gap.' The implementation now uses `nonceStore.checkAndInsert(...)`. The comment is stale and would mislead a future reader about what the code actually does.",
+      "recommendation": "Update lines 29-31 to reference `nonceStore.checkAndInsert(...)` and its TOCTOU-safe semantics. The block comment further down at lines 172-177 already has the correct description — the module-level doc just needs to be brought in sync."
+    }
+  ],
+
+  "cross_file_consistency": {
+    "checkAndInsert_signature": "verify.ts calls checkAndInsert with { from, nonce, validBefore, now } — matches CheckAndInsertInput exactly. validBefore is validBeforeMs (ms), matching store's internal unit.",
+    "checkAndInsert_return": "CheckAndInsertResult is { accepted: true } | { accepted: false; reason: 'nonce_already_used' | 'authorization_expired' }. Both reason strings are present in VerifyReason — no cast needed, type-safe.",
+    "settle_unknown_network": "New Error throw uses JSON.stringify(opts.network) — safe for any string input including undefined-shaped values.",
+    "settle_bigint_guard": "typeof raw !== 'bigint' guard placed before the balance assignment, before the MIN_RELAYER_USDC_BALANCE comparison. Correct ordering."
+  },
+
+  "spec_compliance": {
+    "all_r1_acs": "pass — all seven original acceptance criteria remain met",
+    "checkAndInsert_alignment": "pass — uses production primitive as documented in replay-store.ts",
+    "boundary_test_exact_5s": "pass — fence-post test added",
+    "no_raw_has_insert_in_verify": "pass — confirmed by test spy assertions",
+    "settlement_taxonomy": "pass — seven reasons unchanged, HttpRequestError reclassification is within the taxonomy",
+    "type_safety": "pass — strict mode clean, no any types introduced"
+  },
+
+  "verdict_rationale": "All round-1 findings cleanly resolved. The checkAndInsert migration is an improvement over the original implementation. One informational observation (stale module-level doc comment) is not blocking. The code is ready to proceed."
+}

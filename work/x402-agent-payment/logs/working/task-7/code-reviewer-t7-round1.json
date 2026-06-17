@@ -1,0 +1,125 @@
+{
+  "reviewer": "code-reviewer-t7",
+  "task": 7,
+  "round": 1,
+  "commit": "e98ece8",
+  "verdict": "approved_with_minors",
+  "summary": "Both verify.ts and settle.ts are well-implemented: correct 2-arg signature, exact spec-mandated reason strings, synchronous nonce has+insert, sole WalletClient ownership, chainId pin, proactive balance check with correct constant threshold, string-based authorization_already_used_onchain classifier, and no SecurityLogger imports. Tests cover all TDD anchors. Three minor issues found; no blocking or major issues.",
+
+  "dimensions_assessed": {
+    "1_architectural_patterns": "pass",
+    "2_separation_of_concerns": "pass",
+    "3_readability_maintainability": "pass_with_note",
+    "4_error_handling_logging": "pass",
+    "5_type_safety": "pass_with_note",
+    "6_testing_coverage": "pass_with_note",
+    "7_dependencies": "pass",
+    "8_security": "pass",
+    "9_performance": "pass",
+    "10_cross_file_consistency": "pass",
+    "11_resource_management": "pass"
+  },
+
+  "issues": [
+    {
+      "id": "R1-M1",
+      "severity": "minor",
+      "dimension": "5_type_safety",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "983-992",
+      "title": "readContract return typed as unknown, cast to bigint without runtime guard",
+      "description": "In the proactive balance check, `opts.publicClient.readContract(...)` returns `Promise<unknown>` (per the structural `PublicClientLike` interface), and the result is cast directly to `bigint` with `raw as bigint`. If the RPC client returns something other than a bigint (e.g. a `string` or `number` from a stubbed JSON response), the comparison `balance < MIN_RELAYER_USDC_BALANCE` will throw a TypeError at runtime rather than classify as a settle error. The `PublicClientLike` interface is intentionally loose for test-double convenience, which is valid, but the production path relies on viem always returning a true bigint here — that assumption is correct for viem's `readContract` but is not enforced.",
+      "recommendation": "Add a runtime typeof guard after the cast: `if (typeof balance !== 'bigint') { return { ok: false, reason: 'rpc_5xx' }; }`. Alternatively, tighten `PublicClientLike.readContract` to return `Promise<bigint>` for the `balanceOf` overload (requires overloaded signatures or a separate typed helper). The current cast is safe in production but silently breaks for any test double that returns a number instead of a BigInt literal."
+    },
+    {
+      "id": "R1-M2",
+      "severity": "minor",
+      "dimension": "3_readability_maintainability",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "958-963",
+      "title": "Unknown network lookup throws NetworkMismatchError(0, 0) — misleading error fields",
+      "description": "When `opts.network` is not found in `NETWORKS`, the code throws `new NetworkMismatchError(0, 0)`. This reuses the chain-mismatch error class for a fundamentally different condition (unknown/unconfigured network key), and the `(0, 0)` arguments convey no diagnostic value. A caller catching this error would see `expectedChainId: 0, observedChainId: 0` which is indistinguishable from a genuine Arc Mainnet placeholder collision (arc-mainnet has `chainId: 0`).",
+      "recommendation": "Throw a distinct error for this case, e.g. `new Error(`settleOnChain: unknown network '${opts.network}'`)`, or define a separate `UnknownNetworkError` class. The `NetworkMismatchError` class should only be thrown when a chain ID number is actually mismatched — the task spec defines it with `expectedChainId` and `observedChainId` fields for that purpose."
+    },
+    {
+      "id": "R1-M3",
+      "severity": "minor",
+      "dimension": "6_testing_coverage",
+      "file": "packages/middleware/src/__tests__/verify.test.ts",
+      "lines": "590-612",
+      "title": "Synchronous has+insert test does not verify the check correctly",
+      "description": "The test for 'nonce store has-and-insert is synchronous' schedules a microtask via `await Promise.resolve().then(() => order.push('microtask-pre'))` BEFORE calling `verifyEip3009Authorization`. This means 'microtask-pre' is always added to `order` before 'has' is ever called. The assertion `insertIdx === hasIdx + 1` verifies adjacency but the design intent is that NO microtask can interleave between `has` and `insert`. The current approach does not actually detect an `await` between the two calls: if `verify.ts` had `await Promise.resolve()` between `has` and `insert`, a microtask scheduled after the call starts (not before) would land between them — but the test only schedules a pre-call microtask. The test passes trivially even if there were an await between has and insert.",
+      "recommendation": "To properly detect an interleaved await, schedule the intruding microtask INSIDE the `has` mock: push the microtask to the queue inside the mock body itself. Example: in the `has` spy, do `Promise.resolve().then(() => order.push('intruder'))` before returning false. Then assert that 'intruder' appears AFTER 'insert' in the order, not between 'has' and 'insert'. This verifies the no-await contract by trying to inject work into the gap. The current test is better than nothing but would not catch a regressed implementation."
+    }
+  ],
+
+  "positive_observations": [
+    {
+      "area": "Security: OpaqueRelayerKey extraction",
+      "note": "settle.ts correctly uses `getRelayerKeySecret` from relayer-key.ts and confines the raw key to the lexical scope of `buildWalletClient`. It never appears in parameters, return values, error payloads, or cached entries. The WeakMap-based SECRET_TABLE design in relayer-key.ts makes this enforced by construction."
+    },
+    {
+      "area": "Security: no SecurityLogger in verify/settle",
+      "note": "Both modules contain zero imports or calls to any logger or SecurityLogger. The settle.test.ts static check (stripping comments before grepping) is a solid belt-and-suspenders approach that would catch a logger reference accidentally reintroduced by a future refactor."
+    },
+    {
+      "area": "Classifier ordering",
+      "note": "WaitForTransactionReceiptTimeoutError is checked before TimeoutError in classifyWriteError, correctly respecting the viem class hierarchy. The comment explicitly documents this is intentional — good."
+    },
+    {
+      "area": "authorization_already_used_onchain detection",
+      "note": "extractRevertReasonString walks the full viem error cause chain (shortMessage, message, reason, details, metaMessages, cause) before doing the case-insensitive substring match. There is no 4-byte selector check. The fallback to receipt_reverted when the string cannot be extracted is correctly placed at the top-level receipt check (lines 1054-1057), not inside the classifier."
+    },
+    {
+      "area": "Time math in verify.ts",
+      "note": "SAFETY_MARGIN_MS = 5_000 is defined at module scope. validBeforeMs and validAfterMs conversions are correct: `Number(field) * 1000`. The `<=` boundary (`validBeforeMs <= nowMs + SAFETY_MARGIN_MS`) means a validBefore exactly at nowMs+5000 fails — consistent with the 'nowSec+4 fails, nowSec+6 passes' test anchors."
+    },
+    {
+      "area": "Synchronous nonce has+insert in verify.ts",
+      "note": "The synchronous block (lines 1238-1251) has an explicit comment warning against introducing async work. The NonceStore.has and NonceStore.insert calls are adjacent with no await between them, enforcing the D5 TOCTOU-safe requirement."
+    },
+    {
+      "area": "verify.ts uses NonceStore only via type import from replay-store.ts",
+      "note": "verify.ts imports `type { NonceStore }` — a type-only import. At runtime, the NonceStore instance is passed in via opts.nonceStore, so verify.ts has no static binding to replay-store.ts at the JS module level. Combined with settle.ts not importing replay-store at all (verified by the static grep test), the replay-store retention-on-failure contract is structurally enforced."
+    },
+    {
+      "area": "PublicClientLike structural interface",
+      "note": "Defining PublicClientLike as a minimal structural slice avoids leaking viem generic chain/transport type parameters into the public API surface. This makes test doubles trivial to construct without a viem dependency in the test environment setup."
+    },
+    {
+      "area": "chainId pin caching correctness",
+      "note": "The `chainIdPinned` flag is on the cache entry (not a module-level boolean), so each network's pin is independent. The cache is keyed by `network.id` (canonical CAIP-2), not by the input alias, preventing duplicate entries for 'arc-testnet' vs 'eip155:5042002'."
+    },
+    {
+      "area": "__resetSettleCacheForTests export",
+      "note": "Exporting a test-reset function from the module (rather than exposing the WALLET_CACHE directly) is the right balance — tests get deterministic chainId-pin behavior without coupling to internal Map structure. The function is not re-exported from index.ts."
+    }
+  ],
+
+  "cross_file_consistency": {
+    "networks_ts": "verify.ts uses NETWORKS[opts.expectedNetwork] with the correct IndexSignature cast. normalizeNetworkId is used correctly for CAIP-2/alias comparison. settle.ts also casts NETWORKS as Record<string, NetworkConfig | undefined> for the unknown-network guard — consistent.",
+    "replay_store_ts": "verify.ts calls has({ from, nonce, now }) and insert({ from, nonce, validBefore }) — these match the HasInput and InsertInput interfaces in replay-store.ts exactly. The validBefore passed to insert is validBeforeMs (ms), matching the store's internal unit per replay-store.ts module doc.",
+    "relayer_key_ts": "settle.ts imports getRelayerKeySecret from relayer-key.ts — the exported function signature is `(key: OpaqueRelayerKey): string`, which matches the call site. normalizePrivateKey handles the 0x-prefix normalization, consistent with relayer-key.ts accepting inputs with or without the prefix.",
+    "errors_ts": "errors.ts re-exports NetworkMismatchError from settle.ts. This creates a one-way dependency: errors.ts depends on settle.ts. Architecturally this is slightly inverted (errors.ts typically has no deps), but it works and avoids duplicating the class. No issues for this task — the Task 8 core orchestrator review should note this dependency direction.",
+    "types_ts": "PaymentPayload is used correctly in both modules. VerifyOptions.publicClient is typed as `unknown` (not PublicClientLike), which is intentional per the inline doc comment. SettleOptions.publicClient is typed as PublicClientLike — consistent."
+  },
+
+  "spec_compliance": {
+    "two_arg_verify_signature": "pass — verifyEip3009Authorization(payload, opts), nonceStore is in opts",
+    "canonical_reason_strings": "pass — to_mismatch, invalid_signature, insufficient_amount, authorization_expired, authorization_not_yet_valid, network_mismatch, nonce_already_used all present",
+    "time_in_ms_with_5000_margin": "pass — SAFETY_MARGIN_MS=5_000, Number(field)*1000 conversions, validBeforeMs <= nowMs+SAFETY_MARGIN_MS",
+    "synchronous_has_insert": "pass",
+    "no_security_logger": "pass in both modules",
+    "settle_result_shape": "pass — { ok: true; txHash; payer } | { ok: false; reason; details? }",
+    "wallet_client_ownership": "pass — sole owner in settle.ts via module-level WALLET_CACHE",
+    "public_client_not_created_in_settle": "pass — no createPublicClient call",
+    "chain_id_pin": "pass — first-use check, cached via chainIdPinned flag",
+    "min_relayer_balance_constant": "pass — MIN_RELAYER_USDC_BALANCE = 1_000_000n exported at module scope",
+    "auth_already_used_string_match": "pass — case-insensitive substring 'authorization is used', no selector",
+    "replay_store_not_touched_in_settle": "pass — no import, no mutation",
+    "wait_for_receipt_timeout_30s": "pass",
+    "seven_classifiers": "pass — all 7 mapped"
+  },
+
+  "verdict_rationale": "All spec acceptance criteria are met. The three minor issues (bigint cast without runtime guard, misleading NetworkMismatchError(0,0) for unknown network, and a test that doesn't fully verify the TOCTOU-safe property) are non-blocking. The security-critical paths are all correct."
+}

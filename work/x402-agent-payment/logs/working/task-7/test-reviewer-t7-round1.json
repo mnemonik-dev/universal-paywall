@@ -1,0 +1,168 @@
+{
+  "reviewer": "test-reviewer-t7",
+  "round": 1,
+  "task": 7,
+  "commit": "e98ece8",
+  "timestamp": "2026-06-17",
+  "status": "needs_improvement",
+  "summary": "All 33 TDD-anchor tests pass and the overall coverage is strong. Five findings identified: two are medium-severity (structural weaknesses that would survive against broken implementations), two are low-severity (duplicate test and vacuously-true runtime assertion), and one is low (missing exact boundary case). No critical or high issues. The suite may be approved after fixing the two medium findings.",
+
+  "test_run": {
+    "exit_code": 0,
+    "total_tests": 33,
+    "verify_tests": 14,
+    "settle_tests": 19,
+    "all_passed": true
+  },
+
+  "tdd_anchor_coverage": {
+    "verify": {
+      "valid_signature_passes": "covered",
+      "tampered_chainId_invalid_signature": "covered",
+      "tampered_verifyingContract_invalid_signature": "covered",
+      "tampered_domain_name_invalid_signature": "covered",
+      "tampered_domain_version_invalid_signature": "covered",
+      "to_mismatch": "covered",
+      "value_below_required_insufficient_amount": "covered",
+      "validBefore_nowSec_plus_4_fails": "covered",
+      "validBefore_nowSec_plus_6_passes": "covered",
+      "validAfter_future_not_yet_valid": "covered",
+      "network_mismatch": "covered",
+      "caip2_alias_normalize_equal": "covered",
+      "nonce_store_synchronous_has_insert": "covered_but_weak",
+      "duplicate_nonce_rejected": "covered"
+    },
+    "settle": {
+      "happy_path_txHash_payer": "covered",
+      "chainId_pin_matches_no_throw": "covered",
+      "chainId_pin_second_call_skips_getChainId": "covered",
+      "chainId_pin_mismatch_NetworkMismatchError": "covered",
+      "relayer_balance_0_proactive": "covered",
+      "relayer_balance_MIN_minus_1_proactive": "covered",
+      "relayer_balance_eq_MIN_passes": "covered",
+      "rpc_timeout": "covered",
+      "rpc_5xx": "covered",
+      "gas_estimate_revert": "covered",
+      "mine_timeout_distinct_class": "covered",
+      "receipt_reverted": "covered",
+      "reactive_insufficient_funds": "covered",
+      "auth_already_used_lowercase": "covered",
+      "auth_already_used_uppercase": "covered",
+      "undecoded_revert_fallback_receipt_reverted": "covered_but_duplicate",
+      "no_SecurityLogger_import": "covered",
+      "walletclient_opaque_key_no_leak": "covered_but_weak",
+      "settle_failure_no_noncestore_mutation": "covered_but_weak",
+      "NetworkMismatchError_exported": "covered"
+    }
+  },
+
+  "findings": [
+    {
+      "id": "T7-TEST-01",
+      "severity": "medium",
+      "category": "mock-structural-weakness",
+      "location": "settle.test.ts — 'settle failure does not call any NonceStore mutation'",
+      "title": "NonceStore spy is disconnected from settleOnChain — runtime assertion is vacuously true",
+      "description": "The test creates `const store = new NonceStore()` and spies on `store.insert`, but `store` is never passed into `settleOnChain` (it does not appear in `makeOpts`). The spy will never be called regardless of what `settle.ts` does. The assertion `expect(insertSpy).not.toHaveBeenCalled()` passes even if `settle.ts` imported and called NonceStore. The test's only real value is the static grep at the end.",
+      "litmus_test_failed": true,
+      "details": "The task spec anchor reads: 'mock a NonceStore spy; run verify (inserts entry) then settle (returns failure); assert nonceStore.delete/remove was never called by settle.' The intended test was a round-trip: call verify first (which inserts), then call settle with the same NonceStore, then assert settle never touched it. The implementation skips the verify step entirely.",
+      "replacement": {
+        "approach": "Wire a real NonceStore through both verify and settle in the same test.",
+        "example": "const store = new NonceStore();\nconst insertSpy = vi.spyOn(store, 'insert');\n// Step 1: verify inserts the nonce\nconst verifyResult = await verifyEip3009Authorization(payload, { ...verifyOpts, nonceStore: store });\nexpect(verifyResult.ok).toBe(true);\n// Step 2: settle fails, but must not touch the store\nconst insertCallsBefore = insertSpy.mock.calls.length;\nconst result = await settleOnChain(payload, SIGNER_ADDR, settleOpts);\nexpect(result).toMatchObject({ ok: false });\nexpect(insertSpy).toHaveBeenCalledTimes(insertCallsBefore); // no new calls from settle",
+        "note": "The static-grep portion of the current test is still valuable and should be retained."
+      }
+    },
+    {
+      "id": "T7-TEST-02",
+      "severity": "medium",
+      "category": "weak-synchrony-proof",
+      "location": "verify.test.ts — 'nonce store has-and-insert is synchronous (no await between)'",
+      "title": "Microtask sentinel test does not actually detect an await between has and insert",
+      "description": "The test schedules a `Promise.resolve().then(() => order.push('microtask-pre'))` BEFORE calling `verifyEip3009Authorization`. Because the test `await`s that Promise first, 'microtask-pre' lands at index 0 before verify runs at all. There are no microtasks queued between the has and insert calls inside verify. If someone introduced `await somethingAsync()` between `nonceStore.has()` and `nonceStore.insert()` in verify.ts, the order array would still show `['microtask-pre', 'has', 'insert']` — the assertion `insertIdx === hasIdx + 1` would still pass because no pending microtask exists to interleave.",
+      "litmus_test_failed": true,
+      "details": "The test asserts adjacency in the order array but cannot catch a true await-between-calls because no microtask is *pending* at the moment has fires. A correct sentinel must queue a microtask AFTER has fires (e.g. inject it inside the has spy implementation itself).",
+      "replacement": {
+        "approach": "Queue the sentinel microtask from inside the has spy, not before the outer await.",
+        "example": "const hasSpy = vi.spyOn(opts.nonceStore, 'has').mockImplementation(() => {\n  order.push('has');\n  // Queue a microtask that would interleave if there's an await after has\n  Promise.resolve().then(() => order.push('sentinel'));\n  return false;\n});\nconst insertSpy = vi.spyOn(opts.nonceStore, 'insert').mockImplementation(() => {\n  order.push('insert');\n});\nawait verifyEip3009Authorization(payload, opts);\n// If no await between has+insert, order is ['has','insert','sentinel'].\n// If there IS an await between them, order would be ['has','sentinel','insert'].\nconst hasIdx = order.indexOf('has');\nconst sentinelIdx = order.indexOf('sentinel');\nconst insertIdx = order.indexOf('insert');\nexpect(insertIdx).toBeLessThan(sentinelIdx); // insert fires before sentinel drains",
+        "note": "This is the only test style that would actually catch an inadvertent `await` being added between has and insert in future refactors."
+      }
+    },
+    {
+      "id": "T7-TEST-03",
+      "severity": "low",
+      "category": "duplicate-test",
+      "location": "settle.test.ts lines 232-239 and lines 297-304",
+      "title": "'undecoded receipt revert falls back to receipt_reverted' is an exact duplicate of 'receipt status reverted'",
+      "description": "Both tests set `waitForTransactionReceipt` to return `{ status: 'reverted' }` and assert `reason: 'receipt_reverted'`. They exercise the same code path in `settle.ts` (lines 386-389: `if receipt.status === 'success'` else return `receipt_reverted`). The 'undecoded' scenario the spec envisions — where a thrown exception has no decodable reason string — would require `waitForTransactionReceipt` to throw an error object, not return a reverted receipt. The two tests differ only in name.",
+      "litmus_test_failed": false,
+      "details": "The spec anchor says: 'receipt returns status === reverted but the revert reason cannot be decoded — classifier falls back to receipt_reverted.' This is about a WriteContract exception (where the classifier might try string-extract and fail), not a receipt object. A meaningful distinct test would mock `writeContract` to throw a `ContractFunctionExecutionError` whose cause has no shortMessage/metaMessages/reason string, and assert it falls back to `gas_estimate_revert` or `receipt_reverted` rather than `authorization_already_used_onchain`.",
+      "replacement": {
+        "approach": "Replace the duplicate 'undecoded' test with a throw-path test that has no decodable reason.",
+        "example": "it('ContractFunctionExecutionError with no decodable reason falls back to gas_estimate_revert', async () => {\n  walletWriteSpy.mockImplementation(async () => {\n    // cause.message is deliberately empty — no shortMessage, no metaMessages\n    const cause = new BaseError('');\n    throw new ContractFunctionExecutionError(cause, { abi: [], functionName: 'transferWithAuthorization' });\n  });\n  const result = await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));\n  // Must NOT classify as authorization_already_used_onchain\n  expect(result).toMatchObject({ ok: false, reason: 'gas_estimate_revert' });\n  expect(result).not.toMatchObject({ reason: 'authorization_already_used_onchain' });\n});"
+      }
+    },
+    {
+      "id": "T7-TEST-04",
+      "severity": "low",
+      "category": "vacuously-true-assertion",
+      "location": "settle.test.ts — 'WalletClient built from OpaqueRelayerKey — raw key not enumerable in errors'",
+      "title": "Raw key leak check serializes SettleResult, not the error or WalletClient state",
+      "description": "The test serializes `result` (a `{ ok: false, reason: 'gas_estimate_revert' }` object) and checks the raw key bytes do not appear in it. Since SettleResult carries only `ok`, `reason`, and optional `details`, the key can never appear in it regardless of implementation. The test would pass even if the raw key were appended to the `reason` string — only the exact field values are checked via `not.toContain`. A meaningful test would capture the caught error object or inspect module internals.",
+      "litmus_test_failed": true,
+      "details": "The test is fulfilling the spec anchor letter but not its spirit. The real risk is the key leaking in a thrown error's `.message`, `.stack`, or a `console.log` of the opts/config. The result object is not the vector.",
+      "replacement": {
+        "approach": "Also serialize the error thrown by walletWriteSpy if it is rethrown/captured, or snapshot the stringified opts.",
+        "example": "// Capture the error that writeContract would have thrown (before classify)\nlet capturedErr: unknown;\nwalletWriteSpy.mockImplementation(async () => {\n  const e = new BaseError('some error');\n  capturedErr = e;\n  throw e;\n});\n// After calling settleOnChain, confirm the opts passed to settle don't serialize the key\nconst serializedOpts = JSON.stringify(opts);\nexpect(serializedOpts.toLowerCase()).not.toContain(rawKeyStripped);\n// Also confirm result doesn't contain it\nexpect(JSON.stringify(result)).not.toContain(rawKeyStripped);"
+      }
+    },
+    {
+      "id": "T7-TEST-05",
+      "severity": "low",
+      "category": "missing-boundary-case",
+      "location": "verify.test.ts",
+      "title": "Exact validBefore == nowSec+5 boundary (the <= edge) is not tested",
+      "description": "The spec tests nowSec+4 (fails) and nowSec+6 (passes). The implementation uses `validBeforeMs <= nowMs + SAFETY_MARGIN_MS` which means nowSec+5 also fails (5000 <= 5000 is true). The exact fence-post at nowSec+5 is the boundary between fail and pass, and it is untested.",
+      "litmus_test_failed": false,
+      "details": "This is a low-severity gap; the existing +4/+6 tests already pin the operator direction. However fence-post tests at the exact boundary (equals case) are a standard item in the spec's testing strategy section and protect against a future operator flip from <= to <.",
+      "replacement": {
+        "approach": "Add a single test for validBefore at exactly nowSec+5.",
+        "example": "it('validBefore exactly at nowSec+5 fails (boundary is strict <=)', async () => {\n  const opts = freshOpts();\n  const nowSec = Math.floor(opts.nowMs / 1000);\n  const payload = await makePayload({ validBeforeSec: nowSec + 5 });\n  const result = await verifyEip3009Authorization(payload, opts);\n  expect(result).toEqual({ ok: false, reason: 'authorization_expired' });\n});"
+      }
+    }
+  ],
+
+  "positive_observations": [
+    "All 14 verify TDD anchors and all 19 settle TDD anchors are present — no mandatory spec anchor is absent.",
+    "verify.test.ts uses real privateKeyToAccount + signTypedData for all four domain-tamper tests; no signature mocking means the EIP-712 recovery path is exercised end-to-end for every tamper variant.",
+    "settle.test.ts correctly imports WaitForTransactionReceiptTimeoutError and TimeoutError as distinct viem classes — the mine_timeout vs rpc_timeout distinction is explicitly tested and the viem mock passes actual error instances (not plain objects), so the instanceof checks in settle.ts are exercised.",
+    "The MIN_RELAYER_USDC_BALANCE constant is imported by name in the three proactive-balance tests — tests reference the module constant, not a hardcoded literal. This is the correct fixture-reuse pattern.",
+    "The static-grep approach for SecurityLogger and replay-store checks is sound: it strips block and line comments before matching, avoiding false positives from documentation text.",
+    "The chainId-pin caching test uses __resetSettleCacheForTests() in beforeEach — deterministic and does not rely on module isolation hacks.",
+    "CAIP-2/alias normalization test passes the payload network as 'eip155:5042002' while opts.expectedNetwork is 'arc-testnet', correctly testing the cross-form comparison path.",
+    "The 'duplicate nonce rejected' test calls makePayload() twice with the same underlying nonce fixture, confirming the NonceStore actually retains the entry across calls."
+  ],
+
+  "overall_assessment": {
+    "branch_coverage": "All spec-required branches are covered. Both sides of every conditional (valid/invalid signature, each domain field tamper, to_mismatch, value, validBefore/validAfter boundaries, nonce replay, all 7 settlement reasons, chainId pin pass/fail) have at least one test.",
+    "table_driven_style": "Four domain-tamper tests share the makePayload() fixture with domain-override pattern — this is good table-driven style. The settle error tests also share makeOpts() + walletWriteSpy. No concern here.",
+    "mock_clarity": "PublicClient is a plain object stub — correct for unit tests. WalletClient is intercepted via vi.mock('viem'). The mocking is appropriately scoped (2 external deps in verify, 3 in settle — within the 3-dep limit). The only clarity issue is finding T7-TEST-01 where the NonceStore spy is not wired to the call under test.",
+    "fixture_reuse": "Fixtures from T6 primitives (NETWORKS, NonceStore, OpaqueRelayerKey) are imported and used, not redefined. Good reuse.",
+    "required_actions": [
+      "Fix T7-TEST-01 (medium): wire NonceStore spy through both verify and settle in the round-trip test.",
+      "Fix T7-TEST-02 (medium): replace microtask-pre scheduling with in-has-spy microtask queueing to make the synchrony proof robust."
+    ],
+    "optional_improvements": [
+      "T7-TEST-03: replace the duplicate undecoded-revert test with a meaningful no-decodable-reason exception test.",
+      "T7-TEST-04: extend the OpaqueRelayerKey test to also check serialized opts, not only SettleResult.",
+      "T7-TEST-05: add the fence-post test at validBefore == nowSec+5."
+    ]
+  },
+
+  "decision": {
+    "status": "needs_improvement",
+    "task_required": {
+      "needed": false,
+      "reason": "No critical or high severity issues. Both medium findings can be fixed in the current task context — they are targeted one- or two-line test corrections. The suite is functionally correct and all spec anchors are represented; the fixes improve structural robustness, not coverage count."
+    }
+  }
+}
