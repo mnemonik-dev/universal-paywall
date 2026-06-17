@@ -34,7 +34,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { NETWORKS, OpaqueRelayerKey } from '../packages/middleware/src/index.js';
-import { getRelayerKeySecret } from '../packages/middleware/src/relayer-key.js';
+import { getRelayerKeySecret, scrubSecrets } from '../packages/middleware/src/relayer-key.js';
 import type { NetworkConfig } from '../packages/middleware/src/types.js';
 
 const FACTORY_ABI = [
@@ -60,15 +60,11 @@ const ZERO_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
 interface Args {
   network: string;
   help: boolean;
-  /** Test-only: when --network=test-anvil, read TEST_FACTORY_ADDRESS from env
-   *  and bypass NETWORKS lookup. Gated on process.env.NODE_ENV === 'test'. */
-  allowTestNetwork: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
   let network = 'arc-testnet';
   let help = false;
-  let allowTestNetwork = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -78,9 +74,6 @@ function parseArgs(argv: string[]): Args {
         network = v;
         break;
       }
-      case '--allow-test-network':
-        allowTestNetwork = true;
-        break;
       case '--help':
       case '-h':
         help = true;
@@ -89,7 +82,7 @@ function parseArgs(argv: string[]): Args {
         throw new Error(`unknown flag: ${a}`);
     }
   }
-  return { network, help, allowTestNetwork };
+  return { network, help };
 }
 
 function printHelp(): void {
@@ -147,13 +140,18 @@ function buildTestNetwork(): NetworkConfig {
 }
 
 function classifyError(err: unknown): string {
+  // Defense-in-depth (per security-auditor SA-T11-01): scrub the message
+  // before pattern-matching so even if a future maintainer forwards the
+  // matched substring to stderr, no hex key can leak. The classifier
+  // returns only fixed tokens; it does NOT echo the message.
   if (err instanceof HttpRequestError) {
     const status = err.status;
     if (typeof status === 'number' && status >= 500) return 'rpc_5xx';
     return 'rpc_5xx';
   }
   const name = (err as { name?: string } | undefined)?.name ?? '';
-  const message = ((err as Error | undefined)?.message ?? '').toLowerCase();
+  const rawMessage = (err as Error | undefined)?.message ?? '';
+  const message = (scrubSecrets(rawMessage) as string).toLowerCase();
   if (name.includes('Timeout') || message.includes('timeout')) return 'rpc_timeout';
   if (name === 'EstimateGasExecutionError' || message.includes('estimate gas')) {
     return 'gas_estimate_revert';
@@ -190,11 +188,9 @@ async function run(): Promise<number> {
   const opaque = new OpaqueRelayerKey(rawKey);
 
   let network: NetworkConfig;
-  if (
-    args.network === 'test-anvil' &&
-    (process.env['NODE_ENV'] === 'test' || args.allowTestNetwork)
-  ) {
-    // Test-only branch — do not invoke from production scripts.
+  if (args.network === 'test-anvil' && process.env['NODE_ENV'] === 'test') {
+    // Test-only branch — gated EXCLUSIVELY on NODE_ENV=test (per
+    // security-auditor SA-T11-02). Do not invoke from production scripts.
     try {
       network = buildTestNetwork();
     } catch (err) {

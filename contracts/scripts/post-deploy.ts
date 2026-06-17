@@ -258,9 +258,12 @@ function main(): void {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
+  } catch {
+    // Static message per security-auditor SA-T11-03: do not forward the
+    // inner JSON parse error message, which could (in pathological inputs)
+    // echo a secret-shaped substring.
     throw new Error(
-      `failed to parse broadcast JSON at ${broadcastPath}: ${(err as Error).message}`,
+      `failed to parse broadcast JSON at ${broadcastPath} (malformed JSON; re-run forge script)`,
     );
   }
 

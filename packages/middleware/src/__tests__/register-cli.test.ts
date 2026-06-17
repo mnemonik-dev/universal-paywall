@@ -420,4 +420,23 @@ describeIfReady('scripts/register.ts (CLI)', () => {
     expect(result.stdout).toContain('REGISTER_KEY');
     expect(result.stdout).toContain('ARC_RPC_URL');
   });
+
+  it('register_never_prints_key_on_rpc_failure — error classification path scrubs hex keys', async () => {
+    // Per security-auditor SA-T11-05: also exercise the failure path —
+    // a valid REGISTER_KEY routed to an unreachable RPC must classify
+    // through classifyError() without leaking a hex pattern.
+    const result = await runRegister({
+      registerKey: DEVELOPER_KEY,
+      factoryAddress: fixture.factoryAddress,
+      // Port 1 is reserved/unbindable; the viem client surfaces a connection
+      // error that the CLI classifies as rpc_5xx / rpc_timeout / unknown.
+      rpcUrl: 'http://127.0.0.1:1',
+    });
+    expect(result.code).not.toBe(0);
+    const combined = result.stdout + result.stderr;
+    expect(combined).not.toContain(DEVELOPER_KEY);
+    expect(combined).not.toContain(DEVELOPER_KEY.slice(2));
+    expect(combined).not.toMatch(/0x[0-9a-fA-F]{64}/);
+    expect(result.stderr).toMatch(/register_failed:/);
+  }, 60_000);
 });

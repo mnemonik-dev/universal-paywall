@@ -168,6 +168,8 @@ forge verify-contract --chain-id 5042002 <factory_address> \
     $PLATFORM_TREASURY_ADDRESS 50)
 ```
 
+When you run this in CI, mask `$PLATFORM_TREASURY_ADDRESS` (and `$DEPLOYER_KEY`) in the job log output. GitHub Actions does this automatically for secrets registered as `secrets.*`; on other runners, redirect the `forge`/`cast` stdout through `sed` or use the runner's "mask" primitive — these addresses are public, but echoing them in log streams adds avoidable surface.
+
 `contracts/scripts/post-deploy.ts` is idempotent — re-running against the same broadcast artifact produces no diff. On the canonical `arc-testnet` chain it refuses to overwrite already-populated addresses without `--force`; pass `--force` only when you intentionally redeploy.
 
 ## Canonical environment variables
