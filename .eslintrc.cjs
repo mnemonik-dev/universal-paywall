@@ -28,6 +28,10 @@ module.exports = {
     'apps/',
     '**/*.cjs',
     '**/tsup.config.ts',
+    // Test files are excluded from the middleware tsconfig (build excludes
+    // __tests__); ESLint with typed-linting cannot parse files outside the
+    // referenced project. Vitest enforces correctness on these files.
+    'packages/middleware/src/__tests__/',
   ],
   rules: {
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
