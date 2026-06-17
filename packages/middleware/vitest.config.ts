@@ -8,6 +8,11 @@ export default defineConfig({
     // case in particular waits ~5 s for the factory-state cache TTL to expire).
     testTimeout: 60_000,
     hookTimeout: 30_000,
+    // Each test file gets a fresh module registry. Forked-e2e (T10) mutates
+    // the NETWORKS module export in place to register an "anvil-forked" row;
+    // explicit isolate: true guarantees that mutation cannot bleed into any
+    // other test file in the same worker (T10-R1-F3).
+    isolate: true,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

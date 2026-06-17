@@ -55,6 +55,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import Fastify, { type FastifyInstance } from 'fastify';
+import Ajv, { type ValidateFunction } from 'ajv';
 
 import { fastifyPaywall, OpaqueRelayerKey, withPaywall } from '@universal-paywall/middleware';
 import type { PaywallConfig } from '@universal-paywall/middleware';
@@ -288,6 +289,7 @@ interface SuiteState {
   factoryAddress: `0x${string}`;
   vaultImplAddress: `0x${string}`;
   developerAVault: `0x${string}`;
+  developerBComputedVault: `0x${string}`;
   nodeServerA: HttpServer; // developer A
   nodeServerAOrigin: string;
   fastifyServerA: FastifyInstance;
@@ -332,8 +334,9 @@ function buildConfig(developerEoa: `0x${string}`): PaywallConfig {
 // Side-stage a copy of NETWORKS keyed on our anvil chainId so the middleware
 // can resolve `network = 'eip155:31337'`. The middleware's `paywall(req,
 // opts)` reads `NETWORKS[opts.network]` — so we mutate the registry in place.
-// (This is test-only: vitest's process is isolated from production code, and
-// the suite tears the mutation down in `afterAll`.)
+// (This is test-only: vitest's `isolate: true` (vitest.config.ts) guarantees
+// each test FILE gets its own module registry, so this mutation cannot bleed
+// into other suites. afterAll tears it down for in-file cleanliness.)
 async function patchNetworksForAnvil(args: {
   factoryAddress: `0x${string}`;
   vaultImplAddress: `0x${string}`;
@@ -390,6 +393,7 @@ async function patchNetworksForAnvil(args: {
 }
 
 let restoreNetworks: (() => void) | undefined;
+let validate402: ValidateFunction | undefined;
 
 // ─── beforeAll: spawn anvil, deploy contracts, wire servers ──────────────────
 
@@ -486,6 +490,19 @@ describe('forked e2e', () => {
     })) as `0x${string}`;
     expect(developerAVault).not.toBe('0x0000000000000000000000000000000000000000');
 
+    // Compute (without deploying) the CREATE2 vault address developer B WOULD
+    // have if they ever called register(). Used by the vault_not_deployed test
+    // to sign an authorization whose `to` field matches the would-be vault —
+    // so the middleware's vault_not_deployed branch is reached on its own
+    // merits (factory.vaults(devB) === 0x0), not because of a `to_mismatch`
+    // shortcut against the zero address (T10-R1-F2).
+    const developerBComputedVault = (await publicClient.readContract({
+      address: factoryAddress,
+      abi: parseAbi(['function computeVaultAddress(address) view returns (address)']),
+      functionName: 'computeVaultAddress',
+      args: [walletDeveloperB.account!.address],
+    })) as `0x${string}`;
+
     // Step 7: mint USDC to the payer (account 2) and pre-fund the relayer
     //         (account 3) with USDC so the iter-3 §7 relayer-balance pre-check
     //         passes. The mock token has no native-gas semantics; anvil
@@ -567,6 +584,7 @@ describe('forked e2e', () => {
       factoryAddress,
       vaultImplAddress,
       developerAVault,
+      developerBComputedVault,
       nodeServerA,
       nodeServerAOrigin,
       fastifyServerA,
@@ -576,6 +594,17 @@ describe('forked e2e', () => {
       nodeServerPaused,
       nodeServerPausedOrigin,
     };
+
+    // Compile the vendored x402 v1 ChallengeBody validator so the node-http
+    // happy path can ajv-validate the 402 body (T10-R1-F5). The forked suite
+    // shares this fixture with arc-testnet-e2e (canonical path).
+    const schemaPath = path.resolve(__dirname, '..', 'fixtures', 'x402-v1.schema.json');
+    const schemaJson = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as object;
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    validate402 = ajv.compile({
+      ...(schemaJson as Record<string, unknown>),
+      $ref: '#/definitions/ChallengeBody',
+    });
   });
 
   afterAll(async () => {
@@ -606,6 +635,16 @@ describe('forked e2e', () => {
     // First GET — no X-PAYMENT → 402 with challenge body.
     const r402 = await httpGet(nodeServerAOrigin);
     expect(r402.status).toBe(402);
+    // ajv-validate against the vendored x402 v1 ChallengeBody schema so a
+    // missing required field (asset, resource, extra.assetTransferMethod, …)
+    // surfaces here rather than escaping into a wire-format drift (T10-R1-F5).
+    if (validate402 === undefined) throw new Error('ajv validator not initialized');
+    const ok402 = validate402(r402.body);
+    if (!ok402) {
+      // eslint-disable-next-line no-console
+      console.error('[forked-e2e] 402 body schema errors:', validate402.errors);
+    }
+    expect(ok402).toBe(true);
     const body402 = r402.body as Record<string, unknown>;
     expect(body402['x402Version']).toBe(1);
     expect(body402['error']).toBe('payment_required');
@@ -759,16 +798,17 @@ describe('forked e2e', () => {
 
   it('vault_not_deployed rejection: developer EOA has never called register() → 402 vault_not_deployed', async () => {
     if (state === undefined) throw new Error('state not initialized');
-    const { usdcAddress, nodeServerBOrigin } = state;
+    const { usdcAddress, developerBComputedVault, nodeServerBOrigin } = state;
 
-    const developerBVault = '0x0000000000000000000000000000000000000000' as const;
-
-    // Sign for the (non-existent) developer B vault — middleware will reject
-    // before verify even runs, since factory.vaults(devB) === 0x0.
+    // Sign for the developer B CREATE2-predicted vault address. The middleware
+    // looks up factory.vaults(devB), finds 0x0 (devB never called register()),
+    // and emits vault_not_deployed. Using the computed address (not 0x0) means
+    // the test reaches vault_not_deployed on its own merits — independent of
+    // any future re-ordering of the to_mismatch / verify check (T10-R1-F2).
     const nonce = randomNonceHex();
     const signed = await signEip3009Authorization({
       payerPk: ANVIL_KEYS[2],
-      to: developerBVault,
+      to: developerBComputedVault,
       value: PRICE_BASE_UNITS,
       nonce,
       usdcAddress,
@@ -815,7 +855,10 @@ describe('forked e2e', () => {
       expect(paused).toBe(true);
 
       // Wait for the middleware's 5 s factory-state cache TTL to expire.
-      await new Promise((r) => setTimeout(r, 5_500));
+      // 8 s gives a comfortable 3 s margin so a GC pause or slow CI runner
+      // never lands the request while the cache is still warm. Well within
+      // testTimeout: 60_000 (T10-R1-F1).
+      await new Promise((r) => setTimeout(r, 8_000));
 
       // Issue a signed request — middleware re-reads factory state, sees
       // `paused=true`, returns 402 paused.
