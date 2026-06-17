@@ -1,0 +1,180 @@
+{
+  "feature": "x402-agent-payment",
+  "task": "15",
+  "wave": 11,
+  "runner": "pre-deploy-qa",
+  "commit": "73062ea20d1ec2b9aad7be02bb944222e16704d9",
+  "runDate": "2026-06-17",
+  "techSpecStatus": "approved",
+  "status": "passed",
+  "verdict": "READY FOR DEPLOY",
+  "summary": {
+    "totalChecks": 51,
+    "passed": 47,
+    "failed": 0,
+    "notVerifiable": 4,
+    "criticals": 0,
+    "majors": 0,
+    "minors": 0
+  },
+  "testSuite": {
+    "status": "passed",
+    "details": "Middleware vitest 208/208 (+ 2 gated skipped); Foundry forge test 52/52; forked-e2e 5/5 (10.19 s); middleware coverage lines 96.69% / branches 88.88% / funcs 100%; forge branch coverage 100% on PaymentSplitterFactory and PaymentVaultImpl."
+  },
+  "suites": [
+    {
+      "command": "npm test --workspace=@universal-paywall/middleware -- --coverage",
+      "exitCode": 0,
+      "durationSec": 10.68,
+      "result": "208 passed, 2 skipped, 0 failed across 13 suites",
+      "coverage": { "lines": 96.69, "branches": 88.88, "functions": 100 },
+      "forkedE2eRan": true,
+      "forkedE2ePath": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "forkedE2eTests": 5
+    },
+    {
+      "command": "cd contracts && forge test",
+      "exitCode": 0,
+      "durationSec": 13.35,
+      "result": "52 passed, 0 failed across 3 suites (29 factory + 20 vault + 3 invariants)",
+      "fuzzRan": true,
+      "fuzzTests": ["testFuzz_FeeMath", "testFuzz_RegisterIdempotent"],
+      "invariantsRan": true,
+      "invariantsTests": ["invariant_VaultBalanceIntegrity", "invariant_FeeBpsBounded", "invariant_DeveloperNonZero"],
+      "invariantCallsPerRun": 128000
+    },
+    {
+      "command": "cd contracts && forge coverage --report summary --ir-minimum",
+      "exitCode": 0,
+      "result": "PaymentSplitterFactory: 100% branches (6/6); PaymentVaultImpl: 100% branches (4/4). Above >=95% gate."
+    },
+    {
+      "command": "ARC_TESTNET_E2E=1 npm run test:e2e --workspace=@universal-paywall/middleware",
+      "exitCode": null,
+      "result": "NOT RUN (env vars ARC_RPC_URL, PAYWALL_RELAYER_KEY, ARC_TESTNET_PAYER_PK, ARC_TESTNET_DEVELOPER_EOA, PAYMENT_SPLITTER_FACTORY_ADDRESS not present; gated for post-deploy / nightly CI)",
+      "deferredTo": "post-deploy-qa (Task 17)"
+    },
+    {
+      "command": "npm run build --workspace=@universal-paywall/middleware",
+      "exitCode": 0,
+      "result": "tsup ESM-only; dist/index.js 35.53 KB raw, 8.94 KB minified+gzip with viem external. Below 30 KB gate."
+    },
+    {
+      "command": "npm run typecheck --workspace=@universal-paywall/middleware",
+      "exitCode": 0,
+      "result": "strict, exactOptionalPropertyTypes, noUncheckedIndexedAccess, verbatimModuleSyntax — clean."
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0,
+      "result": "ESLint over middleware — clean."
+    },
+    {
+      "command": "cd contracts && forge build",
+      "exitCode": 0,
+      "result": "Solidity 0.8.20, OZ 5.x resolves, no warnings."
+    },
+    {
+      "command": "gitleaks detect --no-banner",
+      "exitCode": 1,
+      "result": "1 finding: documented public anvil pre-funded account-0 key in tasks/11.md:183 (audit-security I-SCRIPT-01, INFORMATIONAL). NOT A SECRET. Follow-up: .gitleaksignore entry."
+    }
+  ],
+  "acceptanceCriteria": [
+    { "id": "M-01", "section": "Middleware", "criterion": "withPaywall exported as Node http wrapper", "status": "passed", "evidence": "src/index.ts re-export; src/__tests__/index.test.ts + adapters/node-http.test.ts" },
+    { "id": "M-02", "section": "Middleware", "criterion": "fastifyPaywall exported as Fastify plugin", "status": "passed", "evidence": "src/__tests__/adapters/fastify.test.ts (5 tests)" },
+    { "id": "M-03", "section": "Middleware", "criterion": "No-X-PAYMENT → HTTP 402 ajv-valid against vendored x402 v1 schema", "status": "passed", "evidence": "src/__tests__/x402.test.ts (43 tests, ajv validateChallengeBody)" },
+    { "id": "M-04", "section": "Middleware", "criterion": "Valid X-PAYMENT → full settle pipeline (composite)", "status": "passed", "evidence": "src/core.ts; forked-e2e.test.ts node-http happy + fastify happy" },
+    { "id": "M-04a", "section": "Middleware", "criterion": "EIP-712 ecrecover, recovered == authorization.from", "status": "passed", "evidence": "src/verify.ts + verify.test.ts (4 tamper variants)" },
+    { "id": "M-04b", "section": "Middleware", "criterion": "to == factory.computeVaultAddress(developerEoa)", "status": "passed", "evidence": "verify.ts to_mismatch + verify.test.ts" },
+    { "id": "M-04c", "section": "Middleware", "criterion": "value >= maxAmountRequired (BigInt)", "status": "passed", "evidence": "verify.test.ts boundary" },
+    { "id": "M-04d", "section": "Middleware", "criterion": "validBefore > now + 5s and validAfter <= now", "status": "passed", "evidence": "verify.test.ts safety margin boundary tests" },
+    { "id": "M-04e", "section": "Middleware", "criterion": "NonceStore synchronous has+insert; TTL; 100k cap", "status": "passed", "evidence": "src/replay-store.ts checkAndInsert + replay-store.test.ts (9 tests)" },
+    { "id": "M-04f", "section": "Middleware", "criterion": "network match (CAIP-2 + alias normalized)", "status": "passed", "evidence": "verify.ts normalizeNetworkId + verify.test.ts + networks.test.ts" },
+    { "id": "M-04g", "section": "Middleware", "criterion": "factory.paused() off-chain check", "status": "passed", "evidence": "core.ts FactoryStateCache; core.test.ts + forked-e2e paused branch" },
+    { "id": "M-04h", "section": "Middleware", "criterion": "factory.vaults[developer] != 0 (vault_not_deployed gate)", "status": "passed", "evidence": "core.ts zero-vault short-circuit; core.test.ts + forked-e2e branch" },
+    { "id": "M-04i", "section": "Middleware", "criterion": "USDC.transferWithAuthorization settle via relayer", "status": "passed", "evidence": "src/settle.ts + settle.test.ts (23 tests) + forked-e2e on-chain settle" },
+    { "id": "M-04j", "section": "Middleware", "criterion": "waitForTransactionReceipt timeout 30s; status: success", "status": "passed", "evidence": "settle.test.ts mine_timeout + receipt_reverted classifiers" },
+    { "id": "M-04k", "section": "Middleware", "criterion": "HTTP 200 + X-PAYMENT-RESPONSE base64 JSON", "status": "passed", "evidence": "core.ts:620-625 + core.test.ts + forked-e2e XPR decode" },
+    { "id": "M-05", "section": "Middleware", "criterion": "Invalid signature → invalid_signature", "status": "passed", "evidence": "verify.test.ts 4 tamper variants" },
+    { "id": "M-06", "section": "Middleware", "criterion": "value < maxAmountRequired → insufficient_amount", "status": "passed", "evidence": "verify.test.ts" },
+    { "id": "M-07", "section": "Middleware", "criterion": "validBefore <= now + 5s → authorization_expired", "status": "passed", "evidence": "verify.test.ts safety margin + replay-store safety net" },
+    { "id": "M-08", "section": "Middleware", "criterion": "validAfter > now → authorization_not_yet_valid", "status": "passed", "evidence": "verify.test.ts" },
+    { "id": "M-09", "section": "Middleware", "criterion": "repeat (from, nonce) → nonce_already_used", "status": "passed", "evidence": "replay-store.test.ts + forked-e2e cross-adapter replay" },
+    { "id": "M-10", "section": "Middleware", "criterion": "on-chain settle failure → settlement_failed with 7-way reason", "status": "passed", "evidence": "settle.ts SettleReason + settle.test.ts (one test per reason)" },
+    { "id": "M-11", "section": "Middleware", "criterion": "X-PAYMENT.network != config.network → network_mismatch", "status": "passed", "evidence": "verify.test.ts" },
+    { "id": "M-12", "section": "Middleware", "criterion": "X-PAYMENT > 4 KB → HTTP 400 header_too_large", "status": "passed", "evidence": "x402.ts decodeXPayment + x402.test.ts" },
+    { "id": "M-13", "section": "Middleware", "criterion": "malformed → HTTP 400 malformed_payment_header", "status": "passed", "evidence": "x402.test.ts (base64 / json / shape phases)" },
+    { "id": "M-14", "section": "Middleware", "criterion": "NETWORKS dual-key map (alias + CAIP-2) same NetworkConfig reference", "status": "passed", "evidence": "src/networks.ts:84-91 + networks.test.ts (10 tests, reference equality)" },
+    { "id": "M-15", "section": "Middleware", "criterion": "Startup chainId pin throws NetworkMismatchError", "status": "passed", "evidence": "settle.ts first-use chainId pin + settle.test.ts" },
+    { "id": "M-16", "section": "Middleware", "criterion": "OpaqueRelayerKey redaction (non-enumerable, no leak in JSON.stringify / error stacks)", "status": "passed", "evidence": "src/relayer-key.ts WeakMap + relayer-key.test.ts (28 tests)" },
+    { "id": "M-17", "section": "Middleware", "criterion": "npm package shape: @universal-paywall/middleware, ESM-only", "status": "passed", "evidence": "package.json type:module, exports map import-only; tsup ESM build; publish happens in Task 16" },
+    { "id": "M-18", "section": "Middleware", "criterion": "Price-to-amount integer math; rejects malformed", "status": "passed", "evidence": "x402.ts parseUsdPrice + x402.test.ts (6 negative cases + happy)" },
+    { "id": "F-01", "section": "Factory", "criterion": "Constructor (usdc, treasury, feeBps); reverts on zero/excess", "status": "passed", "evidence": "PaymentSplitterFactory.t.sol test_Constructor_RevertsOnZero{Usdc,Treasury} + RevertsOnTooHighFee" },
+    { "id": "F-02", "section": "Factory", "criterion": "Ownable2Step (OZ 5.x)", "status": "passed", "evidence": "PaymentSplitterFactory.sol:5 import + 3 Ownable2Step tests" },
+    { "id": "F-03", "section": "Factory", "criterion": "Pausable", "status": "passed", "evidence": "PaymentSplitterFactory.sol:6 import + 4 pause/unpause tests" },
+    { "id": "F-04", "section": "Factory", "criterion": "Constructor deploys vaultImpl internally", "status": "passed", "evidence": "test_Constructor_VaultImplDeployedInternally" },
+    { "id": "F-05", "section": "Factory", "criterion": "register(): whenNotPaused, no double, cloneDeterministic salt=eoa, initialize, vaults mapping, emits VaultDeployed", "status": "passed", "evidence": "6 register-* tests in PaymentSplitterFactory.t.sol" },
+    { "id": "F-06", "section": "Factory", "criterion": "computeVaultAddress matches Clones.predictDeterministicAddress", "status": "passed", "evidence": "test_Register_PredictedAddressMatchesClonesPredict (3 EOAs)" },
+    { "id": "F-07", "section": "Factory", "criterion": "setFeeBps owner-only, cap 1000, emits FeeBpsUpdated", "status": "passed", "evidence": "4 SetFeeBps-* tests" },
+    { "id": "F-08", "section": "Factory", "criterion": "setPlatformTreasury owner-only, non-zero, emits PlatformTreasuryUpdated", "status": "passed", "evidence": "3 SetPlatformTreasury-* tests" },
+    { "id": "F-09", "section": "Factory", "criterion": "pause/unpause owner-only", "status": "passed", "evidence": "test_Pause_OwnerOnly + test_Unpause_OwnerOnly" },
+    { "id": "F-10", "section": "Factory", "criterion": "view getters present", "status": "passed", "evidence": "test_Constructor_HappyPathReadsAllState + test_Vaults_UnregisteredReturnsZero" },
+    { "id": "F-11", "section": "Factory", "criterion": "Contract verified on https://testnet.arcscan.app after deploy", "status": "not_verifiable", "evidence": "Deploy script wires --verify (README §Deploy + Deploy.s.sol:20); arcscan check requires live deploy, verified post-deploy by Task 17" },
+    { "id": "V-01", "section": "Vault", "criterion": "Initializable + storage-based ReentrancyGuard", "status": "passed", "evidence": "PaymentVaultImpl.sol:4-5 imports + test_D15_DirectInitializeOnImplReverts" },
+    { "id": "V-02", "section": "Vault", "criterion": "initialize(_developer): initializer modifier, non-zero, sets developer + factory", "status": "passed", "evidence": "4 Initialize-* tests + test_D17_DeveloperNonZeroAfterInit" },
+    { "id": "V-03", "section": "Vault", "criterion": "withdraw(): nonReentrant, dev-only, gross-fee math, developer-first transfer order, SafeERC20, emits Withdrawal", "status": "passed", "evidence": "10 Withdraw-* tests in PaymentVaultImpl.t.sol (happy + reentrancy + boundaries + fee edges)" },
+    { "id": "V-04", "section": "Vault", "criterion": "Withdraw works while factory.paused() == true", "status": "passed", "evidence": "test_Withdraw_WorksWhenFactoryPaused" },
+    { "id": "V-05", "section": "Vault", "criterion": "No setters for developer/factory", "status": "passed", "evidence": "test_D17_NoSetDeveloperSelector + test_D17_NoSetFactorySelector + grep" },
+    { "id": "V-06", "section": "Vault", "criterion": "No receive() payable", "status": "passed", "evidence": "test_D16_NativeTransferReverts + grep" },
+    { "id": "D-01", "section": "Deploy and testing", "criterion": "npm test middleware ≥85% line coverage", "status": "passed", "evidence": "lines 96.69%" },
+    { "id": "D-02", "section": "Deploy and testing", "criterion": "forge test + coverage ≥95% branch (supersedes hardhat per D9)", "status": "passed", "evidence": "forge branches 100% on both src contracts" },
+    { "id": "D-03", "section": "Deploy and testing", "criterion": "forked integration test runs in CI (no flag); covers both adapters", "status": "passed", "evidence": "forked-e2e.test.ts 5 tests; cross-adapter NonceStore + vault_not_deployed + paused branches" },
+    { "id": "D-04", "section": "Deploy and testing", "criterion": "Live Arc Testnet test gated on ARC_TESTNET_E2E=1", "status": "not_verifiable", "evidence": "File present with skipIf gate; live invocation deferred to post-deploy (env not present)" },
+    { "id": "D-05", "section": "Deploy and testing", "criterion": "Deploy script (forge script + post-deploy.ts) runs end-to-end", "status": "passed", "evidence": "Verified against local anvil in decisions.md Task 11" },
+    { "id": "D-06", "section": "Deploy and testing", "criterion": "README onboarding flow", "status": "passed", "evidence": "README.md §x402 onboarding for developers (lines 38-90)" },
+    { "id": "T-01", "section": "tech-spec", "criterion": "npm install + middleware build ESM-only", "status": "passed", "evidence": "tsup ESM build clean; package.json type:module, exports map import-only" },
+    { "id": "T-02", "section": "tech-spec", "criterion": "contracts compile (superseded: forge build per D9)", "status": "passed", "evidence": "forge build exit 0, Solidity 0.8.20, OZ 5.x resolves" },
+    { "id": "T-03", "section": "tech-spec", "criterion": "contracts ≥95% branch coverage (superseded: forge coverage per D9)", "status": "passed", "evidence": "100% branches on both src/ contracts" },
+    { "id": "T-04", "section": "tech-spec", "criterion": "middleware vitest ≥85% line coverage", "status": "passed", "evidence": "lines 96.69%" },
+    { "id": "T-05", "section": "tech-spec", "criterion": "Forked integration test passes in CI without env flag", "status": "passed", "evidence": "forked-e2e.test.ts 5 tests passed in 10.19 s" },
+    { "id": "T-06", "section": "tech-spec", "criterion": "Live Arc Testnet test passes when ARC_TESTNET_E2E=1", "status": "not_verifiable", "evidence": "Deferred to post-deploy (env not present)" },
+    { "id": "T-07", "section": "tech-spec", "criterion": "Deploy script outputs factory address; verifiable on arcscan", "status": "not_verifiable", "evidence": "Deploy script logs FACTORY_ADDRESS + VAULT_IMPL_ADDRESS (verified local anvil); arcscan verification requires live deploy" },
+    { "id": "T-08", "section": "tech-spec", "criterion": "No secrets committed; gitleaks blocks key-shaped patterns", "status": "passed", "evidence": "gitleaks pre-commit installed; only finding is documented public anvil key (informational, not a real secret)" },
+    { "id": "T-09", "section": "tech-spec", "criterion": "Bundle <30 KB minified+gzip (excluding viem)", "status": "passed", "evidence": "dist/index.js 8.94 KB minified+gzip with viem external" },
+    { "id": "T-10", "section": "tech-spec", "criterion": "engines.node ≥20; ESM-only exports map", "status": "passed", "evidence": "package.json:16-18 engines.node >=20; exports map has only import + types" }
+  ],
+  "auditCrossCheck": {
+    "audit-code": { "verdict": "advisory", "openBlockers": 0, "openMajors": 0, "minorsResolvedInAuditFix": 5 },
+    "audit-security": { "verdict": "CLEAR TO ADVANCE", "criticals": 0, "highs": 0, "mediums": 1, "lows": 4, "infos": 9, "openBlockers": 0, "mediumResolvedInAuditFix": true },
+    "audit-tests": { "verdict": "PASS", "openBlockers": 0, "lowRecommendations": 3 },
+    "audit-fix": { "round1": "APPROVED by code-auditor + security-auditor + test-auditor (PASS_WITH_NOTES)", "findingsClosed": 9 }
+  },
+  "deferredToPostDeploy": [
+    {
+      "criterion": "F-11: Contract verified on https://testnet.arcscan.app",
+      "reason": "Requires Task 16 to broadcast forge script --verify against Arc Testnet",
+      "verificationCondition": "Live factory address on Arc Testnet",
+      "verificationSteps": "Open https://testnet.arcscan.app/address/<factoryAddress> and confirm source is verified; if not, run README §Deploy fallback recipe (forge verify-contract --chain-id 5042002 ...)"
+    },
+    {
+      "criterion": "D-04 / T-06: Live Arc Testnet e2e (ARC_TESTNET_E2E=1)",
+      "reason": "Requires funded relayer key, payer, registered developer, deployed factory address — not present in dev environment",
+      "verificationCondition": "All five env vars set: ARC_RPC_URL, PAYWALL_RELAYER_KEY, ARC_TESTNET_PAYER_PK, ARC_TESTNET_DEVELOPER_EOA, PAYMENT_SPLITTER_FACTORY_ADDRESS",
+      "verificationSteps": "ARC_TESTNET_E2E=1 npm run test:e2e --workspace=@universal-paywall/middleware → assert exit 0; assert 402 ajv-schema-valid, 200 + X-PAYMENT-RESPONSE base64 decode, vault USDC balance delta equals value; capture live tx hash; resolve hash on https://testnet.arcscan.app"
+    },
+    {
+      "criterion": "T-07: Deploy script outputs factory address; verifiable on arcscan",
+      "reason": "Arcscan-side verification requires a live deploy",
+      "verificationCondition": "Live deploy completed (Task 16)",
+      "verificationSteps": "Read FACTORY_ADDRESS from forge broadcast log; cross-check against deployed factory storage via cast call; open address on https://testnet.arcscan.app and confirm verified"
+    },
+    {
+      "criterion": "T-11 (out of band) — README user walk-through",
+      "reason": "Task 11 Verify-user is a user-driven sign-off, not a deploy gate",
+      "verificationCondition": "User runs the README onboarding steps end-to-end",
+      "verificationSteps": "User: faucet → npx tsx scripts/register.ts → npm install + start middleware → hand-crafted EIP-3009 signer hits the endpoint; user confirms each step works as written"
+    }
+  ],
+  "findings": []
+}

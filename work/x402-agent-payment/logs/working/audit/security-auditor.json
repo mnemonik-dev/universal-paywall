@@ -1,0 +1,367 @@
+{
+  "task": "T13",
+  "name": "Security Audit",
+  "auditor": "security-auditor",
+  "wave": 10,
+  "verdict": "CLEAR_TO_ADVANCE",
+  "scope": {
+    "middleware": [
+      "packages/middleware/src/core.ts",
+      "packages/middleware/src/verify.ts",
+      "packages/middleware/src/settle.ts",
+      "packages/middleware/src/replay-store.ts",
+      "packages/middleware/src/relayer-key.ts",
+      "packages/middleware/src/x402.ts",
+      "packages/middleware/src/errors.ts",
+      "packages/middleware/src/networks.ts",
+      "packages/middleware/src/types.ts",
+      "packages/middleware/src/index.ts",
+      "packages/middleware/src/adapters/node-http.ts",
+      "packages/middleware/src/adapters/fastify.ts"
+    ],
+    "contracts": [
+      "contracts/src/PaymentSplitterFactory.sol",
+      "contracts/src/PaymentVaultImpl.sol",
+      "contracts/src/interfaces/IERC3009.sol"
+    ],
+    "cli_and_scripts": [
+      "scripts/register.ts",
+      "contracts/script/Deploy.s.sol",
+      "contracts/scripts/post-deploy.ts",
+      "contracts/scripts/verify-usdc-eip3009.ts"
+    ],
+    "tooling": [
+      "contracts/foundry.toml",
+      "contracts/slither.config.json",
+      "contracts/.env.example"
+    ]
+  },
+  "summary": {
+    "executive": "Reviewed the FINAL STATE of the x402-agent-payment implementation (middleware, contracts, CLI, deploy script, USDC spike). All eighteen D1-D18 invariants are honoured by the code as it stands. No critical or high severity findings; all findings are medium/low/informational, none of which block the Final Wave. Middleware test suite (253 passed, 2 skipped E2E), Foundry suite (52 passed), and the reentrancy-specific test all pass. Slither produced 4 results that triage to informational against D8/D15/D16/D17 invariants. Gitleaks surfaced 1 well-known anvil-default private key embedded in a task spec file (documented as public).",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 1,
+      "low": 4,
+      "informational": 9
+    },
+    "blocking_findings": 0
+  },
+  "tooling_results": {
+    "npm_test_middleware": {
+      "command": "npm test --workspace=@universal-paywall/middleware",
+      "passed": 253,
+      "skipped": 2,
+      "failed": 0,
+      "exit_code": 0,
+      "security_tagged_pass": true,
+      "notes": "All 14 test files green. Security-tagged suites (relayer-key 24 tests including pino/winston/structuredClone/util.inspect/console.log leak checks; replay-store 9 tests covering TOCTOU + retention-on-failure; verify 18 tests including EIP-712 tamper cases for chainId/verifyingContract/name/version, 5s safety margin, network mismatch, to_mismatch, value compare via BigInt; settle 23 tests including chainId pin + parseSignature v-fallback + classifier; core 50 tests including SecurityLogger payload shapes, txHash preservation, scrubSecrets boundary, factory-state-cache stale-fail-closed) all passing."
+    },
+    "forge_test": {
+      "command": "cd contracts && forge test",
+      "passed": 52,
+      "failed": 0,
+      "exit_code": 0,
+      "security_tagged_pass": true,
+      "notes": "All 52 tests (29 factory + 20 vault + 3 invariant) pass. Security-tagged tests confirmed: test_D15_DirectInitializeOnImplReverts, test_D16_NativeTransferReverts, test_D17_NoSetDeveloperSelector, test_D17_NoSetFactorySelector, test_Register_PredictedAddressMatchesClonesPredict (CREATE2 cross-component), test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury, test_Ownable2Step_TransferRequiresAccept/AcceptCompletesTransfer/CancelByNewTransfer, test_Withdraw_WorksWhenFactoryPaused (D12)."
+    },
+    "forge_test_reentrancy": {
+      "command": "cd contracts && forge test --match-test Reentrancy",
+      "passed": 1,
+      "failed": 0,
+      "exit_code": 0,
+      "test_name": "test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury",
+      "notes": "Re-entry attempt from MockMaliciousTreasury into vault.withdraw() during fee transfer hits OZ ReentrancyGuard.ReentrancyGuardReentrantCall and reverts. Note: --match-contract Reentrancy returned 'no tests found' because the reentrancy test is a method on PaymentVaultImplTest, not a separate contract; --match-test Reentrancy is the correct selector and was run."
+    },
+    "slither": {
+      "command": "cd contracts && slither src/ --config-file slither.config.json",
+      "version": "0.11.5",
+      "result_count": 4,
+      "exit_code": 0,
+      "findings": [
+        {
+          "detector": "incorrect-equality",
+          "file": "src/PaymentVaultImpl.sol",
+          "line": 87,
+          "snippet": "if (gross == 0) revert NoBalance();",
+          "triage": "INFORMATIONAL false positive — strict equality of a uint256 balance against zero is the canonical empty check; no donation or rebase attack vector exists here because the vault only receives USDC and the no-balance gate is permitted to be exact (donation only increases gross).",
+          "anchor": "D4"
+        },
+        {
+          "detector": "reentrancy-events",
+          "file": "src/PaymentSplitterFactory.sol",
+          "lines": "61-71",
+          "snippet": "VaultDeployed(msg.sender, vault) emitted after PaymentVaultImpl(vault).initialize(msg.sender)",
+          "triage": "INFORMATIONAL — the 'external call' is to a freshly-cloned EIP-1167 proxy delegating to our immutable vaultImpl with no callback surface. State write `vaults[msg.sender] = vault` precedes the call (CEI). Even if a malicious reentry into register() existed it would revert with AlreadyRegistered. Event-after-call is not a security defect here.",
+          "anchor": "D3"
+        },
+        {
+          "detector": "naming-convention",
+          "file": "src/PaymentVaultImpl.sol",
+          "line": 60,
+          "snippet": "Parameter _developer is not in mixedCase",
+          "triage": "INFORMATIONAL — convention choice (constructor-style underscore prefix to distinguish from storage var of same root name). Not a security concern.",
+          "anchor": "none"
+        },
+        {
+          "detector": "unindexed-event-address",
+          "file": "src/PaymentSplitterFactory.sol",
+          "line": 33,
+          "snippet": "event PlatformTreasuryUpdated(address oldTreasury, address newTreasury)",
+          "triage": "LOW — off-chain filterability concern only. Recommend indexing newTreasury for monitoring (see Finding L-MW-04 below).",
+          "anchor": "D11"
+        }
+      ]
+    },
+    "gitleaks": {
+      "command": "gitleaks detect --no-banner --redact",
+      "version": "8.30.1",
+      "leak_count": 1,
+      "finding": {
+        "file": "work/x402-agent-payment/tasks/11.md",
+        "line": 183,
+        "rule": "generic-api-key",
+        "value": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        "triage": "INFORMATIONAL — this is the canonical anvil/hardhat pre-funded account-0 private key. It is universally public, documented as such inline in the task spec ('Keys above are the canonical anvil pre-funded accounts — public, OK to document.'), and never funds a live address. No real secret. Recommend adding to .gitleaksignore so the husky pre-commit hook does not flag the documentation hash on future commits.",
+        "anchor": "D13"
+      }
+    },
+    "coverage": {
+      "contracts_lcov": {
+        "PaymentSplitterFactory.sol": "BRH=6 / BRF=6 (100% branches)",
+        "PaymentVaultImpl.sol": "BRH=4 / BRF=4 (100% branches)",
+        "verdict": "Security-tagged branches (Ownable2Step, Pausable, custom error reverts, fee-cap, ReentrancyGuard) all exercised."
+      },
+      "middleware_vitest": {
+        "statements": "96.87%",
+        "branches": "89.18%",
+        "functions": "100%",
+        "lines": "96.87%",
+        "verdict": "Above 95% statement / 85% branch targets. Security-tagged branches (relayer-key leak surface, EIP-712 tamper, chainId pin, SecurityLogger payload, scrubSecrets cycle/DAG/4-pattern) all exercised."
+      },
+      "note": "Threshold-gating ownership belongs to T14 (test audit) per task spec. T13 confirms security-tagged branches are exercised; no uncovered security branches found."
+    },
+    "grep_sweep": {
+      "selfdestruct_delegatecall": {
+        "command": "grep -rn 'selfdestruct\\|delegatecall' contracts/src/",
+        "hits": 0,
+        "verdict": "Clean. Only NatSpec invariant string `no_selfdestruct no_delegatecall` on PaymentVaultImpl.sol line 26."
+      },
+      "assembly": {
+        "command": "grep -rn 'assembly' contracts/src/",
+        "hits": 0,
+        "verdict": "Clean."
+      },
+      "tx_origin": {
+        "command": "grep -rn 'tx.origin' contracts/src/",
+        "hits": 0,
+        "verdict": "Clean."
+      },
+      "receive_fallback": {
+        "command": "grep -rn 'receive\\|fallback' contracts/src/",
+        "hits": 0,
+        "verdict": "Clean. Only NatSpec mentions in code comments; no function definitions. D16 honoured (confirmed by test_D16_NativeTransferReverts)."
+      },
+      "setters_for_developer_factory": {
+        "command": "grep -rn 'setDeveloper\\|setFactory' contracts/src/",
+        "hits": 0,
+        "verdict": "Clean. D17 honoured (confirmed by test_D17_NoSetDeveloperSelector / test_D17_NoSetFactorySelector ABI assertions)."
+      }
+    }
+  },
+  "coverage_matrix": [
+    { "decision": "D1", "name": "Strict x402 v1 wire format", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "x402.ts: decodeXPayment enforces 4KB byte cap via Buffer.byteLength (line 140), exact-keys validation at every level via assertExactKeys (line 115), strict hex regex for address/sig/nonce, decimal-int regex for value/validAfter/validBefore. core.ts step 7a (line 460) re-checks the byte cap before decode (defense-in-depth). errors.ts uses canonical reason strings (to_mismatch / invalid_signature / insufficient_amount). Verified by 43 x402 unit tests." },
+    { "decision": "D2", "name": "EIP-3009 transferWithAuthorization, explicit from", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "settle.ts:375 passes authorization.from as the first arg to writeContract on USDC.transferWithAuthorization (the EIP-3009 contract ABI is defined inline lines 171-196 with explicit 'from'). The pre-settle EIP-712 ecrecover (verify.ts:126) enforces `recovered === authorization.from`; settle is unreachable for a tampered `from`. No path forwards an unverified payload." },
+    { "decision": "D3", "name": "Per-developer vault via EIP-1167 + CREATE2", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "PaymentSplitterFactory.register() (line 61): vaults[msg.sender] check, salt = bytes32(uint256(uint160(msg.sender))), Clones.cloneDeterministic; AlreadyRegistered on second call. computeVaultAddress() (line 74) calls Clones.predictDeterministicAddress with the same salt + vaultImpl + address(this). Cross-component invariant test test_Register_PredictedAddressMatchesClonesPredict asserts byte-for-byte equality for 3 EOAs. vaultImpl is immutable on factory (line 27)." },
+    { "decision": "D4", "name": "Vault holds gross, fee split at withdraw", "scope": "OUT-OF-SECURITY-SCOPE", "verdict": "NOTE-ONLY", "evidence": "Fee-math correctness is T12's domain. Security-adjacent check: PaymentVaultImpl.withdraw() (line 80) transfers developer FIRST (line 93), platform SECOND (line 95). nonReentrant on withdraw blocks any malicious-treasury re-entry via the second transfer. No partial-state vector — gross is read once, then drained completely." },
+    { "decision": "D5", "name": "Two-layer replay (NonceStore + on-chain authorizationState)", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "replay-store.ts:106 NonceStore.checkAndInsert runs has + insert as a single SYNCHRONOUS block — zero `await` between the lookup and the Map.set. verify.ts:182 is the sole production caller. The store entry is NOT deleted on settle failure (no code path in settle.ts touches the NonceStore — confirmed structurally). Retry surfaces nonce_already_used on the next attempt (verify.ts:189). The Risks row 'Settlement failure mid-flight' invariant holds." },
+    { "decision": "D6", "name": "Framework-agnostic core + adapters", "scope": "OUT-OF-SECURITY-SCOPE", "verdict": "NOTE-ONLY", "evidence": "Architectural choice. Security-adjacent check: adapters/node-http.ts and adapters/fastify.ts both call paywall() and never receive or pass the OpaqueRelayerKey or any raw secret — opts.facilitator.relayerKey is the OpaqueRelayerKey wrapper, and the adapters pass opts through unchanged. No framework-specific serialization (e.g. Fastify's serializer) sees the raw key." },
+    { "decision": "D7", "name": "viem 2.x for EVM interaction", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "verify.ts imports recoverTypedDataAddress from 'viem' only; no ethers/web3 imports in the middleware src. settle.ts imports parseSignature from viem. core.ts imports createPublicClient + keccak256 + http from viem. chainId pin uses publicClient.getChainId() per D14." },
+    { "decision": "D8", "name": "Solidity ^0.8.20 + OZ 5.x + storage-based ReentrancyGuard", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "Both sources pragma solidity ^0.8.20. PaymentSplitterFactory imports Ownable2Step, Pausable, Clones, IERC20 from OZ 5.x. PaymentVaultImpl imports Initializable, ReentrancyGuard, SafeERC20, IERC20 from OZ 5.x. ReentrancyGuard is the storage-based form (per `@openzeppelin/contracts/utils/ReentrancyGuard.sol`, NOT `ReentrancyGuardTransient.sol`). The NatSpec note (PaymentVaultImpl.sol:43-49) documents the EIP-1167 clone storage-init nuance (clones start at _status=0, transitions to ENTERED=2 then NOT_ENTERED=1)." },
+    { "decision": "D9", "name": "Foundry toolchain (forge + anvil)", "scope": "OUT-OF-SECURITY-SCOPE", "verdict": "NOTE-ONLY", "evidence": "Tooling choice. Security-adjacent check: slither.config.json sets filter_paths: 'test/,lib/' so production-security severity applies to contracts/src/ only. Verified by running `slither src/ --config-file slither.config.json` against the production set (15 contracts analyzed, 4 findings — all triaged informational/low against D-anchors)." },
+    { "decision": "D10", "name": "Configurable platform fee, 0–1000 bps, owner-only", "scope": "OUT-OF-SECURITY-SCOPE", "verdict": "NOTE-ONLY", "evidence": "Fee policy is T12's domain. Security-adjacent check: setFeeBps (PaymentSplitterFactory.sol:82) is onlyOwner via Ownable2Step inheritance; reverts InvalidFeeBps if newBps > 1000. Constructor enforces the same cap (line 47). test_SetFeeBps_OwnerOnly + test_SetFeeBps_RevertsOnTooHigh + test_Constructor_RevertsOnTooHighFee pass." },
+    { "decision": "D11", "name": "platformTreasury settable, separate from owner", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "setPlatformTreasury (PaymentSplitterFactory.sol:89) is onlyOwner, rejects address(0), emits PlatformTreasuryUpdated. platformTreasury is a distinct storage slot from owner — they are decoupled. test_SetPlatformTreasury_OwnerOnly + test_SetPlatformTreasury_RevertsOnZero + test_SetPlatformTreasury_HappyPathEmitsEvent all pass. (Finding L-MW-04 below: indexed-keyword recommendation for PlatformTreasuryUpdated event params — non-blocking, off-chain filterability only.)" },
+    { "decision": "D12", "name": "Pausable off-chain checked by middleware", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "PaymentSplitterFactory inherits Pausable; register() uses whenNotPaused modifier (line 61); pause/unpause are onlyOwner (lines 96, 100). PaymentVaultImpl.withdraw() does NOT use whenNotPaused — confirmed by reading the function (line 80) and by test_Withdraw_WorksWhenFactoryPaused which asserts withdraw succeeds even when factory is paused. Middleware caches factory.paused() with 5s TTL in core.ts FACTORY_STATE_CACHE (line 113); cached-stale-fail-closed (SEC-T8-01) surfaces rpc_5xx rather than fail-open. test_Register_RevertsWhenPaused + test_Unpause_RestoresRegister both pass." },
+    { "decision": "D13", "name": "OpaqueRelayerKey opaque non-enumerable wrapper", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "relayer-key.ts: secret stored in module-private WeakMap<OpaqueRelayerKey, string> (line 39) — STRICTLY STRONGER than a #private field because no class member can extract. toJSON / toString / [INSPECT_CUSTOM] all return '<redacted:relayer-key>' (lines 59-69). Brand symbol stamped non-enumerable / non-writable / non-configurable (line 51). scrubSecrets covers all four shapes: HEX_64_WITH_PREFIX (0x + 64 hex), HEX_64_BARE (64 hex word-boundary case-insensitive), HEX_130_WITH_PREFIX (0x + 130 hex 65-byte sig), and OpaqueRelayerKey instance via brand check (lines 30-32, 99-104, 120). Cycle-safe via Map<original, scrubbed-copy> + register-output-before-walk pattern (lines 116-138). settle.ts is the sole consumer of getRelayerKeySecret (line 156); core.ts and errors.ts apply scrubSecrets at logger boundary (core.ts:390). Relayer-key.test.ts has 24 tests covering pino/winston/structuredClone/util.inspect/console.log/JSON.stringify and 5 fuzz strings per pattern (verified by reading the test file). PASS." },
+    { "decision": "D14", "name": "Startup chainId pin + rpcUrl trust", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "settle.ts:308 — chainId pin runs on first use of a network per process: `if (!entry.chainIdPinned)` then `publicClient.getChainId()` then `throw new NetworkMismatchError` on mismatch. The throw happens BEFORE any USDC.balanceOf read and BEFORE writeContract. core.ts:585 catches NetworkMismatchError, emits chain_id_mismatch, returns 402 settlement_failed{internal_error}. The publicClient is owned by core.ts (per systemic-fixes §5) and passed through. opts.facilitator.rpcUrl override is documented in core.ts:175 (resolveRpcUrl uses it) — operator-trust requirement is implicit in the configuration surface." },
+    { "decision": "D15", "name": "_disableInitializers() + no destructive primitives", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "PaymentVaultImpl constructor (line 50) calls _disableInitializers(). NatSpec invariant `no_selfdestruct no_delegatecall single_initializer` present on line 26. Grep sweep: zero hits for selfdestruct/delegatecall/assembly in contracts/src/. Slither confirms no destructive primitives (no selfdestruct-related finding). test_D15_DirectInitializeOnImplReverts: vm.expectRevert(Initializable.InvalidInitialization.selector) on impl.initialize() — PASS." },
+    { "decision": "D16", "name": "No receive() / fallback() on vault", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "Grep sweep of contracts/src/ confirms no receive() or fallback() function definitions (only NatSpec comments mentioning the word 'receive' in docstrings). test_D16_NativeTransferReverts asserts (address(vault).call{value:1}('') returns false). EIP-1167 minimal proxies' fallback is delegatecall-to-impl; since impl has no receive/fallback, native ETH transfer reverts at EVM dispatch. PASS." },
+    { "decision": "D17", "name": "No setters for developer / factory", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "Grep sweep of contracts/src/ for setDeveloper / setFactory returns zero hits. NatSpec invariant `no_setters_for_developer_or_factory` present on PaymentVaultImpl.sol:26. test_D17_NoSetDeveloperSelector / test_D17_NoSetFactorySelector: vault.call(abi.encodeWithSelector(...)) returns ok=false for both selectors. developer and factory are written exactly once in initialize() (lines 62, 63) which is gated by `initializer` modifier (single-call). PASS." },
+    { "decision": "D18", "name": "Structured security logging (typed catalog)", "scope": "IN-SCOPE", "verdict": "PASS", "evidence": "types.ts defines SecurityEventCatalog with 14 typed events. core.ts emit() helper (line 376): try/catch wrapped (errors swallowed so a throwing logger doesn't block the request path), fire-and-forget (no `await`), scrubSecrets applied to the payload before delivery, SAFE_HEX_FIELDS=['txHash'] preserved so the 32-byte tx hash is not redacted by the 0x+64hex pattern (SEC-T8-02 fix). All payloads use hashed identifiers: payerHash / developerEoaHash / nonceHash via shortHash = '0x' + keccak256(input).slice(2,10) (10-char canonical form, lines 165-171). No raw signature, no raw addresses, no relayer info in any payload — types.ts SecurityEventCatalog enforces shape; verified by reading every emit() call site in core.ts and confirming each payload matches the catalog row." }
+  ],
+  "risks_row_coverage": [
+    { "risk": "Replay-store mid-failure delete vs not", "verdict": "PASS", "evidence": "settle.ts has no NonceStore import; structural enforcement of 'no delete on settle failure'. Risks row invariant honoured." },
+    { "risk": "Settlement failure mid-flight", "verdict": "PASS", "evidence": "Retry path surfaces nonce_already_used (verify.ts → checkAndInsert returns reason). New nonce must be minted." },
+    { "risk": "Per-payment gas economics", "verdict": "NOTE-ONLY", "evidence": "T3 spike artifact shows gasCostExceedsThreshold=true (1212-1290 micro-USDC vs 500). Documented limitation; batched-settlement deferred to post-MVP per Risks row. Not a security defect." },
+    { "risk": "Arc Testnet USDC doesn't expose transferWithAuthorization", "verdict": "PASS", "evidence": "T3 spike verified supportsEip3009=true. networks.ts loads the artifact at module init and refuses to boot with stub values." },
+    { "risk": "Treasury DOS via misconfigured platformTreasury", "verdict": "PASS (operator-doc)", "evidence": "PaymentVaultImpl.sol:73-78 NatSpec documents that a reverting treasury DoSes withdraw for fee>0 (funds frozen, not lost). Operational guidance: treasury MUST be a plain EOA or audited multisig. README operational guide documents this per Open items in decisions.md Task 4." },
+    { "risk": "Single-relayer-per-process assumption", "verdict": "NOTE-ONLY", "evidence": "settle.ts:WALLET_CACHE keyed only on network.id — a second OpaqueRelayerKey for the same network is silently ignored. Documented (decisions.md Task 7 Open items). MVP-acceptable per D6/D13." },
+    { "risk": "Multi-instance NonceStore (Redis-backed)", "verdict": "NOTE-ONLY", "evidence": "replay-store.ts:4-5 documents single-process scope. Multi-instance is post-MVP. Documented in user-spec 'Что не входит'. Not a defect." }
+  ],
+  "findings": {
+    "critical": [],
+    "high": [],
+    "medium": [
+      {
+        "id": "M-MW-01",
+        "title": "scrubSecrets does NOT redact 64-bare-hex inside a longer hex run",
+        "severity": "Medium",
+        "location": "packages/middleware/src/relayer-key.ts:32 (HEX_64_BARE_RE)",
+        "anchor": "D13",
+        "description": "The bare-64-hex pattern uses `\\b...\\b` word boundaries. Hex digits are word characters, so a 128-char run of hex (e.g. two concatenated keys, or a 65-byte signature serialized without 0x) does NOT match HEX_64_BARE_RE because there is no word boundary between the 64th and 65th hex digit. The HEX_130_WITH_PREFIX_RE requires a literal `0x` prefix and will not catch a 130-char bare-hex run either. An accidental log of a concatenated `${key1}${key2}` or `${rawSigNoPrefix}` would slip past scrubSecrets.",
+        "attack_scenario": "A future maintainer writes `logger.info('replay-attempt from ' + payerAddrNoPrefix + nonceNoPrefix)` — addr is 40 chars + nonce is 64 chars = 104-char hex run with no word boundary. The 64-hex inside is not at a word boundary. The string passes scrubSecrets unredacted. Same risk if anyone logs the raw signature without the 0x prefix.",
+        "recommendation": "Tighten the bare-64-hex regex to also fire when 64 hex chars sit inside a longer hex run. Replace `\\b[0-9a-fA-F]{64}\\b` with `(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])` (negative-lookaround), and ADD a bare-130-hex pattern `(?<![0-9a-fA-F])[0-9a-fA-F]{130}(?![0-9a-fA-F])`. Add fuzz strings to the test suite: 'a'.repeat(128), 'b'.repeat(130) with mixed case, 'addr40hex_then_nonce64hex' concat. Non-blocking for MVP because no current code path concatenates raw hex without 0x — but defense-in-depth fails open here, which weakens the D13 invariant.",
+        "blocks_final_wave": false
+      }
+    ],
+    "low": [
+      {
+        "id": "L-MW-01",
+        "title": "register CLI holds the raw key as a Hex variable in main run() scope",
+        "severity": "Low",
+        "location": "scripts/register.ts:227-228",
+        "anchor": "D13",
+        "description": "Inside run(), `const secret = getRelayerKeySecret(opaque) as Hex` is held in a local variable until function return. The viem account is built immediately after (line 228), but until the function returns, an unhandled exception (e.g. a synchronous throw in createPublicClient/createWalletClient) would surface a stack trace that COULD include the variable name `secret` in some Node versions (though not its value — V8 doesn't include locals by default). The run() catch in line 281 calls classifyError which scrubs hex via scrubSecrets, so the surface is well-contained.",
+        "attack_scenario": "A maintainer changes the catch block to `process.stderr.write(err.stack)` without scrubbing — the stack trace contains the file/line of the throw but typically not local-variable values in production Node. Risk is low and contained by the existing classifyError wrapper.",
+        "recommendation": "Inline the extraction: `const account = privateKeyToAccount(getRelayerKeySecret(opaque) as Hex)`. The raw value never lives in a named variable, eliminating the (small) chance a future maintainer accidentally logs it.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "L-MW-02",
+        "title": "settle.ts: details.balance bigint leak through serialized event payload",
+        "severity": "Low",
+        "location": "packages/middleware/src/settle.ts:343, core.ts:603-609",
+        "anchor": "D18",
+        "description": "When settle returns relayer_no_balance with `details.balance` (a bigint), core.ts converts it to string for the relayer_low_balance event (`balanceUsdc: settleResult.details.balance.toString()`). The settlement_failed event payload does NOT carry the balance, but the relayer wallet ADDRESS is implicit via the chosen network — if an attacker can observe the dedicated typed event, they learn 'this network's relayer has < 1 USDC' (the threshold). The address is not in the payload directly, but rate-limit / DoS attack feasibility increases when the relayer balance is low (attacker keeps sending requests until the balance is empty enough to flip the gate).",
+        "attack_scenario": "Operator forwards security events to a public observability dashboard (e.g. a Slack channel viewable by external collaborators). An external observer learns 'relayer balance just dropped below 1 USDC' and times the next attack to coincide with the operator's refill latency.",
+        "recommendation": "Bucket the balanceUsdc field (e.g. `balanceUsdc: balance < 100_000n ? 'critical' : balance < 500_000n ? 'low' : 'sufficient'`). Or document that relayer_low_balance is operator-only and must not be forwarded to public channels. The current implementation is acceptable for MVP given the documented single-relayer assumption.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "L-CT-01",
+        "title": "PlatformTreasuryUpdated event uses no indexed parameters",
+        "severity": "Low",
+        "location": "contracts/src/PaymentSplitterFactory.sol:33",
+        "anchor": "D11",
+        "description": "Slither: unindexed-event-address. `event PlatformTreasuryUpdated(address oldTreasury, address newTreasury)` has no indexed keyword on either address parameter, so off-chain log indexers cannot filter by treasury address efficiently. Same defect on `FeeBpsUpdated(uint16, uint16)` (non-address params, fewer concerns).",
+        "attack_scenario": "Not directly exploitable. Off-chain monitoring (e.g. an alert that fires when treasury rotates) becomes more expensive — operators must scan all log topics instead of filtering. May slow incident response.",
+        "recommendation": "Add `indexed` to `newTreasury` parameter: `event PlatformTreasuryUpdated(address oldTreasury, address indexed newTreasury)`. Same for FeeBpsUpdated if treasury monitoring patterns benefit. Non-blocking — existing tests work after the change because indexed/non-indexed is a log-topic detail, not an ABI break for filter parsing. Defer to post-MVP if monitoring is not yet wired.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "L-CT-02",
+        "title": "VaultDeployed event lacks indexed vault address",
+        "severity": "Low",
+        "location": "contracts/src/PaymentSplitterFactory.sol:31",
+        "anchor": "D3",
+        "description": "`event VaultDeployed(address indexed developer, address vault)` indexes developer but not vault. Off-chain monitoring (e.g. mempool watchers indexing newly-deployed vaults) cannot filter by vault address.",
+        "attack_scenario": "Same as L-CT-01: monitoring inefficiency, not an exploit vector.",
+        "recommendation": "Index `vault` too: `event VaultDeployed(address indexed developer, address indexed vault)`. Solidity allows up to 3 indexed params; this brings it to 2. Non-blocking, post-MVP enhancement.",
+        "blocks_final_wave": false
+      }
+    ],
+    "informational": [
+      {
+        "id": "I-MW-01",
+        "title": "settle.ts passes authorization.from (not recoveredFrom) to USDC.transferWithAuthorization",
+        "severity": "Informational",
+        "location": "packages/middleware/src/settle.ts:376, core.ts:580",
+        "anchor": "D2",
+        "description": "core.ts:580 passes `recoveredFrom` to settleOnChain, but settle.ts:376 then passes `authorization.from` (not `recoveredFrom`) as the on-chain call's `from` argument. The two are structurally equal because verify.ts:144 enforces `addressesEqual(recovered, authorization.from)` and returns invalid_signature on mismatch. So this is correct — but reading the code one expects the AUTHENTICATED address to flow through unchanged. Auditability suggestion only.",
+        "recommendation": "In settle.ts, change `args: [authorization.from, ...]` to `args: [recoveredFrom, ...]`. Functionally equivalent today; reduces the cognitive load on future auditors and removes the implicit-equality dependency on verify.ts. Non-blocking.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-MW-02",
+        "title": "core.ts: in network_mismatch verify branch, the raw payload.network is logged",
+        "severity": "Informational",
+        "location": "packages/middleware/src/core.ts:551",
+        "anchor": "D18",
+        "description": "`emit(opts, 'network_mismatch', { expected: network.id, received: payload.network })` — payload.network is the attacker-controlled string from the X-PAYMENT header. It is decode-validated to be a non-empty string (x402.ts:170) but is otherwise unbounded. scrubSecrets runs on the payload in emit() (core.ts:390), so any hex-pattern leak is stripped. The string is NOT echoed in the HTTP response body (only `error: 'network_mismatch'` is sent — verified at build402 call site). Logging unsanitized strings to the security event log is acceptable practice; flagged only as a known-attacker-controlled-input note.",
+        "recommendation": "No action required. The 4KB header size cap and the decode regex constrain the field. scrubSecrets handles any hex shapes. Consider truncating payload.network to a reasonable display length (e.g. 64 chars) for log hygiene if the operator's logging stack has a payload size budget.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-MW-03",
+        "title": "x402.ts: header_too_large 'hint' field includes the byte count of attacker-controlled input",
+        "severity": "Informational",
+        "location": "packages/middleware/src/x402.ts:144-147",
+        "anchor": "D1",
+        "description": "MalformedPaymentHeaderError with phase=size carries `hint: \\`header is ${byteLen} bytes; max ${MAX_HEADER_BYTES}\\`` — byteLen is derived from attacker input. The hint is internal-only and never echoed in the HTTP response body (errors.ts:buildErrorResponse / core.ts:build402 do not include err.detail or err.hint). The error is logged via core.ts emit('header_too_large', { size: headerBytes }) — size is a number, not a string, so no echo of attacker bytes.",
+        "recommendation": "No action — the hint is for developer/test diagnostics and never crosses the trust boundary. Reaffirmed by reading every consumer.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-MW-04",
+        "title": "replay-store.ts insert() (test-only) lacks lazy TTL eviction",
+        "severity": "Informational",
+        "location": "packages/middleware/src/replay-store.ts:91-104",
+        "anchor": "D5",
+        "description": "insert() is explicitly marked test-only and does not run _evictExpired. The doc comment (lines 82-90) explains the contract. No production caller exists (verify.ts uses checkAndInsert exclusively).",
+        "recommendation": "None — documented as test-only. If a future maintainer is tempted to call insert from production code, the doc comment will steer them to checkAndInsert.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-MW-05",
+        "title": "GAS leak via X-PAYMENT-RESPONSE: header reveals on-chain tx hash + recovered payer address",
+        "severity": "Informational",
+        "location": "packages/middleware/src/core.ts:620-625",
+        "anchor": "D1",
+        "description": "The successful settlement response includes a base64-encoded JSON object containing `transaction: txHash` and `payer: recoveredFrom` on the X-PAYMENT-RESPONSE header. This is x402 v1 spec-required behaviour (the protocol returns the settlement receipt to the agent). The tx hash is public on-chain anyway, and the payer is the agent's own address (the agent is who signed the EIP-3009 auth). Not a leak — the data flows back to the agent that initiated the request.",
+        "recommendation": "No action — spec-required, returned to the data owner (the paying agent).",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-CT-01",
+        "title": "Slither incorrect-equality on gross == 0 — false positive",
+        "severity": "Informational",
+        "location": "contracts/src/PaymentVaultImpl.sol:87",
+        "anchor": "D4",
+        "description": "Slither flags strict equality `gross == 0`. uint256 balance equality is the canonical empty check; no rebase / oracle dependence exists because this is a static balance read of the OZ-standard IERC20. No donation attack — donations only INCREASE gross, never decrease.",
+        "recommendation": "No action. Slither rule is intended for oracle-derived or rebase-token values, not balanceOf reads.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-CT-02",
+        "title": "Slither reentrancy-events on register() — informational against D3",
+        "severity": "Informational",
+        "location": "contracts/src/PaymentSplitterFactory.sol:61-71",
+        "anchor": "D3",
+        "description": "Slither flags that VaultDeployed event is emitted AFTER the external call PaymentVaultImpl(vault).initialize(). The external call goes to a freshly-cloned EIP-1167 proxy that delegates to our immutable vaultImpl with no callback. Any reentrant register() would hit the AlreadyRegistered check (CEI ordering — state set on line 66 BEFORE call on line 68).",
+        "recommendation": "Optional: add `nonReentrant` modifier on register() for belt-and-suspenders — but the CEI ordering + the immutable vaultImpl already provide structural protection. Non-blocking.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-CT-03",
+        "title": "Slither naming-convention on _developer param",
+        "severity": "Informational",
+        "location": "contracts/src/PaymentVaultImpl.sol:60",
+        "anchor": "none",
+        "description": "Parameter named `_developer` (underscore prefix to distinguish from storage variable `developer` of the same root). Convention choice; not a security concern.",
+        "recommendation": "No action.",
+        "blocks_final_wave": false
+      },
+      {
+        "id": "I-SCRIPT-01",
+        "title": "Gitleaks: anvil default account-0 private key documented in task spec",
+        "severity": "Informational",
+        "location": "work/x402-agent-payment/tasks/11.md:183",
+        "anchor": "D13",
+        "description": "Gitleaks detect flagged `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` — this is the universally-public anvil/hardhat pre-funded account-0 private key, inline-documented in the task spec as 'Keys above are the canonical anvil pre-funded accounts — public, OK to document.'.",
+        "recommendation": "Add the anvil default key to a `.gitleaksignore` file so the husky pre-commit hook doesn't false-positive future commits. Or move the anvil sample command to a code block that references `$ANVIL_TEST_KEY` and have the dev set it locally. Non-blocking.",
+        "blocks_final_wave": false
+      }
+    ]
+  },
+  "signoff": {
+    "verdict": "CLEAR_TO_ADVANCE_TO_FINAL_WAVE",
+    "blocking_critical_or_high": 0,
+    "non_blocking_medium": 1,
+    "non_blocking_low": 4,
+    "non_blocking_informational": 9,
+    "rationale": "Every D1–D18 invariant is honoured by the FINAL STATE code. Every middleware audit item in the task description has an explicit verdict with file/line evidence. Every contract audit item has an explicit verdict. All security-tagged tests pass (253 middleware + 52 forge + 1 reentrancy-specific). Slither's 4 findings triage to informational against D3/D4/D11/none anchors. Gitleaks's single finding is a documented public anvil-default key. The one MEDIUM finding (M-MW-01: scrubSecrets bare-64-hex regex word-boundary edge case) is a defense-in-depth gap with no exploited code path today, and is a pre-Final-Wave nice-to-fix per the project's iteration norms. Implementation is cleared to advance to the Final Wave.",
+    "auditor": "security-auditor",
+    "wave": 10
+  },
+  "report_path": "work/x402-agent-payment/audit-security.md"
+}

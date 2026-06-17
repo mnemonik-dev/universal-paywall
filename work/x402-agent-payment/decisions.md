@@ -577,3 +577,42 @@ Test quality dimensions audited:
 - Add a test for the `core.ts:430` unknown-network branch emitting `reason='chain_id_mismatch'` (T14-R1-I1).
 - Optional `{64,4096}` cap on `HEX_BARE_RUN_RE` in `relayer-key.ts` for diagnostic ergonomics on mega-blob inputs (I-AF-01).
 - Pre-existing low/info findings from the original Wave 10 audits (out-of-scope by severity): L-MW-01 (register CLI variable lifetime), L-MW-02 (relayer_low_balance bucket), L-CT-01/02 (event indexing for off-chain monitoring), `.gitleaksignore` for anvil default account-0 key, tech-spec layout refresh for Foundry conventions, T12-06..T12-09 nits.
+
+## Task 15: Pre-deploy QA (Wave 11)
+
+**Status:** Done
+**Agent:** pre-deploy-qa
+**Commit at run:** `73062ea20d1ec2b9aad7be02bb944222e16704d9`
+**Tech-spec frontmatter:** `status: approved` — gate satisfied.
+**Verdict:** **READY FOR DEPLOY** (47/51 ACs passed, 4 deferred to post-deploy by definition, 0 failures, 0 open audit blockers).
+
+**Summary:** Walked all 51 acceptance criteria across the 5 sections (Middleware 18, Factory 11, Vault 6, Деплой 6, tech-spec technical complement 10). Every code-side AC carries mechanical evidence (file/line of source + named test that exercises it). The four deferred ACs (F-11 arcscan verification, D-04/T-06 live Arc Testnet e2e, T-07 deploy-script arcscan check) all describe the live environment that Task 16 produces and Task 17 verifies — they are structurally not verifiable pre-deploy and the Task 10 e2e file `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts` already carries the `ARC_TESTNET_E2E=1` skip gate by design.
+
+**Suite results:**
+- `npm test --workspace=@universal-paywall/middleware -- --coverage` → exit 0, 208 passed + 2 skipped across 13 suites; forked-e2e (`packages/middleware/src/__tests__/integration/forked-e2e.test.ts`) ran in 10.19 s (5 tests). Coverage: 96.69 % lines / 88.88 % branches / 100 % functions (above 85 % gate).
+- `cd contracts && forge test` → exit 0, 52 passed / 0 failed (29 factory + 20 vault + 3 invariants). Fuzz (`testFuzz_FeeMath`, `testFuzz_RegisterIdempotent`) and 3 invariants (`invariant_VaultBalanceIntegrity`, `invariant_FeeBpsBounded`, `invariant_DeveloperNonZero`) all ran with 256 runs each (128 000 invariant calls).
+- `cd contracts && forge coverage --report summary --ir-minimum` → exit 0, branch coverage **100 %** on both `src/PaymentSplitterFactory.sol` (6/6) and `src/PaymentVaultImpl.sol` (4/4) (above 95 % gate).
+- `npm run build --workspace=@universal-paywall/middleware` → exit 0, tsup ESM-only; `dist/index.js` 35.53 KB raw, **8.94 KB minified+gzip** with `viem` external (below 30 KB gate).
+- `npm run lint`, `npm run typecheck`, `cd contracts && forge build` → all exit 0.
+- `gitleaks detect --no-banner` → 1 finding: documented public anvil default account-0 key in `tasks/11.md:183` (audit-security I-SCRIPT-01, informational; follow-up `.gitleaksignore` already tracked in audit-fix open items).
+- `ARC_TESTNET_E2E=1 npm run test:e2e` → NOT RUN (env vars not present in dev environment); deferred to nightly CI / post-deploy.
+
+**Audit cross-check:** All three Wave-10 audits (T12 code, T13 security, T14 tests) returned no blockers; the Wave-10 audit-fix round closed all 9 minor/medium findings with code-auditor + security-auditor + test-auditor APPROVED verdicts. No open blocker remains in `audit-code.md`, `audit-security.md`, or `audit-tests.md`.
+
+**Deferred to post-deploy (Task 17):**
+- F-11 — Contract verified on `https://testnet.arcscan.app` after deploy.
+- D-04 / T-06 — Live Arc Testnet e2e (`ARC_TESTNET_E2E=1`) against deployed factory.
+- T-07 — Deploy script address verifiable on arcscan.
+- (Out-of-band) Task 11 `Verify-user` — README user walk-through, awaiting user.
+
+**Deviations:** None from the AC set as written. Two user-spec wording items were superseded by binding addenda — both are documented and accepted:
+- User-spec "Деплой и тестирование" mentions `npx hardhat test` / `hardhat run deploy/...` — superseded by D9 + iter-4 §1 Foundry migration. Equivalent forge commands are spec'd in tech-spec Acceptance Criteria and verified above.
+- User-spec mentions `contracts/test/integration/forked-e2e.test.ts` — superseded by iter-4 §4 T10: the forked-e2e file lives at `packages/middleware/src/__tests__/integration/forked-e2e.test.ts` and runs under vitest (anvil spawned as a child process, contracts deployed programmatically via viem reading Foundry artifacts from `contracts/out/`).
+
+**Verification:**
+- Full markdown report: [qa-report.md](qa-report.md)
+- Structured JSON for orchestrator: [logs/working/pre-deploy-qa/report.json](logs/working/pre-deploy-qa/report.json)
+- Mirror copy of markdown for skill workspace: [logs/working/pre-deploy-qa/audit-pre-deploy-qa.md](logs/working/pre-deploy-qa/audit-pre-deploy-qa.md)
+
+**Post-deploy QA must verify the 4 deferred ACs above on the live Arc Testnet environment after Task 16 completes.**
+

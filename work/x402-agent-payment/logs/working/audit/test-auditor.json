@@ -1,0 +1,299 @@
+{
+  "task": "T14 Test Audit",
+  "auditor": "test-auditor",
+  "verdict": "PASS",
+  "summary": "All hard requirements satisfied. Middleware vitest coverage 96.87% lines / 89.18% branches (target >=85%). Contracts forge LCOV branch coverage 100% on contracts/src/ (target >=95%). 3 invariants present in VaultInvariants.t.sol, both testFuzz_FeeMath and testFuzz_RegisterIdempotent present (runs=1000 under CI profile), MockMaliciousTreasury dynamic reentrancy test present and passing, slither reentrancy detection clean (0 findings), cross-adapter NonceStore replay test in single-process forked-e2e present, every tech-spec Testing Strategy bullet maps to an executable test. 3 low-severity recommendations (no blocking gaps).",
+  "report_paths": {
+    "markdown": "work/x402-agent-payment/audit-tests.md",
+    "json": "work/x402-agent-payment/logs/working/audit/test-auditor.json"
+  },
+  "coverage": {
+    "middleware": {
+      "tool": "vitest + @vitest/coverage-v8",
+      "command": "npm test --workspace=@universal-paywall/middleware -- --coverage",
+      "lines_pct": 96.87,
+      "branches_pct": 89.18,
+      "functions_pct": 100.00,
+      "statements_pct": 96.87,
+      "target_lines_pct": 85,
+      "verdict": "PASS",
+      "per_file": {
+        "errors.ts": {"lines": 100, "branches": 100},
+        "replay-store.ts": {"lines": 100, "branches": 100},
+        "relayer-key.ts": {"lines": 100, "branches": 100},
+        "verify.ts": {"lines": 100, "branches": 100},
+        "adapters/fastify.ts": {"lines": 100, "branches": 100},
+        "adapters/node-http.ts": {"lines": 100, "branches": 100},
+        "core.ts": {"lines": 96.5, "branches": 86.02},
+        "settle.ts": {"lines": 95.89, "branches": 84.48},
+        "x402.ts": {"lines": 95.76, "branches": 86.48},
+        "networks.ts": {"lines": 86.5, "branches": 42.85, "note": "uncovered branches are T3-artefact BLOCKER path + boot-warning notes[] loop (defensive paths suppressed under UP_SUPPRESS_T3_NOTES=1)"}
+      },
+      "test_count": "253 passed, 2 skipped (skips are gated arc-testnet-e2e live calls)"
+    },
+    "contracts": {
+      "tool": "forge coverage --report lcov",
+      "command": "cd contracts && forge coverage --report lcov",
+      "scope": "contracts/src/ only (test/, script/, lib/ excluded from numerator and denominator)",
+      "branches_hit": 10,
+      "branches_found": 10,
+      "branches_pct": 100.0,
+      "lines_hit": 47,
+      "lines_found": 50,
+      "lines_pct": 94.0,
+      "target_branches_pct": 95,
+      "verdict": "PASS",
+      "per_file": {
+        "src/PaymentSplitterFactory.sol": {
+          "branches_pct": 100,
+          "lines_pct": 93.55,
+          "uncovered_lines": [97, 100, 101],
+          "uncovered_line_note": "single-statement _pause() / _unpause() function bodies; exercised by test_Pause_BlocksRegister, test_Unpause_RestoresRegister, test_Pause_OwnerOnly, test_Unpause_OwnerOnly. LCOV instrumentation quirk for inherited modifier wrappers, not a real gap. Branch metric (the gate) is 100%."
+        },
+        "src/PaymentVaultImpl.sol": {
+          "branches_pct": 100,
+          "lines_pct": 94.74,
+          "uncovered_lines": [51],
+          "uncovered_line_note": "OZ Initializable _disableInitializers() helper line; functionally exercised by test_D15_DirectInitializeOnImplReverts."
+        }
+      }
+    }
+  },
+  "hard_requirements": {
+    "VaultInvariants_t_sol_exists_with_ge_3_invariants": {
+      "status": "PASS",
+      "file": "contracts/test/invariants/VaultInvariants.t.sol",
+      "invariant_count": 3,
+      "invariants": [
+        {"name": "invariant_VaultBalanceIntegrity", "line": 104, "property": "mockUsdc.balanceOf(vault) == handler.totalMinted() - handler.totalWithdrawn()"},
+        {"name": "invariant_FeeBpsBounded", "line": 113, "property": "factory.feeBps() <= 1000"},
+        {"name": "invariant_DeveloperNonZero", "line": 118, "property": "vault.developer() != address(0)"}
+      ],
+      "runs": 256,
+      "calls_per_run": "16384 (default) / 128000 (standard profile)",
+      "handler": "VaultHandler with bounded entry points (depositToVault, withdrawFromVault, setFeeBps) and targetSelector whitelist"
+    },
+    "testFuzz_FeeMath": {
+      "status": "PRESENT",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "line": 285,
+      "runs": 1000,
+      "ci_profile": "FOUNDRY_PROFILE=ci",
+      "assertions": "fee + net == gross, fee <= gross, vault fully drained, dev/treasury balance deltas match"
+    },
+    "testFuzz_RegisterIdempotent": {
+      "status": "PRESENT",
+      "file": "contracts/test/PaymentSplitterFactory.t.sol",
+      "line": 307,
+      "runs": 1000,
+      "ci_profile": "FOUNDRY_PROFILE=ci",
+      "assertions": "second register reverts AlreadyRegistered, first register populates vaults mapping",
+      "assumptions": "dev != address(0), uint160(dev) > 9 (excludes precompile range)"
+    },
+    "MockMaliciousTreasury_dynamic_reentrancy_test": {
+      "status": "PRESENT",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "line": 224,
+      "test_name": "test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury",
+      "mocks_used": ["test/mocks/MockMaliciousTreasury.sol", "test/mocks/MockUsdcWithHook.sol"],
+      "assertion": "ReentrancyGuard.ReentrancyGuardReentrantCall.selector revert + state rollback (vault balance unchanged, dev unfunded)"
+    },
+    "slither_reentrancy_clean": {
+      "status": "PASS",
+      "command": "cd contracts && slither --detect reentrancy-eth,reentrancy-no-eth src/",
+      "findings": 0
+    },
+    "cross_adapter_replay_protection": {
+      "status": "PRESENT",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line": 771,
+      "test_name": "cross-adapter NonceStore replay rejection: pay via node-http, retry IDENTICAL X-PAYMENT on fastify -> 402 nonce_already_used",
+      "process_topology": "single process — single anvil spawn + single vitest worker — both adapter servers in the same module instance, NonceStore module-scope singleton"
+    },
+    "both_adapters_unit_and_forked_e2e": {
+      "status": "PASS",
+      "node_http_unit": "packages/middleware/src/__tests__/adapters/node-http.test.ts (4 tests)",
+      "fastify_unit": "packages/middleware/src/__tests__/adapters/fastify.test.ts (5 tests)",
+      "node_http_forked": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts:631",
+      "fastify_forked": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts:710"
+    },
+    "register_cli_scrub": {
+      "status": "PRESENT",
+      "file": "packages/middleware/src/__tests__/register-cli.test.ts",
+      "tests": [
+        {"line": 332, "name": "register_never_prints_key — no 32-byte hex appears in stdout or stderr"},
+        {"line": 455, "name": "register_never_prints_key_on_rpc_failure — error classification path scrubs hex keys"}
+      ]
+    },
+    "seven_settle_reasons_separate_tests": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/settle.test.ts",
+      "reasons": {
+        "rpc_timeout": [189, 447],
+        "rpc_5xx": [202, 218, 174],
+        "gas_estimate_revert": [238, 332],
+        "mine_timeout": [255],
+        "receipt_reverted": [267],
+        "relayer_no_balance": [134, 149, 164, 277],
+        "authorization_already_used_onchain": [290, 312]
+      }
+    },
+    "four_eip712_tamper_tests": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/verify.test.ts",
+      "tests": {
+        "chainId": 100,
+        "verifyingContract": 108,
+        "domain_name": 118,
+        "domain_version": 124
+      }
+    },
+    "network_id_normalization_roundtrip_plus_unknown": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/networks.test.ts",
+      "lines": [60, 65, 70]
+    },
+    "to_mismatch_dedicated_test": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/verify.test.ts",
+      "line": 130
+    },
+    "disableInitializers_impl_hijack": {
+      "status": "PASS",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "line": 67
+    },
+    "abi_no_receive_no_setter_assertions": {
+      "status": "PASS",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "tests": {
+        "no_native_accept": 79,
+        "no_setDeveloper": 89,
+        "no_setFactory": 95
+      }
+    },
+    "relayer_key_redaction": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/relayer-key.test.ts",
+      "redactors": {
+        "util_inspect": 25,
+        "pino": 59,
+        "winston": 75,
+        "structuredClone": 30,
+        "JSON_stringify": 14,
+        "toString": 19,
+        "error_stack_64hex": 202,
+        "non_enumerable": 36
+      }
+    },
+    "factory_state_cache_ttl_tests": {
+      "status": "PASS",
+      "file": "packages/middleware/src/__tests__/core.test.ts",
+      "tests": {
+        "ttl_hit_5s": 288,
+        "ttl_refresh_after_5s_fake_timers": 299,
+        "non_zero_vault_pinned_forever": 320,
+        "rpc_error_no_cache_rpc_5xx": 341,
+        "rpc_error_non_stale_cache_passthrough": 362,
+        "rpc_error_stale_cache_rpc_5xx": 419
+      },
+      "fake_timers": true
+    },
+    "fee_math_edge_cases": {
+      "status": "PASS",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "tests": {
+        "feeBps_0": 150,
+        "feeBps_1000": 161,
+        "dust_truncation_1_micro_USDC": 171,
+        "boundary_199": 180,
+        "boundary_200": 189,
+        "fee_snapshot_semantics": 205
+      }
+    },
+    "create2_cross_component_invariant": {
+      "status": "PASS",
+      "file": "contracts/test/PaymentSplitterFactory.t.sol",
+      "line": 92,
+      "test_name": "test_Register_PredictedAddressMatchesClonesPredict",
+      "eoa_count": 3,
+      "solidity_side": "OpenZeppelin Clones.predictDeterministicAddress(factory.vaultImpl(), salt, address(factory))"
+    },
+    "ajv_schema_validation_402_body": {
+      "status": "PASS",
+      "fixture": "packages/middleware/src/__tests__/fixtures/x402-v1.schema.json",
+      "additional_properties_strict": true,
+      "assertions": [
+        "packages/middleware/src/__tests__/x402.test.ts:89",
+        "packages/middleware/src/__tests__/x402.test.ts:412",
+        "packages/middleware/src/__tests__/errors.test.ts:170",
+        "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts:235"
+      ]
+    }
+  },
+  "tech_spec_coverage_matrix": "See work/x402-agent-payment/audit-tests.md 'Tech-spec Testing Strategy Coverage Matrix' section — every Testing Strategy bullet (unit + contract + forked-e2e + register-cli) maps to an executable test (file::line::name). All PRESENT, no MISSING, no WEAK.",
+  "test_quality": {
+    "meaningful_assertions": {
+      "verdict": "PASS",
+      "notes": "All non-trivial paths assert concrete values (algebraic identities in fuzz tests, exact 402 body shape + SecurityLogger emit payloads in unit tests, on-chain balance deltas + authorizationState in forked-e2e). No toBeTruthy()-only patterns found on critical paths."
+    },
+    "test_isolation": {
+      "verdict": "PASS",
+      "notes": "vitest isolate:true (per-file module registry); beforeEach resets module-scope caches (__resetSettleCacheForTests, vi.clearAllMocks); forked-e2e patchNetworksForAnvil returns teardown closure called from afterAll; register-cli uses NODE_ENV=test bypass to avoid mutating shared NETWORKS. forge tests are per-test isolated by EVM reset."
+    },
+    "mock_realism": {
+      "verdict": "PASS",
+      "notes": "MockUsdcEip3009 mirrors Circle FiatTokenV2_2 EIP-712 domain. settle.test.ts partially mocks viem (only createWalletClient + http; preserves privateKeyToAccount + signTypedData). MockPublicClient covers exactly the methods called; throws on unhandled functionName to surface new RPC calls as test failures.",
+      "observations": [
+        "Mock USDC name='USD Coin' vs live Arc Testnet USDC name='USDC' — intentional, documented in decisions.md Task 3. The live arc-testnet-e2e uses correct production name.",
+        "MockUsdcEip3009.transferWithAuthorization does NOT validate signatures — signature path is exercised by viem real recovery in verify.ts unit tests and by live arc-testnet-e2e."
+      ]
+    },
+    "sleep_based_flakiness": {
+      "verdict": "PASS",
+      "notes": "All deterministic time-control uses vi.useFakeTimers(). Real setTimeout uses are limited to (a) anvil port-readiness polling, (b) anvil SIGTERM->SIGKILL teardown grace, (c) one 8s real-clock wait in forked-e2e paused-request test to elapse the 5s cache TTL. None are flakiness vectors; the 8s wait is flagged as L1 for ergonomics."
+    },
+    "over_mocking": {
+      "verdict": "PASS",
+      "notes": "core.ts tests mock verifySpy/settleSpy (downstream boundaries) — those modules have their own dedicated unit tests with real cryptography. No instance of mocking the unit under test or mocking the assertion subject. Reentrancy guard exercised by real OZ ReentrancyGuard."
+    }
+  },
+  "recommendations": [
+    {
+      "severity": "low",
+      "id": "T14-L1",
+      "title": "Replace 8s real-clock sleep in forked-e2e paused-request test",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line": 861,
+      "rationale": "Cache TTL is already deterministically pinned at the unit level (core.test.ts:299 with vi.useFakeTimers). The forked-e2e variant is a path-coverage smoke; the 8s wall-clock wait can be replaced by an RPC-override that forces a cache miss, removing the wait entirely.",
+      "blocking": false
+    },
+    {
+      "severity": "low",
+      "id": "T14-L2",
+      "title": "Document mock-vs-live USDC name divergence with a single shared constant",
+      "files": ["packages/middleware/src/__tests__/integration/forked-e2e.test.ts:358,664,725,782,815,872"],
+      "rationale": "Mock USDC uses 'USD Coin' (matches Circle FiatTokenV2_2 reference) while live Arc Testnet returns 'USDC' (T3 spike). The divergence is intentional and documented in decisions.md, but a single shared constant (MOCK_USDC_NAME = 'USD Coin', LIVE_USDC_NAME = 'USDC') would make a future Circle name change easier to absorb.",
+      "blocking": false
+    },
+    {
+      "severity": "low",
+      "id": "T14-L3",
+      "title": "Document forge LCOV instrumentation quirk for inherited modifier wrappers",
+      "files": ["contracts/src/PaymentSplitterFactory.sol:97,100,101"],
+      "rationale": "Lines 97/100/101 (pause/unpause function bodies, single-statement _pause()/_unpause() calls) show as missed by forge coverage --report lcov even though test_Pause_BlocksRegister + test_Unpause_RestoresRegister fully exercise the modifier chain. CI gates should target the branch metric (100%) and document the line-coverage quirk in the gate config to avoid spurious failures.",
+      "blocking": false
+    }
+  ],
+  "commands_run": [
+    "npm test --workspace=@universal-paywall/middleware -- --coverage --reporter=basic",
+    "cd contracts && forge coverage --report lcov",
+    "cd contracts && FOUNDRY_PROFILE=ci forge test --match-test 'testFuzz_|invariant_' -vv",
+    "cd contracts && forge test",
+    "cd contracts && slither --detect reentrancy-eth,reentrancy-no-eth src/",
+    "awk per-file BRF/BRH/LF/LH aggregation over contracts/lcov.info filtered to SF:src/"
+  ],
+  "blockers": [],
+  "missing_or_weak_items": [],
+  "deferred_to_post_deploy_qa": []
+}
