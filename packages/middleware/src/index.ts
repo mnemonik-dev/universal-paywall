@@ -1,3 +1,40 @@
+/**
+ * Public ESM exports for `@universal-paywall/middleware`.
+ *
+ * Surface limited to the integrator-facing API per task-8 spec:
+ *   - `withPaywall` (Node http adapter)
+ *   - `fastifyPaywall` (Fastify plugin)
+ *   - `NETWORKS` (chain registry)
+ *   - `SecurityLogger` (typed event interface) + event catalog types
+ *   - Public types: `PaywallConfig`, `NetworkConfig`, `PaymentRequirements`,
+ *     `PaymentPayload`, `ExactEvmPayload`, `OpaqueRelayerKey`.
+ *
+ * Internal helpers are intentionally NOT re-exported: `verify`, `settle`,
+ * `NonceStore`, the `OpaqueRelayerKey` extract symbol, `FactoryStateCache`,
+ * `replay-store` internals.
+ */
+
+export { withPaywall } from './adapters/node-http.js';
+export type { NodeHttpHandler } from './adapters/node-http.js';
+
+export { fastifyPaywall } from './adapters/fastify.js';
+
+export { NETWORKS } from './networks.js';
+
+export type {
+  SecurityLogger,
+  SecurityEventCatalog,
+  SecurityEventName,
+  PaywallCoreOptions,
+  PaywallRequest,
+  PaywallResult,
+} from './core.js';
+
+// OpaqueRelayerKey: the class is the public constructor agents use to wrap a
+// raw private key. The internal `getRelayerKeySecret` extract function is
+// NOT exported (settle.ts imports it directly from `./relayer-key.js`).
+export { OpaqueRelayerKey } from './relayer-key.js';
+
 export type {
   ExactEvmPayload,
   NetworkConfig,
@@ -6,47 +43,3 @@ export type {
   PaymentRequirements,
   PaywallConfig,
 } from './types.js';
-
-export {
-  build402Body,
-  decodeXPayment,
-  encodeXPaymentResponse,
-  InvalidPriceError,
-  MalformedPaymentHeaderError,
-  parseUsdPrice,
-} from './x402.js';
-export type { MalformedHeaderDetail, X402ChallengeBody, XPaymentResponse } from './x402.js';
-
-export { buildErrorResponse, NetworkMismatchError } from './errors.js';
-export type {
-  ErrorContext,
-  ErrorReason,
-  ErrorReason400,
-  ErrorReason402,
-  ErrorResponseEnvelope,
-  SettlementSubReason,
-} from './errors.js';
-
-export { verifyEip3009Authorization } from './verify.js';
-export type { VerifyOptions, VerifyReason, VerifyResult } from './verify.js';
-
-export { MIN_RELAYER_USDC_BALANCE, settleOnChain } from './settle.js';
-export type { PublicClientLike, SettleOptions, SettleReason, SettleResult } from './settle.js';
-
-export { NETWORKS, normalizeNetworkId } from './networks.js';
-
-// NOTE: `getRelayerKeySecret` is intentionally NOT re-exported here.
-// It is the only path to extract the wrapped key, and only `settle.ts`
-// (which imports it directly from `./relayer-key.js`) should consume it.
-// Keeping it off the package's public surface prevents downstream
-// applications from accidentally discovering / using it.
-export { OpaqueRelayerKey, scrubSecrets } from './relayer-key.js';
-
-export { NonceStore } from './replay-store.js';
-export type {
-  CheckAndInsertInput,
-  CheckAndInsertResult,
-  HasInput,
-  InsertInput,
-  NonceStoreOptions,
-} from './replay-store.js';
