@@ -185,28 +185,26 @@ describe('verifyEip3009Authorization', () => {
     expect(result).toEqual({ ok: true, recoveredFrom: signer.address });
   });
 
-  it('nonce store has-and-insert is synchronous (no await between)', async () => {
+  it('nonce store uses checkAndInsert (production primitive), NOT raw has+insert', async () => {
     const payload = await makePayload();
     const opts = freshOpts();
-    const order: string[] = [];
-    const hasSpy = vi.spyOn(opts.nonceStore, 'has').mockImplementation(() => {
-      order.push('has');
-      return false;
-    });
-    const insertSpy = vi.spyOn(opts.nonceStore, 'insert').mockImplementation(() => {
-      order.push('insert');
-    });
-    // Schedule a microtask between has and insert; if there's an
-    // await between them in verify.ts, this microtask will land
-    // between them and we'd see ['has', 'microtask', 'insert'].
-    await Promise.resolve().then(() => order.push('microtask-pre'));
-    await verifyEip3009Authorization(payload, opts);
-    expect(hasSpy).toHaveBeenCalledTimes(1);
-    expect(insertSpy).toHaveBeenCalledTimes(1);
-    const hasIdx = order.indexOf('has');
-    const insertIdx = order.indexOf('insert');
-    expect(hasIdx).toBeGreaterThanOrEqual(0);
-    expect(insertIdx).toBe(hasIdx + 1);
+    const hasSpy = vi.spyOn(opts.nonceStore, 'has');
+    const insertSpy = vi.spyOn(opts.nonceStore, 'insert');
+    const checkSpy = vi.spyOn(opts.nonceStore, 'checkAndInsert');
+    const result = await verifyEip3009Authorization(payload, opts);
+    expect(result).toEqual({ ok: true, recoveredFrom: signer.address });
+    // `checkAndInsert` is the atomic, TOCTOU-safe primitive documented in
+    // replay-store.ts; `insert` is marked test-only. verify.ts must call
+    // checkAndInsert and only checkAndInsert.
+    expect(checkSpy).toHaveBeenCalledTimes(1);
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: signer.address,
+        nonce: NONCE,
+      }),
+    );
+    expect(hasSpy).not.toHaveBeenCalled();
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 
   it('duplicate nonce rejected as nonce_already_used', async () => {

@@ -169,22 +169,21 @@ export async function verifyEip3009Authorization(
     return { ok: false, reason: 'network_mismatch' };
   }
 
-  // Synchronous TOCTOU-safe block — has + insert with no await between.
-  // Do NOT introduce any async work between these two calls.
-  if (
-    opts.nonceStore.has({
-      from: authorization.from,
-      nonce: authorization.nonce,
-      now: nowMs,
-    })
-  ) {
-    return { ok: false, reason: 'nonce_already_used' };
-  }
-  opts.nonceStore.insert({
+  // Synchronous TOCTOU-safe block — handled inside NonceStore.checkAndInsert,
+  // which is the documented production primitive (replay-store.ts marks
+  // `insert` as "Test-only"). `checkAndInsert` additionally enforces a
+  // defense-in-depth safety net: `validBefore <= now` is refused here too,
+  // so a future regression that drops the 5s margin check above can't
+  // sneak an already-dead authorization into the store.
+  const checkResult = opts.nonceStore.checkAndInsert({
     from: authorization.from,
     nonce: authorization.nonce,
     validBefore: validBeforeMs,
+    now: nowMs,
   });
+  if (!checkResult.accepted) {
+    return { ok: false, reason: checkResult.reason };
+  }
 
   return { ok: true, recoveredFrom: recovered };
 }

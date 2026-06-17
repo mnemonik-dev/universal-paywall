@@ -249,11 +249,12 @@ function classifyWriteError(err: unknown): {
     return { reason: 'rpc_timeout' };
   }
   if (err instanceof HttpRequestError) {
-    const status = err.status;
-    if (typeof status === 'number' && status >= 500) {
-      return { reason: 'rpc_5xx' };
-    }
-    return { reason: 'rpc_timeout' };
+    // Any HTTP-layer error from the RPC transport classifies as `rpc_5xx`
+    // (the closest bucket in the seven-reason taxonomy). The previous
+    // implementation collapsed non-5xx HttpRequestError into `rpc_timeout`,
+    // which conflates rate-limit (429) and auth (401) with actual
+    // timeouts — misleading for operators reading event logs.
+    return { reason: 'rpc_5xx' };
   }
   if (err instanceof InsufficientFundsError) {
     return { reason: 'relayer_no_balance' };
@@ -291,7 +292,9 @@ export async function settleOnChain(
     NETWORKS as Record<string, NetworkConfig | undefined>
   )[opts.network];
   if (network === undefined) {
-    throw new NetworkMismatchError(0, 0);
+    throw new Error(
+      `settleOnChain: unknown network ${JSON.stringify(opts.network)} — not present in NETWORKS registry`,
+    );
   }
 
   let entry = WALLET_CACHE.get(network.id);
@@ -320,7 +323,15 @@ export async function settleOnChain(
       functionName: 'balanceOf',
       args: [entry.account.address],
     });
-    balance = raw as bigint;
+    if (typeof raw !== 'bigint') {
+      // Defensive: a misbehaving RPC / test double could return a
+      // non-bigint here. We refuse to fall through with a numeric
+      // value (BigInt-vs-Number comparisons would still work, but
+      // any downstream `details: { balance }` field would leak the
+      // wrong type). Classify as rpc_5xx — the data plane is broken.
+      return { ok: false, reason: 'rpc_5xx' };
+    }
+    balance = raw;
   } catch (err) {
     const classified = classifyWriteError(err);
     return { ok: false, ...classified };
@@ -337,9 +348,22 @@ export async function settleOnChain(
   const { authorization, signature } = payload.payload;
   const sig = parseSignature(signature);
   // EIP-3009 expects v in {27, 28}. viem returns either {r, s, v, yParity}
-  // or {r, s, yParity} (post-EIP-2098 compact form). Normalize via yParity.
-  const yParity =
-    typeof sig.yParity === 'number' ? sig.yParity : sig.v !== undefined ? Number(sig.v) - 27 : 0;
+  // or {r, s, yParity} (post-EIP-2098 compact form). Both shapes carry
+  // `yParity` (number, 0|1); we prefer that. Defaulting to 0 when both
+  // are missing would silently corrupt v for half of all signatures, so
+  // we refuse to broadcast and classify as `gas_estimate_revert` (the
+  // pre-broadcast bucket — see SettleReason taxonomy in tasks/7.md).
+  let yParity: number;
+  if (typeof sig.yParity === 'number') {
+    yParity = sig.yParity;
+  } else if (sig.v !== undefined) {
+    yParity = Number(sig.v) - 27;
+  } else {
+    return {
+      ok: false,
+      reason: 'gas_estimate_revert',
+    };
+  }
   const v = 27 + yParity;
 
   let txHash: `0x${string}`;
