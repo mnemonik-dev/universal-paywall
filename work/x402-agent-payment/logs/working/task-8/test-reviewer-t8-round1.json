@@ -1,0 +1,175 @@
+{
+  "reviewer": "test-reviewer-t8",
+  "round": 1,
+  "task": 8,
+  "status": "needs_improvement",
+  "summary": "52 tests cover the primary pipeline branches and structural invariants well. Four gaps prevent a 'passed' verdict: (1) the factory-state 'last-good non-stale cache' branch from the AC is not tested, (2) the replay-store retention-on-settle-failure TDD anchor (tasks/8.md) is absent, (3) the 402 body shape is never AJV-validated against the vendored x402 v1 schema (spec requirement, ajv is already a dependency), and (4) a verify-result field name mismatch between the mock and the switch creates a latent false-pass risk.",
+
+  "findings": [
+    {
+      "id": "T8-01",
+      "severity": "high",
+      "category": "missing_coverage",
+      "location": "core.test.ts — factory-state cache",
+      "title": "Missing test: RPC error with non-stale cache returns last-good value (not settlement_failed)",
+      "description": "The tech-spec AC explicitly lists two distinct cache-failure modes: (a) RPC error with stale cache → 402 settlement_failed/rpc_5xx, (b) RPC error with non-stale cache → request proceeds using the cached value. Mode (a) is tested (line 298). Mode (b) is entirely absent. The `readFactoryState` implementation in core.ts does implement this path (lines 259-266 of core.ts: `if (cached !== undefined) return { entry: cached, servedStale: true }`), but no test exercises it. Without this test, a regression that deletes the stale-fallback path would go undetected.",
+      "litmus_test": "Delete the `if (cached !== undefined) return { entry: cached, servedStale: true }` block in core.ts → mode (a) test still passes (wrong), mode (b) test would fail (correct). Currently neither catches the regression.",
+      "fix": {
+        "approach": "Add a test in the factory-state cache group that: (1) makes one successful request to warm the cache, (2) advances time by less than 5000ms so cache is still fresh, (3) mocks readContract to reject, (4) makes a second request, (5) asserts the result is 'passthrough' (not 402). This proves the last-good non-stale path is alive.",
+        "test_name": "factory-state RPC error with non-stale cache returns last-good value and proceeds"
+      }
+    },
+    {
+      "id": "T8-02",
+      "severity": "high",
+      "category": "missing_coverage",
+      "location": "core.test.ts — replay-store retention",
+      "title": "Missing TDD anchor: replay-store entry retained after settlement failure",
+      "description": "tasks/8.md specifies a mandatory TDD anchor: 'Replay-store retention on settlement failure: when settle returns failure, NonceStore entry for (from, nonce) is NOT deleted. Test asserts: simulate receipt_reverted → nonceStore.has({from, nonce}) === true after the failed call → a retry with the same nonce returns nonce_already_used, not a fresh settle attempt.' This test is entirely absent. The risk is real: if a regression removed the 'leave entry intact on failure' behavior from verify.ts/replay-store.ts, no test would catch it. The current mocking setup already provides __getNonceStoreForTests() to support exactly this assertion.",
+      "litmus_test": "This tests behavior the mock never simulates — verify is mocked in core.test.ts, so the NonceStore insertion is never exercised. The test must call the real verify path or use __getNonceStoreForTests() to directly probe the store state after a settle failure.",
+      "fix": {
+        "approach": "The test should: (1) use verify's real import path or call __getNonceStoreForTests() directly to check the store after a mocked settle failure; (2) mock settle to return { ok: false, reason: 'receipt_reverted' }; (3) assert __getNonceStoreForTests().has(from, nonce) returns true; (4) make a second request with identical X-PAYMENT and assert 402 nonce_already_used. NOTE: since verify is mocked in core.test.ts, the store is never actually populated by the mocked verify. This test may belong in verify.test.ts or replay-store.test.ts, but the tasks/8.md spec assigns it to core. Consider adding it to replay-store.test.ts and adding a cross-module note.",
+        "test_name": "replay-store entry is retained after settlement failure — retry with same nonce returns nonce_already_used"
+      }
+    },
+    {
+      "id": "T8-03",
+      "severity": "medium",
+      "category": "missing_coverage",
+      "location": "core.test.ts — 402 body shape",
+      "title": "402 body shape is never validated against the vendored x402 v1 JSON Schema (AJV)",
+      "description": "The tech-spec Testing Strategy states: '402 body builder produces spec-compliant JSON (ajv-validated against vendored x402 v1 schema)'. The tasks/9.md scope also calls this out. ajv is declared as a dependency in package.json. However, no test file imports ajv or references a schema fixture. The no-X-PAYMENT-header test (line 152) checks individual fields via toMatchObject but never validates the complete body shape against the canonical schema. This means a deviation from the x402 v1 wire format (e.g., missing 'extra.assetTransferMethod', wrong 'scheme' casing, or an added forbidden field) would go undetected by tests.",
+      "fix": {
+        "approach": "Add an x402-v1.schema.json fixture to __tests__/fixtures/ (the vendored schema from github.com/coinbase/x402/specs). In the 'no X-PAYMENT header returns 402' test (or a dedicated body-shape test), compile the schema with AJV and validate result.body. Assert validate(result.body) === true. This catches wire-format regressions that toMatchObject misses.",
+        "test_name": "no X-PAYMENT header returns 402 body that validates against x402 v1 JSON Schema"
+      }
+    },
+    {
+      "id": "T8-04",
+      "severity": "medium",
+      "category": "test_correctness",
+      "location": "core.test.ts line 424 — verify error mapping parametrized test",
+      "title": "Verify mock returns { ok: false, reason } but VerifyResult type uses 'reason' — mapping test may silently pass even if core reads the wrong field",
+      "description": "The mocks in the parametrized verify-error test (line 424) return `{ ok: false, reason: verifyReason }`. The real VerifyResult type (verify.ts line 78) is `{ ok: false; reason: VerifyReason }`, so the field name matches. HOWEVER, core.ts accesses `verifyResult.reason` (line 474) via a switch — if core were changed to read `verifyResult.error` instead, all verify-error tests would still pass because the mock only returns `reason` and core's switch would hit no case (falling through silently). The test does not assert the 402 body's `error` field in the parametrized section — it only asserts the emitted event name. Adding an assertion on `result.body.error` for each verify reason would catch a core field-access regression.",
+      "fix": {
+        "approach": "In the parametrized 'verify returns X → core emits Y once' test (line 415-429), add: `expect(result).toMatchObject({ kind: '402', body: { error: verifyReason } })` after the emit assertion. This ties the test to the actual 402 response body, catching a regression where core reads a wrong field or the switch falls through.",
+        "affected_test": "verify error discriminant → D18 event mapping table (lines 415-430)"
+      }
+    },
+    {
+      "id": "T8-05",
+      "severity": "low",
+      "category": "test_correctness",
+      "location": "core.test.ts line 186-204 — malformed base64 test",
+      "title": "Malformed base64 test is too permissive — accepts any of three phases",
+      "description": "The test at line 186 inputs `Buffer.from([0xff, 0xfe, 0xfd]).toString('base64')` and asserts phase matches `/^(base64|json|shape)$/` — any of three phases would pass. The comment says 'Buffer.from is permissive with malformed base64'. This creates ambiguity: if the phase classification regresses (e.g., 'base64' errors are re-classified as 'shape'), the test would still pass. A second separate test specifically triggering the 'json' phase already exists (line 208) and the 'shape' phase (line 221). The 'base64' phase test should use input that is NOT valid UTF-8 even after base64 decode, to lock in 'base64' phase specifically.",
+      "fix": {
+        "approach": "Change the assertion to `expect(logger.securityEvent).toHaveBeenCalledWith('malformed_header', { phase: 'base64' })` — matching exactly 'base64'. To guarantee this phase triggers, use a string that is invalid as a base64 alphabet character, not just content that decodes to invalid JSON. For instance: `'!!!not-base64!!!'` (contains chars outside base64 alphabet). Alternatively, keep the permissive test but document it explicitly as the catch-all for base64/json phase ambiguity.",
+        "affected_test": "malformed base64 X-PAYMENT returns 400 malformed_payment_header (line 186)"
+      }
+    },
+    {
+      "id": "T8-06",
+      "severity": "low",
+      "category": "missing_coverage",
+      "location": "core.test.ts — factory-state cache",
+      "title": "Missing test: vault address cached forever once non-zero",
+      "description": "The spec (tasks/8.md edge cases) states: 'vaults(developerEoa) once non-zero is final (factory deploys are immutable per D3). Cache forever once non-zero. Re-fetch only while still 0x0.' There is no test that advances the TTL past 5s and verifies that a non-zero vault address is NOT re-fetched from the RPC on the second request. The existing TTL refresh test (line 281) only verifies the 'paused' call count, not the vault lookup.",
+      "fix": {
+        "approach": "Add a test that: (1) makes a first request (vault returns VAULT_ADDR), (2) advances time by 6000ms, (3) makes a second request, (4) counts readContract calls with functionName === 'vaults', (5) asserts the vault lookup happened only once despite the TTL expiry.",
+        "test_name": "factory-state cache: non-zero vault address is NOT re-fetched after TTL expiry"
+      }
+    },
+    {
+      "id": "T8-07",
+      "severity": "low",
+      "category": "test_quality",
+      "location": "adapters/fastify.test.ts line 77-98",
+      "title": "onSend hook in the last Fastify test initializes sentByPreHandler=false and never changes it — assertion is vacuously true",
+      "description": "The test at line 77 ('sets X-PAYMENT-RESPONSE header on passthrough without calling reply.send') adds an onSend hook that contains `if (reply.statusCode === 200 && payload !== undefined) sentByPreHandler = false;`. The variable starts as `false` and the hook only ever sets it to `false`. The assertion `expect(sentByPreHandler).toBe(false)` passes regardless of whether the preHandler called reply.send. The test proves the route handler ran via the 200 status and body checks, but the sentByPreHandler flag adds no coverage value.",
+      "fix": {
+        "approach": "Either remove the sentByPreHandler flag and its assertion (the test is already verifying the intended behavior via statusCode === 200 and body check), OR flip the logic: initialize sentByPreHandler = true and set it to false in the route handler's response to prove the route handler ran. The existing assertions on statusCode and body are sufficient to verify the intent.",
+        "affected_test": "sets X-PAYMENT-RESPONSE header on passthrough without calling reply.send (line 77)"
+      }
+    }
+  ],
+
+  "coverage_assessment": {
+    "branch_coverage": {
+      "pipeline_7a_missing_header": "covered",
+      "pipeline_7a_oversized_header": "covered",
+      "pipeline_7b_malformed_base64": "covered (permissive)",
+      "pipeline_7b_malformed_json": "covered",
+      "pipeline_7b_wrong_shape": "covered",
+      "pipeline_7c_verify_all_7_reasons": "covered (event mapping only, not body error field)",
+      "pipeline_7d_paused": "covered",
+      "pipeline_7d_vault_not_deployed": "covered",
+      "pipeline_7d_cache_hit_within_ttl": "covered",
+      "pipeline_7d_cache_refresh_after_ttl": "covered",
+      "pipeline_7d_rpc_error_no_cache": "covered",
+      "pipeline_7d_rpc_error_non_stale_cache": "MISSING — T8-01",
+      "pipeline_7e_all_7_settle_reasons": "covered",
+      "pipeline_7e_network_mismatch_error": "covered",
+      "pipeline_7f_7g_happy_path": "covered",
+      "replay_store_retention_on_settle_failure": "MISSING — T8-02",
+      "opaque_relayer_key_opacity": "covered",
+      "verify_2arg_shape_noncestore_in_opts": "covered",
+      "public_client_lazy_concurrency": "covered",
+      "noncestore_module_scope_singleton": "covered",
+      "logger_throws_swallowed": "covered",
+      "default_noop_logger": "covered",
+      "hash_helpers_10char_format": "covered",
+      "logger_payloads_no_raw_addresses": "covered",
+      "source_level_verify_settle_no_logger_import": "covered"
+    },
+    "adapter_branch_coverage": {
+      "node_http_402": "covered",
+      "node_http_400": "covered",
+      "node_http_passthrough_header_before_handler": "covered",
+      "node_http_handler_exception_propagates": "covered",
+      "fastify_402": "covered",
+      "fastify_400": "covered",
+      "fastify_passthrough_reply_chaining": "covered",
+      "fastify_passthrough_no_prehandler_send": "covered (but assertion is vacuous — T8-07)"
+    },
+    "index_surface": {
+      "value_exports_exact": "covered",
+      "internal_helpers_not_exported": "covered",
+      "networks_resolves": "covered",
+      "opaque_relayer_key_constructor": "covered"
+    },
+    "ajv_schema_validation": "MISSING — T8-03"
+  },
+
+  "mock_isolation_assessment": {
+    "verdict": "GOOD",
+    "notes": [
+      "core.test.ts mocks verify.js and settle.js via vi.mock at module level — correct isolation for orchestrator tests.",
+      "NetworkMismatchError class is preserved via importActual — correct, ensures instanceof works in core.ts catch block.",
+      "viem.createPublicClient and http are mocked — appropriate; prevents real network calls during unit tests.",
+      "keccak256 is preserved from real viem — correct; allows hash helper tests to exercise real cryptography.",
+      "adapter tests mock ../../core.js only — correct minimal isolation for adapter-layer tests.",
+      "No test mocks 3+ dependencies simultaneously in a single test — no Category 5 (excessive mocking) violations.",
+      "beforeEach resets all spies and restores default mock implementations — prevents shared state between tests."
+    ]
+  },
+
+  "adapter_parity_assessment": {
+    "verdict": "PARTIAL",
+    "notes": [
+      "Both adapters receive the same 402/passthrough test cases (4 tests each) covering the same input/output pairs — basic parity met.",
+      "Neither adapter test asserts that the same PaywallResult struct produces identical HTTP response fields across both adapters for the same input. This is not a blocking issue at the unit test level (that concern belongs to forked-e2e in Task 10), but worth noting.",
+      "fastify adapter is tested via real Fastify lifecycle (fastify.inject()) — higher fidelity than node-http which uses a hand-rolled mock ServerResponse. Both approaches are appropriate for their respective frameworks."
+    ]
+  },
+
+  "decision_matrix": {
+    "critical": 0,
+    "high": 2,
+    "medium": 2,
+    "low": 3,
+    "verdict": "needs_improvement",
+    "task_required": false,
+    "rationale": "high=2 and medium=2 meets 'high >= 1 AND medium >= 3' threshold for needs_improvement — just short of that exact condition (medium=2 not 3). However, high=2 alone triggers needs_improvement. The missing TDD anchors (T8-01 replay-store retention, T8-02 last-good-cache) are spec-required tests the orchestrator explicitly named. No critical issues and no tests hide bugs. Fixes are additive (new tests only) with no source changes required."
+  }
+}

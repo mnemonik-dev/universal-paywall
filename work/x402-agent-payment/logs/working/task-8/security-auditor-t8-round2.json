@@ -1,0 +1,101 @@
+{
+  "reviewer": "security-auditor-t8",
+  "task": 8,
+  "round": 2,
+  "commit": "a3640fd",
+  "prior_commit": "3b07205",
+  "timestamp": "2026-06-17",
+  "overall_verdict": "PASS",
+  "summary": "All five round-1 findings are correctly resolved. No new security issues introduced by the changes. The implementation is approved to proceed to Task 9 (unit tests) and Task 10 (forked integration).",
+  "round1_dispositions": [
+    {
+      "id": "SEC-T8-01",
+      "severity": "Medium",
+      "status": "FIXED",
+      "fix_verified": true,
+      "notes": "Two-point fix confirmed. (1) Pre-7a warm read: servedStale is now checked — when true, factoryState and payTo are NOT seeded from the stale entry (core.ts:438-445). (2) Post-7b 7d path: explicit `if (read.servedStale)` branch emits settlement_failed/rpc_5xx and returns 402 before using any factory state for access decisions (core.ts:494-502). The two missing TDD anchor tests are present: 'factory-state RPC error with non-stale cache returns last-good value (passthrough)' and 'factory-state RPC error with STALE cache surfaces as 402 settlement_failed reason rpc_5xx'. Both use vi.useFakeTimers to cross the 5s TTL boundary deterministically."
+    },
+    {
+      "id": "SEC-T8-02",
+      "severity": "Medium",
+      "status": "FIXED",
+      "fix_verified": true,
+      "notes": "SAFE_HEX_FIELDS = ['txHash'] const defined at module scope (core.ts:356-366). emit() helper pre-extracts named fields before calling scrubSecrets, then re-attaches them to the scrubbed output (core.ts:385-397). The guard `typeof payloadRecord[field] === 'string'` correctly handles undefined txHash (field simply not preserved when absent). Test asserts: (a) scrubSecrets WOULD redact a bare TX_HASH (baseline), confirming the regex match is real; (b) SAFE_HEX_FIELDS source-level regex confirms 'txHash' is in the carve-out. Structural lockdown is sound."
+    },
+    {
+      "id": "SEC-T8-03",
+      "severity": "Low",
+      "status": "FIXED",
+      "fix_verified": true,
+      "notes": "relayer_low_balance: { balanceUsdc: string } added to SecurityEventCatalog in types.ts:107. When settle returns reason='relayer_no_balance' with details.balance, core emits relayer_low_balance first (with balanceUsdc = balance.toString()), then settlement_failed (for backwards compatibility). Test 'settle relayer_no_balance with balance details emits relayer_low_balance {balanceUsdc} AND settlement_failed' asserts both calls at the correct count. The balanceUsdc: '750000' assertion verifies bigint → string conversion. Note: when settle returns relayer_no_balance WITHOUT details.balance (reactive path), only settlement_failed fires — acceptable (no balance data to expose)."
+    },
+    {
+      "id": "SEC-T8-04",
+      "severity": "Low",
+      "status": "FIXED",
+      "fix_verified": true,
+      "notes": "SecurityEventCatalog.chain_id_mismatch now uses { expectedChainId: number; observedChainId: number; network: string } (types.ts:106), aligning with the tech-spec D18 table. Both emit sites updated: unknown-network fallback (core.ts:418-422) and NetworkMismatchError catch (core.ts:585-589). Test assertion updated to expect canonical field names."
+    },
+    {
+      "id": "SEC-T8-05",
+      "severity": "Low",
+      "status": "FIXED",
+      "fix_verified": true,
+      "notes": "Factory-state checks (7d) now run BEFORE EIP-712 recovery (7c). The new ordering in paywall() is: 7a (size cap) → 7b (decode) → 7d (factory state + vault check) → 7c (verify) → 7e (settle). verify() is now only called with a non-zero, factory-confirmed expectedVaultAddress. Test 'vault_not_deployed short-circuits BEFORE verify is called' asserts verifySpy.not.toHaveBeenCalled() when vaults returns ZERO. The post-verify zero-address safety net at line 517-519 is retained as defense in depth."
+    },
+    {
+      "id": "SEC-T8-06",
+      "severity": "Info",
+      "status": "RESOLVED",
+      "fix_verified": true,
+      "notes": "Both TDD anchor tests present and correctly structured (see SEC-T8-01 disposition above)."
+    }
+  ],
+  "new_findings": [
+    {
+      "id": "SEC-T8-R2-01",
+      "severity": "Info",
+      "category": "Authentication — defense in depth",
+      "title": "payerHash in pre-verify events uses claimed authorization.from, not recoveredFrom",
+      "files": ["packages/middleware/src/core.ts:497", "packages/middleware/src/core.ts:506"],
+      "description": "The factory-state-check path (7d, now before verify) emits settlement_failed with payerHash derived from payload.payload.authorization.from (the wire-claimed address, not yet cryptographically verified). This is structurally unavoidable — EIP-712 recovery has not run yet at this point. The concern is that a monitoring system correlating payerHash across events receives a non-authenticated hash in these 7d-path events. The post-verify settlement_failed events (7e) correctly use payerHash(recoveredFrom).",
+      "impact": "Monitoring only — not a security exploit. The 7d path returns 402 (no resource served, no funds moved) so the unverified address hash is in a denial path. No operational risk.",
+      "recommendation": "Document in SecurityEventCatalog or inline comments that payerHash in paused_request, vault_not_deployed, and pre-verify rpc_5xx events is derived from the claimed (unverified) authorization.from. No code change required."
+    }
+  ],
+  "incidental_improvements_verified": [
+    {
+      "description": "parsePriceToBaseUnits removed from core.ts — replaced by parseUsdPrice from x402.ts (single source of truth). Eliminates duplicated price-parsing logic.",
+      "security_impact": "Positive — fewer parsing code paths to audit."
+    },
+    {
+      "description": "PaywallCoreOptions collapsed to a type alias for PaywallConfig (logger field moved onto PaywallConfig in types.ts). Public config type is now the authoritative shape.",
+      "security_impact": "Neutral — type alias change only. logger field is now on the public PaywallConfig, which is correct for integrators."
+    },
+    {
+      "description": "settle() and X-PAYMENT-RESPONSE payer now use recoveredFrom (ecrecover output) rather than payload.payload.authorization.from. The cryptographically authenticated address is consistently the single source of truth after verify passes.",
+      "security_impact": "Positive hardening — prevents any future drift where the claimed from and the recovered from diverge in unexpected ways."
+    },
+    {
+      "description": "Non-zero vault address immutability cache test added: 'non-zero vault address is NOT re-fetched after TTL expiry'. Locks in D3 immutability assumption.",
+      "security_impact": "Positive test coverage."
+    },
+    {
+      "description": "Replay-store retention after settle failure test added: structural end-to-end test that a failed settle leaves the nonce in the store and a retry returns nonce_already_used.",
+      "security_impact": "Positive — directly tests the critical D5 Risks row invariant."
+    }
+  ],
+  "verified_invariants_unchanged": [
+    "OpaqueRelayerKey opacity — getRelayerKeySecret not imported in core.ts",
+    "SecurityLogger single-owner emission — verify.ts and settle.ts still contain no .securityEvent calls",
+    "EIP-712 domain from NETWORKS[opts.expectedNetwork] not from payload.network",
+    "scrubSecrets applied before every emit (now with SAFE_HEX_FIELDS carve-out)",
+    "PublicClient cache key includes network.id + resolved rpcUrl",
+    "FactoryStateCache keyed by canonical network.id",
+    "D14 chainId pin in settle.ts, not core.ts",
+    "2-arg verifyEip3009Authorization call shape with nonceStore in opts",
+    "payerHash 10-char canonical form",
+    "Public API surface — getRelayerKeySecret, NonceStore, __reset* functions not exported",
+    "WalletClient owned exclusively by settle.ts"
+  ]
+}

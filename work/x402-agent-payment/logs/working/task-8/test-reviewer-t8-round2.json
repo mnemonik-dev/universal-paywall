@@ -1,0 +1,117 @@
+{
+  "reviewer": "test-reviewer-t8",
+  "round": 2,
+  "task": 8,
+  "status": "passed",
+  "summary": "All 7 round-1 findings correctly addressed. 45 tests (was 40). New tests for T8-01, T8-02, T8-06 are structurally sound and exercise real behavior. T8-04 fix adds 402 body error-field assertions to the parametrized mapping test — the right change. T8-03 (AJV) correctly deferred to task 9. T8-05 and T8-07 fixed cleanly. Two bonus tests added (recovered-signer binding, InvalidPriceError) — both test real behavior and add genuine regression protection. No new issues found.",
+
+  "round1_dispositions": [
+    {
+      "id": "T8-01",
+      "severity": "high",
+      "disposition": "FIXED",
+      "verification": "New test at line 343: 'factory-state RPC error with non-stale cache returns last-good value (passthrough)'. Warms the cache on first request (asserts passthrough), rejects all subsequent readContract within TTL, makes second request, asserts passthrough. Directly exercises the `servedStale=true` fallback path in readFactoryState. Litmus test passes: removing the stale-fallback block from core.ts would make this test fail."
+    },
+    {
+      "id": "T8-02",
+      "severity": "high",
+      "disposition": "FIXED",
+      "verification": "New test at line 608: 'replay-store entry is retained after settlement failure — retry with same nonce returns nonce_already_used'. The test drives the real NonceStore via __getNonceStoreForTests(). The verifySpy reimplements the minimal store-insertion contract (checkAndInsert) rather than bypassing it, which means the test exercises the actual synchronous-block TOCTOU primitive. Three independent assertions: (1) first request 402 with receipt_reverted, (2) store.has() == true after settle failure, (3) second request 402 nonce_already_used + settleSpy NOT called a second time. The store.has() call uses the correct HasInput interface ({from, nonce, now}). This is a strong test — deleting the 'leave entry intact' behavior from the store would break assertion (2) and (3)."
+    },
+    {
+      "id": "T8-03",
+      "severity": "medium",
+      "disposition": "DEFERRED — accepted",
+      "verification": "tasks/9.md owns the AJV schema fixture and the schema-validated 402 body test. Deferral is correct. No action required in task 8."
+    },
+    {
+      "id": "T8-04",
+      "severity": "medium",
+      "disposition": "FIXED",
+      "verification": "Parametrized verify-error mapping test at line 479 now asserts `expect(result).toMatchObject({ kind: '402', body: { error: verifyReason } })` alongside the emit-count check. The test title was updated to '... AND 402 body.error matches'. This closes the regression gap where core could mis-read the VerifyResult field and the switch would fall through silently — the 402 body assertion would fail loudly."
+    },
+    {
+      "id": "T8-05",
+      "severity": "low",
+      "disposition": "FIXED",
+      "verification": "Test at line 186 title changed to 'non-base64 bytes in X-PAYMENT returns 400 malformed_payment_header + emits malformed_header phase:json'. Comment documents why this pins to 'json' (Node's Buffer.from silently drops non-base64 chars). Phase assertion is now exact: `{ phase: 'json' }`. The permissive regex is gone."
+    },
+    {
+      "id": "T8-06",
+      "severity": "low",
+      "disposition": "FIXED",
+      "verification": "New test at line 301: 'non-zero vault address is NOT re-fetched after TTL expiry'. Uses fake timers, advances 6000ms, counts readContract calls with functionName === 'vaults'. Asserts count stays at 1 despite TTL expiry for the paused() flag. Directly tests the D3-immutable vault-address caching invariant."
+    },
+    {
+      "id": "T8-07",
+      "severity": "low",
+      "disposition": "FIXED",
+      "verification": "Test at line 77 ('sets X-PAYMENT-RESPONSE header on passthrough; route handler runs and is the sole sender') replaces the vacuous sentByPreHandler flag with a routeHandlerCalls spy. Asserts routeHandlerCalls called exactly once. Real assertion now proves the preHandler did not short-circuit."
+    }
+  ],
+
+  "new_tests_assessment": [
+    {
+      "location": "core.test.ts line 360",
+      "name": "core passes verifyResult.recoveredFrom to settle (NOT payload.authorization.from)",
+      "assessment": "GOOD — tests genuine security-critical behavior: the recovered (cryptographically authenticated) address must be passed to settle, not the wire-claimed `authorization.from`. Uses two distinct addresses (wireClaimed != recovered) and asserts both the settle call arg and the X-PAYMENT-RESPONSE.payer field. Litmus test passes: if core passed the wire-claimed address instead, assertions on `settleSpy.mock.calls[0][1]` and `decoded.payer` would both fail."
+    },
+    {
+      "location": "core.test.ts line 588",
+      "name": "invalid opts.price throws InvalidPriceError (NOT TypeError)",
+      "assessment": "GOOD — tests the specific error class so a regression that changed the exception type from InvalidPriceError to a generic TypeError would be caught. The error type is observable behavior (callers can catch-by-type). Minor note: the test passes price '-1' which is the simplest invalid value, but this is sufficient — the full price parsing edge case table is in x402.test.ts per the tech-spec testing strategy."
+    }
+  ],
+
+  "remaining_open_items": [
+    {
+      "id": "CARRY-01",
+      "severity": "medium",
+      "source": "T8-03",
+      "status": "deferred_to_task_9",
+      "description": "AJV validation of 402 body against vendored x402 v1 JSON Schema. Confirmed deferred to task 9 scope."
+    }
+  ],
+
+  "coverage_assessment_final": {
+    "pipeline_7a_missing_header": "covered",
+    "pipeline_7a_oversized_header": "covered",
+    "pipeline_7b_malformed_json_phase": "covered (pinned to 'json')",
+    "pipeline_7b_malformed_json": "covered",
+    "pipeline_7b_wrong_shape": "covered",
+    "pipeline_7c_verify_all_7_reasons_event_and_body": "covered (T8-04 fix)",
+    "pipeline_7d_paused": "covered",
+    "pipeline_7d_vault_not_deployed": "covered",
+    "pipeline_7d_cache_hit_within_ttl": "covered",
+    "pipeline_7d_cache_refresh_after_ttl": "covered",
+    "pipeline_7d_rpc_error_no_cache": "covered",
+    "pipeline_7d_rpc_error_non_stale_cache": "covered (T8-01 fix)",
+    "pipeline_7d_vault_address_forever_cache": "covered (T8-06 fix)",
+    "pipeline_7e_all_7_settle_reasons": "covered",
+    "pipeline_7e_network_mismatch_error": "covered",
+    "pipeline_7e_recovered_signer_bound": "covered (new test)",
+    "pipeline_7f_7g_happy_path": "covered",
+    "replay_store_retention_on_settle_failure": "covered (T8-02 fix)",
+    "opaque_relayer_key_opacity": "covered",
+    "verify_2arg_shape_noncestore_in_opts": "covered",
+    "public_client_lazy_concurrency": "covered",
+    "noncestore_module_scope_singleton": "covered",
+    "logger_throws_swallowed": "covered",
+    "default_noop_logger": "covered",
+    "hash_helpers_10char_format": "covered",
+    "logger_payloads_no_raw_addresses": "covered",
+    "source_level_verify_settle_no_logger_import": "covered",
+    "invalid_price_error_type": "covered (new test)",
+    "ajv_schema_validation": "deferred_to_task_9"
+  },
+
+  "decision_matrix": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "verdict": "passed",
+    "task_required": false,
+    "rationale": "All round-1 findings resolved. No new issues found. Remaining AJV schema validation is correctly deferred to task 9 per spec. Test count: 45 core + 4 node-http + 4 fastify + 4 index = 57 tests. All tests exercise real behavior — no mock-return anti-patterns, no vacuous assertions identified. Mock isolation is correct: verify and settle mocked for orchestrator tests, core mocked for adapter tests. NonceStore and keccak256 kept real where they add genuine coverage value."
+  }
+}

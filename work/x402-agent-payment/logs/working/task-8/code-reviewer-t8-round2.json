@@ -1,0 +1,45 @@
+{
+  "reviewer": "code-reviewer-t8",
+  "task": 8,
+  "round": 2,
+  "verdict": "approved",
+  "summary": "All three round 1 blocking issues are correctly resolved. The two non-blocking minors (R1-4, R1-5) are also fixed. Implementation is production-ready.",
+  "round1_disposition": [
+    {
+      "id": "R1-1",
+      "status": "fixed",
+      "verification": "core.ts:526 now binds `const { recoveredFrom } = verifyResult` after verify succeeds. settleOnChain receives `recoveredFrom` as second arg (line 530). X-PAYMENT-RESPONSE payer field is `recoveredFrom` (line 557). New test at core.test.ts:336 exercises a wire `authorization.from = 0x9999...` vs verify-returned `recoveredFrom = 0xaaaa...` and asserts both settle's second positional arg and the decoded payer field are `0xaaaa...`. Semantically correct: verify-failure path still uses `payload.payload.authorization.from` for the payerHash (correct — no authenticated address exists when signature is invalid)."
+    },
+    {
+      "id": "R1-2",
+      "status": "fixed",
+      "verification": "core.ts:47 imports `parseUsdPrice` from `./x402.js`. Line 415 calls `parseUsdPrice(opts.price)`. Private `parsePriceToBaseUnits`, `USDC_DECIMALS`, `USDC_SCALE`, `PRICE_RE` are deleted. New test at core.test.ts:557 calls `paywall` with `price: '-1'` and asserts `rejects.toBeInstanceOf(InvalidPriceError)`. Confirms `InvalidPriceError` propagates unchanged from `x402.ts`."
+    },
+    {
+      "id": "R1-3",
+      "status": "fixed",
+      "verification": "index.ts no longer imports from `./core.js` at all. `SecurityLogger`, `SecurityEventCatalog`, `SecurityEventName` are moved to `types.ts` and re-exported from there. `PaywallConfig` in `types.ts:49` now includes `logger?: SecurityLogger`. `PaywallCoreOptions` in `core.ts` is now an alias for `PaywallConfig` (still internal to core). Public value surface confirmed as `['NETWORKS','OpaqueRelayerKey','fastifyPaywall','withPaywall']`. Public type surface is `ExactEvmPayload`, `NetworkConfig`, `OpaqueRelayerKeyShape`, `PaymentPayload`, `PaymentRequirements`, `PaywallConfig`, `SecurityEventCatalog`, `SecurityEventName`, `SecurityLogger` — all from `types.ts` or `relayer-key.ts`. Clean."
+    },
+    {
+      "id": "R1-4",
+      "status": "fixed",
+      "verification": "fastify.test.ts:84 now uses a `routeHandlerCalls = vi.fn()` spy. Test at line 93 asserts `routeHandlerCalls` was called exactly once + status 200 + correct body + correct header. This genuinely proves the preHandler did not short-circuit via reply.send on the passthrough path."
+    },
+    {
+      "id": "R1-5",
+      "status": "fixed",
+      "verification": "core.test.ts:319 adds 'factory-state RPC error with non-stale cache returns last-good value (passthrough)'. Test warms cache on first request, then mocks all future readContract calls to reject, issues second request within 5s TTL, and asserts `second.kind === 'passthrough'`. Covers the missing non-stale-fallback branch."
+    },
+    {
+      "id": "R1-6",
+      "status": "acknowledged_not_addressed",
+      "verification": "Content-Type header casing inconsistency between core.ts and errors.ts remains. Accepted as informational — not a correctness issue."
+    }
+  ],
+  "no_new_findings": true,
+  "notes": [
+    "The verify-failure path correctly uses payload.payload.authorization.from (not recoveredFrom) for payerHash in the switch block — this is semantically correct since no authenticated address exists when signature verification fails.",
+    "logger field moved to PaywallConfig in types.ts cleanly integrates with the existing type hierarchy and keeps SecurityLogger on the public surface without pulling in any core-internal types.",
+    "196/196 tests passing per orchestrator report. Typecheck and lint clean. Build smoke confirms expected public surface."
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "reviewer": "code-reviewer-t8",
+  "task": 8,
+  "round": 1,
+  "verdict": "changes_required",
+  "summary": "Implementation is architecturally sound and handles the majority of the spec correctly. Four issues require fixing before approval: one critical (settleOnChain called with wrong second argument), one major (parsePriceToBaseUnits duplicated from x402.ts — wrong error type thrown), one major (index.ts exports internal types that spec excludes from public surface), one minor (trivially-vacuous test assertion in fastify.test.ts). Factory state cache RPC-stale coverage gap is also noted.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "severity": "critical",
+      "dimension": "Cross-File Consistency (10)",
+      "file": "packages/middleware/src/core.ts",
+      "line": 540,
+      "title": "settleOnChain called with authorization.from instead of the verify-recovered address",
+      "description": "core.ts calls `settleOnChain(payload, payload.payload.authorization.from, {...})`. The second argument is the CLAIMED sender from the wire format, not the cryptographically RECOVERED signer returned by `verifyEip3009Authorization`. settle.ts:286 defines the parameter as `recoveredFrom: 0x${string}` — semantically the EIP-712 ecrecover result. In the happy path the two values are equal (verify asserts `recovered == from`), so this is not a runtime crash, but it is semantically wrong: the payer field in X-PAYMENT-RESPONSE is populated from `payload.payload.authorization.from` rather than from the verified `verifyResult.recoveredFrom`. The correct fix is to capture the `recoveredFrom` from `verifyResult` (since `VerifyResult` returns `{ ok: true, recoveredFrom }`) and pass that to settleOnChain and to the response.",
+      "recommendation": "Change verify result consumption to capture `verifyResult.recoveredFrom` and use it as both the `settleOnChain` second arg and the `payer` field in the X-PAYMENT-RESPONSE. Example:\n```ts\nif (!verifyResult.ok) { … }\nconst { recoveredFrom } = verifyResult;\n// …\nawait settleOnChain(payload, recoveredFrom, { … });\n// …\npayer: recoveredFrom,\n```"
+    },
+    {
+      "id": "R1-2",
+      "severity": "major",
+      "dimension": "Code Readability & Maintainability (3) + Separation of Concerns (2)",
+      "file": "packages/middleware/src/core.ts",
+      "line": 581,
+      "title": "parsePriceToBaseUnits duplicates parseUsdPrice from x402.ts — throws wrong error type",
+      "description": "`core.ts` defines its own `parsePriceToBaseUnits` function (lines 581-592) that is an almost-exact copy of `parseUsdPrice` in `x402.ts` (line 69-94). The two diverge in one important way: `core.ts` throws a generic `TypeError` while `x402.ts` throws the typed `InvalidPriceError`. The user-spec AC explicitly states 'negative, zero, scientific, whitespace, >6 decimals отвергаются с `InvalidPriceError`'. By using a private copy that throws `TypeError`, `core.ts` breaks that AC for any caller who catches `InvalidPriceError`. The fix is to import and call `parseUsdPrice` from `x402.ts` directly; the `InvalidPriceError` class is already exported. Remove `parsePriceToBaseUnits`, `USDC_DECIMALS`, `USDC_SCALE`, and `PRICE_RE` from core.ts.",
+      "recommendation": "Replace the private `parsePriceToBaseUnits` with `import { parseUsdPrice } from './x402.js'` and call `parseUsdPrice(opts.price)` at the use site. Remove the duplicated constants and function."
+    },
+    {
+      "id": "R1-3",
+      "severity": "major",
+      "dimension": "Architectural Patterns (1) + Separation of Concerns (2)",
+      "file": "packages/middleware/src/index.ts",
+      "line": "28-31",
+      "title": "index.ts exports internal core types that the task spec excludes from the public surface",
+      "description": "index.ts re-exports `PaywallCoreOptions`, `PaywallRequest`, and `PaywallResult` from `core.ts`. The Task 8 spec states: 'index.ts exports exactly: withPaywall, fastifyPaywall, NETWORKS, SecurityLogger interface, and the public types PaywallConfig, NetworkConfig, PaymentRequirements, PaymentPayload, ExactEvmPayload, OpaqueRelayerKey. Internal helpers (verify, settle, replay-store internals, OpaqueRelayerKey extract symbol, FactoryStateCache) are NOT exported.' `PaywallCoreOptions` is explicitly called out as the 'internal options' type in the task spec (distinguished from the public `PaywallConfig`). `PaywallRequest` and `PaywallResult` are adapter infrastructure, not part of the documented public surface. Exposing them locks the public API to internal implementation shapes. The `index.test.ts` test at line 7 asserts exactly `['NETWORKS','OpaqueRelayerKey','fastifyPaywall','withPaywall']` — no internal types.",
+      "recommendation": "Remove the `export type { ... } from './core.js'` block for `PaywallCoreOptions`, `PaywallRequest`, `PaywallResult`, `SecurityEventCatalog`, and `SecurityEventName`. Keep only `SecurityLogger` if it is needed by integrators for typing their logger argument. Alternatively, move the `SecurityLogger` interface to `types.ts` so it can be exported cleanly without pulling in the core-internal types."
+    },
+    {
+      "id": "R1-4",
+      "severity": "minor",
+      "dimension": "Testing Coverage (6)",
+      "file": "packages/middleware/src/__tests__/adapters/fastify.test.ts",
+      "line": "77-98",
+      "title": "sentByPreHandler flag is always false — test assertion is trivially vacuous",
+      "description": "In the test 'sets X-PAYMENT-RESPONSE header on passthrough without calling reply.send' (line 77), `sentByPreHandler` is initialized to `false` and the `onSend` hook at line 88 only ever sets it to `false` again. There is no code path that sets it to `true`, so `expect(sentByPreHandler).toBe(false)` (line 96) is a tautology. The intent appears to be detecting whether `reply.send` was called from the preHandler (which would set a flag to true), but the flag is never set to true. The test therefore does not actually assert the absence of a premature `reply.send` — it passes unconditionally.",
+      "recommendation": "Either remove the `sentByPreHandler` variable and assertion entirely (the other assertions in the same test — status 200, correct body, correct header — already confirm the passthrough works), or implement the guard correctly: set `sentByPreHandler = true` in the onSend hook when the reply was sent (and set it false in the preHandler path to distinguish). The simplest correct version is to just rely on `res.statusCode === 200` and `res.headers['x-payment-response'] === 'value'` which already proves the route handler ran and the preHandler did not short-circuit."
+    },
+    {
+      "id": "R1-5",
+      "severity": "minor",
+      "dimension": "Testing Coverage (6)",
+      "file": "packages/middleware/src/__tests__/core.test.ts",
+      "line": "297-312",
+      "title": "Missing test: factory-state RPC error with non-stale cached value returns last-good value",
+      "description": "The task spec and tech-spec require: 'RPC error during cache fill returns the last good value if non-stale, else propagates as settlement_failed.reason=rpc_5xx'. The existing test at line 297 only covers the 'no cache at all' path (rpc_5xx surfaced). The complementary test — 'cache exists, still within TTL, RPC error during vault lookup returns last good cached entry' — is absent. This matters because `readFactoryState` has explicit fallback logic (`if (cached !== undefined) return { entry: cached, servedStale: true }`) but no test validates that the request continues to 200/passthrough when the stale-but-valid cache is used.",
+      "recommendation": "Add a test that: (1) performs a successful first request to warm the cache, (2) resets readContract to reject, (3) sends a second request within the 5s TTL window, and (4) asserts the response is passthrough (not 402), confirming the last-good cached value was served."
+    },
+    {
+      "id": "R1-6",
+      "severity": "minor",
+      "dimension": "Code Readability & Maintainability (3)",
+      "file": "packages/middleware/src/core.ts",
+      "line": "330-352",
+      "title": "core.ts does not use buildErrorResponse from errors.ts — Content-Type header inconsistency",
+      "description": "`errors.ts` exports `buildErrorResponse` that uses `'content-type': 'application/json; charset=utf-8'` (lowercase key, charset included). `core.ts` builds its own inline `build402` function returning `'Content-Type': 'application/json'` (title-case key, no charset). Node http adapter then calls `res.writeHead(status, { 'Content-Type': 'application/json', ...result.headers })` which merges both. This inconsistency means the content-type header format depends on which code path generated the 402. The spec says '`Content-Type: application/json`' which is met by core's version, but the duplication is a maintenance risk. Not blocking, but worth consolidating.",
+      "recommendation": "Either use `buildErrorResponse` from `errors.ts` as the single source of HTTP response envelope construction, or at minimum ensure `core.ts` and `errors.ts` produce identical header key casing and charset handling. If `core.ts` intentionally diverges (e.g. no charset for brevity), document why."
+    }
+  ],
+  "positive_observations": [
+    "PublicClient lazy-init with Promise dedup is correctly implemented — concurrent first requests share one init (core.ts:195-214).",
+    "NonceStore is genuinely module-scope (line 118), not closure-scope inside paywall(), satisfying the cross-adapter singleton requirement.",
+    "FactoryStateCache vault address immortality is correctly implemented: once non-zero, the vault address is never re-fetched (readVaultAddress:281).",
+    "OpaqueRelayerKey is passed opaque through core.ts — no extract symbol imported, no JSON.stringify path.",
+    "emit() helper correctly wraps each call in individual try/catch with short-circuit on undefined logger.",
+    "SecurityEventCatalog is typed with fixed payload shapes per D18, preventing free-form PII-leaking payloads.",
+    "payerHash / developerEoaHash / nonceHash are canonically 10 chars ('0x' + 8 hex) and tested rigorously.",
+    "fastify.ts Symbol.for('skip-override') stamp is present and correctly documented — the 'why' is non-obvious and warrants the comment.",
+    "node-http adapter correctly sets X-PAYMENT-RESPONSE BEFORE invoking the user handler (line 39-41).",
+    "Source-level emission ownership test (core.test.ts:563-575) is a creative and effective way to assert the 'core owns all SecurityLogger calls' invariant without relying on runtime behavior alone.",
+    "NetworkMismatchError catch in core.ts (line 545-554) correctly emits chain_id_mismatch and does not re-throw in the per-request path.",
+    "Verify 2-arg call shape is correct (core.ts:464-471) — nonceStore lives inside opts, not as a third argument."
+  ],
+  "blocking_for_approval": ["R1-1", "R1-2", "R1-3"]
+}

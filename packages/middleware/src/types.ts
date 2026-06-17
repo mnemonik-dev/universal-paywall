@@ -89,6 +89,17 @@ export interface PaymentPayload {
  * canonical 10-char form: `'0x' + keccak256(input).slice(2, 10)` (per
  * iteration-3 addendum §5). Raw addresses and raw nonces never appear in
  * event payloads.
+ *
+ * `payerHash` provenance: events emitted AFTER EIP-712 recovery
+ * (settlement_failed, nonce_replay, authorization_expired,
+ * authorization_not_yet_valid, signature_invalid, to_mismatch,
+ * relayer_low_balance) hash the cryptographically recovered signer. Events
+ * emitted BEFORE recovery (paused_request, vault_not_deployed, the early
+ * rpc_5xx surfacing) hash the claimed-on-the-wire `authorization.from` —
+ * the recovered address is not yet available at that point. This is
+ * structurally unavoidable and accepted as a minor information-disclosure
+ * trade-off (the hash is one-way and 10-char, so the asymmetry is
+ * forensic-only).
  */
 export interface SecurityEventCatalog {
   signature_invalid: { payerHash: string; network: string };

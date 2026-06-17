@@ -278,3 +278,44 @@ post-completion entries here following the `do-task` skill template.
 - T9 (Wave 6 vault-state checks): `factory.paused()` and `factory.vaults(developer)` cached reads happen in core.ts BETWEEN verify and settle. settle.ts already does the proactive USDC balance check; the factory-state checks are core.ts's responsibility per the architecture table.
 - Single-relayer-per-process assumption: the per-network WalletClient cache is keyed only on `network.id`. A second `OpaqueRelayerKey` for the same network would be silently ignored. Acceptable for MVP (D6/D13: one relayer per process) but worth documenting in the README operational guide pre-deploy. Security-auditor SEC-T7-05 INFO.
 - Test infra (deferred): vitest `vi.mock('viem', ...)` had to stub `createWalletClient` + `http` but keep the actual `privateKeyToAccount` / `signTypedData` from `viem/accounts` (so verify tests use real cryptography). Pattern works but is non-obvious; if a future task needs the same split, factor a shared test helper.
+
+## Task 8: Core orchestrator + node-http/Fastify adapters + public index
+
+**Status:** Done
+**Commits:** 3b07205 (impl + tests) + 0fbd033 (code-review round 1 fixes) + 85bb7d7 (test-review round 1 fixes) + a3640fd (security-review round 1 fixes)
+**Agent:** core-orchestrator
+**Summary:** Wired the middleware request-time pipeline end-to-end. `core.ts` is the framework-agnostic orchestrator — owns the per-network lazy `PublicClient` cache (concurrency-safe via in-flight Promise dedup), the process-singleton `NonceStore` (module-scope per addendum §2 cross-adapter requirement), and the per-network `FactoryStateCache` (5s TTL with stampede-safe refresh dedup). It is the SINGLE owner of `logger.securityEvent` emission per addendum §2 — `verify.ts` and `settle.ts` return classified results only. `paywall(req, opts)` implements Solution steps 7a–7g; factory-state checks (paused / vault_not_deployed) were moved BEFORE EIP-712 recovery per SEC-T8-05 so verify never receives `expectedVaultAddress=ZERO_ADDRESS`. `withPaywall` (Node http) and `fastifyPaywall` (Fastify preHandler hook, stamped with `Symbol.for('skip-override')` so the hook bubbles out of the plugin's child encapsulation) translate the discriminated `PaywallResult` to HTTP. `index.ts` exposes exactly `withPaywall`, `fastifyPaywall`, `NETWORKS`, `OpaqueRelayerKey` as value exports plus the public types `SecurityLogger` / `SecurityEventCatalog` / `SecurityEventName` / `PaywallConfig` / `NetworkConfig` / `PaymentRequirements` / `PaymentPayload` / `ExactEvmPayload` (moved into `types.ts` per code-reviewer R1-3). 202/202 middleware tests pass (52 new in T8 — 49 core + 4 node-http + 4 fastify + 4 index — minus the 9 already from earlier suites that shifted); `npm run typecheck` + `npm run lint` + `npm run build` clean. Build smoke `node -e "import('@universal-paywall/middleware').then(m=>console.log(Object.keys(m).sort()))"` prints exactly `["NETWORKS","OpaqueRelayerKey","fastifyPaywall","withPaywall"]`. Added `fastify` as an optional peer-dep + dev-dep so the type-only import in `adapters/fastify.ts` resolves.
+
+**Deviations:**
+- `chain_id_mismatch` event payload uses tech-spec D18 canonical names `expectedChainId` / `observedChainId` plus an additional `network` field for context (driven by SEC-T8-04). The task-8 spec text used `expected` / `actual`; D18 is the binding contract per addendum §2 numbering.
+- `relayer_low_balance` event added to `SecurityEventCatalog` with payload `{ balanceUsdc: string }` (driven by SEC-T8-03). When settle returns `relayer_no_balance` with `details.balance`, core emits BOTH `relayer_low_balance` and `settlement_failed` — backwards compatible with catch-all monitoring AND adds the dedicated typed signal with the balance value.
+- SecurityLogger emit helper carves out a known-safe-hex-field list (`SAFE_HEX_FIELDS = ['txHash']`) BEFORE running `scrubSecrets`, then re-attaches the preserved fields (driven by SEC-T8-02). Without this, a 32-byte tx hash matches `scrubSecrets`' `0x+64hex` private-key pattern and is redacted, destroying forensic correlation between `settlement_failed` events and on-chain transactions.
+- Factory-state checks moved BEFORE EIP-712 recovery (formerly between verify and settle) per SEC-T8-05. The earlier order let verify receive `expectedVaultAddress=ZERO_ADDRESS` when the pre-7a factory read failed silently — an attacker crafting `authorization.to=0x0` would have passed the `to_mismatch` check against that zero target. With the reordering, `vault_not_deployed` short-circuits before recovery runs.
+- The pre-7a "warm" factory-state read discards stale entries (does not seed `factoryState`) so the post-7b policy-enforcement guard surfaces `rpc_5xx` (SEC-T8-01). Without this, a stale-cache + RPC-failure combination would fail open — accepting payments against possibly-out-of-date `paused`/`vault` state.
+- `payerHash` provenance asymmetry documented in `types.ts` `SecurityEventCatalog` docblock: events emitted AFTER recovery hash the cryptographically recovered signer; events emitted BEFORE recovery (paused_request, vault_not_deployed, early rpc_5xx) hash the claimed-on-the-wire `authorization.from`. Structurally unavoidable; the hash is one-way and 10-char so the asymmetry is forensic-only.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t8: changes_required (R1-1 critical settle arg, R1-2 major price-parse duplicate, R1-3 major index public surface, 2 minor, 1 info) → [logs/working/task-8/code-reviewer-t8-round1.json](logs/working/task-8/code-reviewer-t8-round1.json)
+- security-auditor-t8: CONDITIONAL_PASS (SEC-T8-01 medium servedStale, SEC-T8-02 medium txHash redaction, 3 low SEC-T8-03/04/05, 1 info) → [logs/working/task-8/security-auditor-t8-round1.json](logs/working/task-8/security-auditor-t8-round1.json)
+- test-reviewer-t8: needs_improvement (T8-01 high non-stale-cache test, T8-02 high replay-store retention, T8-03 medium AJV deferred to T9, T8-04 medium verify mapping body assertion, 3 low) → [logs/working/task-8/test-reviewer-t8-round1.json](logs/working/task-8/test-reviewer-t8-round1.json)
+
+*Round 2 (after fixes):*
+- code-reviewer-t8: APPROVED (all R1 findings correctly resolved, no new findings) → [logs/working/task-8/code-reviewer-t8-round2.json](logs/working/task-8/code-reviewer-t8-round2.json)
+- security-auditor-t8: PASS (all 5 R1 findings resolved, one info observation about payerHash-provenance documented in types.ts) → [logs/working/task-8/security-auditor-t8-round2.json](logs/working/task-8/security-auditor-t8-round2.json)
+- test-reviewer-t8: PASSED (all 7 R1 findings resolved; T8-03 AJV correctly deferred to T9) → [logs/working/task-8/test-reviewer-t8-round2.json](logs/working/task-8/test-reviewer-t8-round2.json)
+
+**Verification:**
+- `npm test --workspace=@universal-paywall/middleware` → exit 0, 202/202 across 11 suites.
+- `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0 (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax).
+- `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts emit clean.
+- `npm run lint` → exit 0.
+- `node -e "import('@universal-paywall/middleware').then(m=>console.log(Object.keys(m).sort()))"` → `["NETWORKS","OpaqueRelayerKey","fastifyPaywall","withPaywall"]` (exact public value surface).
+- gitleaks pre-commit hook on every commit → 0 leaks.
+
+**Open items for future tasks:**
+- T9 (Wave 7 vendored x402 schema fixture): per tasks/9.md lines 24, 28, 56, 138–150, 195, vendor `packages/middleware/src/__tests__/fixtures/x402-v1.schema.json` and add AJV validation to `build402Body` + `buildErrorResponse` outputs. Deferred from T8 (test-reviewer T8-03) — fixture vendoring belongs to T9's canonical location to avoid drift.
+- T10 (Wave 7 forked-e2e): the cross-adapter NonceStore singleton claim is verified at the unit level here (`NonceStore module-scope singleton — verify receives the same instance across calls`). T10's forked-e2e test should still exercise the same NonceStore through BOTH adapters in a single process (pay via withPaywall, retry the same X-PAYMENT on fastifyPaywall → assert 402 `nonce_already_used`) to lock in cross-adapter behavior against real network traffic.
+- README operational guide (pre-deploy): the `relayer_low_balance` event with `balanceUsdc` is now a dedicated D18 channel. Operational alerting should subscribe to `relayer_low_balance` (with a configurable threshold above `MIN_RELAYER_USDC_BALANCE = 1_000_000n`) rather than parsing the generic `settlement_failed` reason field. Document the alerting recipe.
+- `fastify` peer-dep version range pinned to `^4.0.0 || ^5.0.0`. When Fastify v6 ships, validate the `Symbol.for('skip-override')` bubbling trick still works (it has been stable since v3, but is an unofficial-API affordance — `fastify-plugin` uses the same mechanism, and the pattern was reviewed by code-reviewer-t8 in round 1).
