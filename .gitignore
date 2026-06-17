@@ -26,3 +26,4 @@ contracts/cache/
 contracts/broadcast/
 contracts/.env
 contracts/node_modules/
+contracts/lcov.info
