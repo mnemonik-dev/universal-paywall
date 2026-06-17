@@ -567,7 +567,7 @@ describe('paywall pipeline', () => {
   });
 
   // ─── 7e: NetworkMismatchError ────────────────────────────────────────────
-  it('settle throws NetworkMismatchError → emit chain_id_mismatch + return 402 settlement_failed reason internal_error', async () => {
+  it('settle throws NetworkMismatchError → emit chain_id_mismatch + return 402 settlement_failed reason chain_id_mismatch', async () => {
     settleSpy.mockImplementationOnce(async () => {
       throw new NetworkMismatchError(5042002, 1);
     });
@@ -576,7 +576,7 @@ describe('paywall pipeline', () => {
     const result = await paywall({ headers: { 'x-payment': headerValue } }, makeOpts({ logger }));
     expect(result).toMatchObject({
       kind: '402',
-      body: { error: 'settlement_failed', reason: 'internal_error' },
+      body: { error: 'settlement_failed', reason: 'chain_id_mismatch' },
     });
     const calls = logger.securityEvent.mock.calls.filter((c) => c[0] === 'chain_id_mismatch');
     expect(calls).toHaveLength(1);

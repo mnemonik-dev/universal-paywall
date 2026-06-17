@@ -94,6 +94,13 @@ const PRICE_BASE_UNITS = 10_000n;
 
 const NETWORK_ID = `eip155:${CHAIN_ID}`;
 
+// T14-L2: single source of truth for the mock USDC EIP-712 domain name. The
+// mock contract (`MockUsdcEip3009`) hard-codes "USD Coin" to match Circle's
+// FiatTokenV2 reference deployment; the live Arc Testnet USDC returns "USDC"
+// (verified by the T3 spike — see decisions.md Task 3). Live-network parity
+// is tested in `arc-testnet-e2e.test.ts`; this suite is mock-only.
+const MOCK_USDC_NAME = 'USD Coin';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -355,7 +362,7 @@ async function patchNetworksForAnvil(args: {
     chainId: CHAIN_ID,
     rpcUrl: RPC_URL,
     usdcAddress: args.usdcAddress,
-    usdcEip712Name: 'USD Coin',
+    usdcEip712Name: MOCK_USDC_NAME,
     usdcEip712Version: '2',
     factoryAddress: args.factoryAddress,
     vaultImplAddress: args.vaultImplAddress,
@@ -661,7 +668,7 @@ describe('forked e2e', () => {
       value: PRICE_BASE_UNITS,
       nonce,
       usdcAddress,
-      usdcName: 'USD Coin',
+      usdcName: MOCK_USDC_NAME,
       usdcVersion: '2',
       chainId: CHAIN_ID,
     });
@@ -722,7 +729,7 @@ describe('forked e2e', () => {
       value: PRICE_BASE_UNITS,
       nonce,
       usdcAddress,
-      usdcName: 'USD Coin',
+      usdcName: MOCK_USDC_NAME,
       usdcVersion: '2',
       chainId: CHAIN_ID,
     });
@@ -779,7 +786,7 @@ describe('forked e2e', () => {
       value: PRICE_BASE_UNITS,
       nonce,
       usdcAddress,
-      usdcName: 'USD Coin',
+      usdcName: MOCK_USDC_NAME,
       usdcVersion: '2',
       chainId: CHAIN_ID,
     });
@@ -812,7 +819,7 @@ describe('forked e2e', () => {
       value: PRICE_BASE_UNITS,
       nonce,
       usdcAddress,
-      usdcName: 'USD Coin',
+      usdcName: MOCK_USDC_NAME,
       usdcVersion: '2',
       chainId: CHAIN_ID,
     });
@@ -858,6 +865,15 @@ describe('forked e2e', () => {
       // 8 s gives a comfortable 3 s margin so a GC pause or slow CI runner
       // never lands the request while the cache is still warm. Well within
       // testTimeout: 60_000 (T10-R1-F1).
+      //
+      // T14-L1: real-clock wait is intentional here. The factory-state cache
+      // reads `Date.now()` directly inside `readFactoryState` (core.ts), and
+      // this suite runs the middleware in the same process as the test —
+      // installing `vi.useFakeTimers()` would also freeze the anvil polling
+      // and Fastify hook timers, deadlocking the in-flight HTTP request. The
+      // unit-level cache-TTL test (`core.test.ts` "ttl_refresh_after_5s_fake_timers")
+      // owns the deterministic path; this forked-e2e variant is the path-
+      // coverage smoke and must accept the wall-clock cost.
       await new Promise((r) => setTimeout(r, 8_000));
 
       // Issue a signed request — middleware re-reads factory state, sees
@@ -869,7 +885,7 @@ describe('forked e2e', () => {
         value: PRICE_BASE_UNITS,
         nonce,
         usdcAddress,
-        usdcName: 'USD Coin',
+        usdcName: MOCK_USDC_NAME,
         usdcVersion: '2',
         chainId: CHAIN_ID,
       });

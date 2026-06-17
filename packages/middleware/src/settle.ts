@@ -62,6 +62,16 @@ import type { NetworkConfig, PaymentPayload } from './types.js';
  */
 export const MIN_RELAYER_USDC_BALANCE = 1_000_000n;
 
+/**
+ * Seven settlement classifier outcomes returned by `settleOnChain` — these
+ * are the canonical reasons the in-module classifier can produce. The
+ * `settlement_failed` wire reason set is a superset: `core.ts` also emits
+ * `chain_id_mismatch` when settle throws `NetworkMismatchError` (D14 startup
+ * chainId pin) and when `opts.network` is not in NETWORKS at request time.
+ * `chain_id_mismatch` is not classifier-produced; it is the D18 event name
+ * carried through to the wire so downstream pattern-matchers see one
+ * coherent taxonomy.
+ */
 export type SettleReason =
   | 'rpc_timeout'
   | 'rpc_5xx'
@@ -70,6 +80,12 @@ export type SettleReason =
   | 'receipt_reverted'
   | 'relayer_no_balance'
   | 'authorization_already_used_onchain';
+
+/**
+ * Full set of settlement_failed sub-reasons observable on the wire. Includes
+ * `chain_id_mismatch` which is emitted by `core.ts` (not by the classifier).
+ */
+export type SettlementFailedReason = SettleReason | 'chain_id_mismatch';
 
 export type SettleResult =
   | { ok: true; txHash: `0x${string}`; payer: `0x${string}` }

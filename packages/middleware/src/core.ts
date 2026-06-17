@@ -30,7 +30,12 @@
  *   - The D14 startup chainId pin lives in `settle.ts` (the first
  *     writeContract caller per request). When `settle.ts` throws
  *     `NetworkMismatchError`, `core.ts` catches it, emits `chain_id_mismatch`
- *     and returns 402 `settlement_failed { reason: 'internal_error' }`.
+ *     and returns 402 `settlement_failed { reason: 'chain_id_mismatch' }`.
+ *     The same wire reason is emitted when `opts.network` is missing from
+ *     NETWORKS at request time. This is the documented 8th reason in the
+ *     `SettlementFailedReason` taxonomy (settle.ts) — the classifier only
+ *     produces the 7 `SettleReason` values; `chain_id_mismatch` is the
+ *     core-emitted overlay.
  *
  * Hash helpers (`payerHash`, `developerEoaHash`, `nonceHash`) all return a
  * canonical 10-character string: `'0x' + keccak256(input).slice(2, 10)` —
@@ -411,16 +416,18 @@ export async function paywall(
     NETWORKS as Record<string, NetworkConfig | undefined>
   )[opts.network];
   if (network === undefined) {
-    // Configuration error surfaced as a 402 internal-error — the integrator
-    // should see this in the first request after misconfiguration. We do
-    // NOT throw here: a per-request 402 keeps the integrator's service
-    // responsive while alerting via the security log.
+    // Configuration error surfaced as a 402 settlement_failed/chain_id_mismatch
+    // — the integrator should see this in the first request after
+    // misconfiguration. We do NOT throw here: a per-request 402 keeps the
+    // integrator's service responsive while alerting via the security log.
+    // expected/observed chain IDs are zeroed because no on-chain probe has
+    // run yet (the misconfiguration is detected before any RPC call).
     emit(opts, 'chain_id_mismatch', {
       expectedChainId: 0,
       observedChainId: 0,
       network: opts.network,
     });
-    return build402(402, null, 'settlement_failed', { reason: 'internal_error' });
+    return build402(402, null, 'settlement_failed', { reason: 'chain_id_mismatch' });
   }
 
   const publicClient = await getPublicClient(opts, network);
@@ -589,7 +596,7 @@ export async function paywall(
         observedChainId: err.observedChainId,
         network: network.id,
       });
-      return build402(402, requirements, 'settlement_failed', { reason: 'internal_error' });
+      return build402(402, requirements, 'settlement_failed', { reason: 'chain_id_mismatch' });
     }
     throw err;
   }

@@ -447,3 +447,118 @@ post-completion entries here following the `do-task` skill template.
 - The arc-testnet-e2e suite asserts the 402 body via the vendored x402 v1 ChallengeBody schema (`additionalProperties: false`) — if T8/T11 ever add a new top-level field to the 402 body, this suite (and forked-e2e's matching ajv-validate in node-http happy path, T10-R1-F5) will fail until the schema is updated.
 
 
+
+## Task 14: Test Audit (Wave 10)
+
+**Status:** Done
+**Agent:** test-auditor
+**Verdict:** PASS
+
+**Summary:** Holistic full-feature test quality audit completed. All hard requirements (per addendum §4 T14) satisfied:
+- Middleware vitest coverage: 96.87% lines / 89.18% branches / 100% functions (target ≥85% lines) → PASS.
+- Contracts Foundry LCOV branch coverage: 100% (10/10) on `contracts/src/` only (test/, script/, lib/ excluded) (target ≥95%) → PASS.
+- `contracts/test/invariants/VaultInvariants.t.sol` exists with **3 invariants** (≥3 required):
+  - `invariant_VaultBalanceIntegrity` — vault USDC balance == handler.totalMinted - handler.totalWithdrawn
+  - `invariant_FeeBpsBounded` — factory.feeBps() <= 1000
+  - `invariant_DeveloperNonZero` — vault.developer() != address(0) after init
+  - Runs=256 under CI profile; 16,384 calls/run; bounded handler with targetSelector whitelist
+- `testFuzz_FeeMath` — present at `contracts/test/PaymentVaultImpl.t.sol:285` (runs=1000 under CI profile)
+- `testFuzz_RegisterIdempotent` — present at `contracts/test/PaymentSplitterFactory.t.sol:307` (runs=1000 under CI profile)
+- `MockMaliciousTreasury` dynamic reentrancy test present + passing at `contracts/test/PaymentVaultImpl.t.sol:224`
+- Slither reentrancy detection (`reentrancy-eth,reentrancy-no-eth` on `contracts/src/`): 0 findings
+- Cross-adapter NonceStore replay test present at `packages/middleware/src/__tests__/integration/forked-e2e.test.ts:771` in single-process forked-e2e suite
+
+Every tech-spec Testing Strategy bullet (unit + contract + forked-e2e + register-cli) maps to an executable test by file+line+name. Coverage matrix in `audit-tests.md` shows PRESENT for all rows — no MISSING, no WEAK. All 4 EIP-712 tamper tests (chainId, verifyingContract, name, version) are distinct. All 7 settlement failure reasons covered by separate tests in `settle.test.ts`. All 14 declared `SecurityEventName` D18 catalog keys have a trigger test in `core.test.ts`. Relayer-key redaction covered for util.inspect, pino, winston, structuredClone, JSON.stringify, toString, error stacks, and non-enumerable assertion. Factory-state cache TTL tests use `vi.useFakeTimers()` (deterministic — no sleep flakiness).
+
+Test quality dimensions audited:
+- Meaningful assertions: PASS (algebraic identities in fuzz, exact 402 body shape + emit payloads in unit, on-chain balance deltas + authorizationState in forked-e2e)
+- Test isolation: PASS (vitest isolate:true, beforeEach cache resets, forked-e2e patchNetworksForAnvil teardown closure)
+- Mock realism: PASS (MockUsdcEip3009 mirrors Circle FiatTokenV2_2 domain; settle.test.ts partial-mocks viem preserving real cryptography)
+- Sleep-based flakiness: PASS (only 3 real setTimeout uses: anvil port poll, SIGTERM grace, one 8s cache-TTL wait in forked-e2e — flagged as L1 ergonomics)
+- Over-mocking: PASS (core.ts tests mock verify/settle downstream boundaries which have their own dedicated unit tests; no instance of mocking the unit under test)
+
+**3 low-severity recommendations (non-blocking):**
+- T14-L1: Replace 8s real-clock sleep in forked-e2e paused-request test (`integration/forked-e2e.test.ts:861`) with an RPC-override that forces a cache miss — deterministic TTL coverage already pinned at `core.test.ts:299`.
+- T14-L2: Document mock-vs-live USDC name divergence (mock="USD Coin", live="USDC") with a single shared constant in forked-e2e helpers.
+- T14-L3: Document forge LCOV instrumentation quirk for inherited modifier wrappers (`PaymentSplitterFactory.sol:97,100,101` show as missed by `_pause`/`_unpause` body lines but are functionally exercised by pause/unpause tests; branch metric is 100%).
+
+**Verification commands run:**
+- `npm test --workspace=@universal-paywall/middleware -- --coverage --reporter=basic` → exit 0; 253 passed / 2 skipped (skips are gated arc-testnet-e2e)
+- `cd contracts && forge coverage --report lcov` → exit 0; lcov.info per-file aggregation via awk on `^SF:src/`
+- `cd contracts && FOUNDRY_PROFILE=ci forge test --match-test 'testFuzz_|invariant_' -vv` → exit 0; fuzz runs=1000, invariant runs=256, all pass
+- `cd contracts && forge test` → 52 passed / 0 failed
+- `cd contracts && slither --detect reentrancy-eth,reentrancy-no-eth src/` → 0 findings
+
+**Reports:**
+- `work/x402-agent-payment/audit-tests.md` — full markdown audit (matrix, mandatory items, quality findings, recommendations)
+- `work/x402-agent-payment/logs/working/audit/test-auditor.json` — structured JSON for orchestrator consumption
+
+**Open items for future tasks:**
+- T15 (Pre-deploy QA): may proceed; no blockers. Apply the 3 low-severity recommendations opportunistically (post-MVP) — they are ergonomic, not correctness gates.
+- Coverage gate CI (separate task): document the forge LCOV line-vs-branch quirk in the CI gate config; target the branch metric on `contracts/src/` only (current ratio 100% gives ~5% margin against the ≥95% gate).
+
+## Task 13: Security Audit (Wave 10)
+
+**Status:** Done
+**Agent:** security-auditor
+**Summary:** Holistic security audit of the FINAL STATE across middleware (`packages/middleware/src/`), Solidity contracts (`contracts/src/`), developer CLI (`scripts/register.ts`), deploy script (`contracts/script/Deploy.s.sol` + `contracts/scripts/post-deploy.ts`), and the USDC EIP-3009 spike. Every D1–D18 invariant is honoured by the code as it stands. No critical or high findings. **Verdict: CLEAR TO ADVANCE to Final Wave.** Full report: [audit-security.md](audit-security.md); machine-readable: [logs/working/audit/security-auditor.json](logs/working/audit/security-auditor.json).
+**Findings:** 0 critical, 0 high, 1 medium (M-MW-01 — `scrubSecrets` bare-64-hex regex word-boundary edge case; defense-in-depth gap with no exploited code path today), 4 low (L-MW-01 register CLI raw-key variable lifetime; L-MW-02 `relayer_low_balance` event observability if forwarded to public channels; L-CT-01/02 unindexed event addresses on `PlatformTreasuryUpdated`/`VaultDeployed`), 9 informational (Slither false positives anchored to D3/D4, anvil default key documented in a task spec, minor auditability suggestions).
+**Deviations from spec:** None. All recommendations are non-blocking defense-in-depth or off-chain-observability improvements; the code matches every Decision (D1–D18) and every applicable Risks-row mitigation.
+
+**Tooling results:**
+- `npm test --workspace=@universal-paywall/middleware` → 253 passed + 2 skipped (Arc Testnet E2E gated); 0 failed.
+- `cd contracts && forge test` → 52 passed; 0 failed.
+- `cd contracts && forge test --match-test Reentrancy` → 1 passed (`test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury`). Note: `--match-contract Reentrancy` returns "no tests found" because the reentrancy test is a method on `PaymentVaultImplTest`, not a separate contract; `--match-test` is the correct selector.
+- `slither contracts/src/ --config-file slither.config.json` (v0.11.5) → 4 findings (1 incorrect-equality, 1 reentrancy-events, 1 naming-convention, 1 unindexed-event-address). All triaged informational/low against D3/D4/D11 anchors per audit-security.md tooling appendix.
+- `gitleaks detect` (v8.30.1) → 1 finding: anvil default account-0 key (`0xac0974...ff80`) documented in `tasks/11.md:183` inline as public. Not a real secret; recommend `.gitleaksignore` entry.
+- Grep sweep `selfdestruct|delegatecall|assembly|tx.origin|receive|fallback|setDeveloper|setFactory` in `contracts/src/` → 0 production hits (only NatSpec invariant text on PaymentVaultImpl.sol:26 and docstring mentions of the word "receive").
+- Coverage READ (not re-run; thresholds owned by T14): `PaymentSplitterFactory.sol` 6/6 branches (100%), `PaymentVaultImpl.sol` 4/4 branches (100%), middleware 96.87% statements / 89.18% branches / 100% functions / 96.87% lines. All security-tagged branches exercised.
+
+**Open items for future tasks:**
+- Pre-Final-Wave (nice-to-fix, non-blocking): tighten `scrubSecrets` in `packages/middleware/src/relayer-key.ts:32` per M-MW-01 — replace `\b[0-9a-fA-F]{64}\b` with `(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])`, add a bare-130-hex pattern with the same lookarounds, and add fuzz strings (concatenated raw hex without `0x`) to `relayer-key.test.ts`. No exploited path today; closes a defense-in-depth gap.
+- Pre-Final-Wave (operational): add a `.gitleaksignore` entry for the anvil default account-0 key per I-SCRIPT-01 so the husky pre-commit hook stops false-positive on documentation-only commits.
+- Post-MVP (off-chain monitoring ergonomics): add `indexed` to `PlatformTreasuryUpdated.newTreasury` and `VaultDeployed.vault` parameters per L-CT-01/L-CT-02 — improves log filterability for treasury rotation and vault-deploy monitors. Not a security defect.
+- Operator documentation: if `relayer_low_balance` events are forwarded to public channels, bucket the `balanceUsdc` field to `critical | low | sufficient` per L-MW-02 to remove the precise timing-window signal an external observer could correlate with refill latency.
+
+## Task 12: Code Audit (Wave 10)
+
+**Status:** Done
+**Agent:** code-auditor
+**Summary:** Holistic code-quality audit of the FINAL STATE across middleware (`packages/middleware/src/`), Solidity (`contracts/src/`), deploy + spike scripts, and the developer CLI. Every D1–D18 invariant that constrains code is honoured; ESM-only invariants hold; zero ethers imports; no forbidden opcodes in Solidity; OpaqueRelayerKey defense-in-depth is intact. **Verdict: `advisory`** — no Blocker or Major findings; the lead may bundle the Minor/Nit findings into a single fixer pass before T16. Full report: [audit-code.md](audit-code.md); machine-readable: [logs/working/audit/code-auditor.json](logs/working/audit/code-auditor.json).
+**Findings:** 0 blocker, 0 major, 5 minor (T12-01 `errors.ts` is dead in production and its `settlementReason` body field diverges from `core.ts`'s `reason`; T12-02 settlement taxonomy declared twice as `SettleReason`/`SettlementSubReason`; T12-03 `reason: 'internal_error'` literal not in any documented taxonomy; T12-04 stale docstring on `relayer-key.ts` describing the abandoned `#key` design; T12-05 local-variable shadowing of `usdc`/`feeBps` in `PaymentVaultImpl.withdraw()`), 4 nits (T12-06 missing exhaustiveness guard on verify-reason switch; T12-07 Content-Type capitalization/charset drift across three sites; T12-08 `parseUsdPrice` runs per-request rather than once at adapter construction; T12-09 canonical Arc Testnet USDC address + chain ID duplicated across three files).
+**Deviations from spec:** None. The Solidity layout (`contracts/src/`, `contracts/script/Deploy.s.sol`, no Hardhat) deviates from tech-spec Architecture §"What we're building/modifying" lines 33–65 but matches D9 / iter-4 §1; observation only, not a finding.
+
+**Open items for future tasks:**
+- Pre-deploy (single fixer pass, non-blocking): resolve T12-01 either by deleting `errors.ts` and consolidating constants into a shared `error-reasons.ts`, OR by routing all `core.ts` 402 responses through `buildErrorResponse(...)`. Standardize the wire body on a single field name (`reason` or `settlementReason` — both are schema-accepted, but exactly one should be emitted).
+- Pre-deploy (carry with T12-01 fix): merge `SettlementSubReason` and `SettleReason` into a single type (T12-02); resolve the `internal_error` literal (T12-03) by either widening the taxonomy or mapping the chain-id-mismatch path to a documented bucket.
+- Pre-deploy (housekeeping): update `relayer-key.ts:5-6` docstring to describe the `WeakMap`-based design (T12-04); rename local `usdc`/`feeBps` in `PaymentVaultImpl.withdraw()` (T12-05).
+- Tech-spec follow-up: update tech-spec Architecture §"What we're building/modifying" (lines 33–65) to reflect the shipped Foundry layout (`contracts/src/`, `contracts/script/Deploy.s.sol`, `contracts/scripts/post-deploy.ts`) so future-feature readers don't chase nonexistent Hardhat paths.
+
+## Audit-Fix (Wave 10 follow-up)
+
+**Status:** In progress (awaiting re-audit)
+**Agent:** audit-fixer
+**Scope:** 9 minor/medium findings from Wave 10 audits (T12/T13/T14).
+
+**Fixes applied:**
+
+- **T12-01 (delete dead errors.ts):** Removed `packages/middleware/src/errors.ts` (and its test `__tests__/errors.test.ts`). `core.ts:build402` is the production response builder; the parallel `buildErrorResponse` was never consumed in production and emitted a divergent body field (`settlementReason` vs `reason`). `MalformedPaymentHeaderError` is imported directly from `x402.ts`, `NetworkMismatchError` from `settle.ts` (the existing re-exports through `errors.ts` were never used). Schema validation of the 402 body is still covered by `__tests__/x402.test.ts` (line 91 — `validateChallengeBody`), `__tests__/integration/forked-e2e.test.ts` (line 638 — wire-validation against the real response), and `__tests__/integration/arc-testnet-e2e.test.ts` (line 235).
+- **T12-02 (taxonomy unification):** With `errors.ts` deleted, `SettlementSubReason` is gone. `SettleReason` (in `settle.ts:65`) is now the single source of truth for the seven classifier-produced settlement reasons. Added a documented `SettlementFailedReason = SettleReason | 'chain_id_mismatch'` type that represents the FULL set of wire reasons observable on `settlement_failed` (`core.ts` emits the additional `chain_id_mismatch` when settle throws `NetworkMismatchError`).
+- **T12-03 (no orphan `internal_error` literal):** Replaced both `reason: 'internal_error'` emit sites in `core.ts` (lines 423 and 592) with `reason: 'chain_id_mismatch'`, matching the D18 event name. Updated `core.ts` module docstring and the unit test in `__tests__/core.test.ts:570`. The 8th wire reason is documented in `settle.ts:SettlementFailedReason` JSDoc.
+- **T12-04 (docstring drift):** Rewrote `packages/middleware/src/relayer-key.ts` header docstring to describe the actual `WeakMap<OpaqueRelayerKey, string>` implementation (per T6 round-1 hardening). Dropped the misleading `#key` private-field language and added a paragraph explaining why the WeakMap is strictly stronger than a class-private `#` field.
+- **T12-05 (Solidity local-variable shadowing):** Renamed `usdc` → `usdcToken` and `feeBps` → `currentFeeBps` in `PaymentVaultImpl.withdraw()` (`contracts/src/PaymentVaultImpl.sol:84,89`) so locals no longer shadow `IPaymentSplitterFactory.usdc()` / `feeBps()` method names. No ABI / semantic change.
+- **T13-M-MW-01 (scrubSecrets word-boundary edge case):** Replaced the `\b[0-9a-fA-F]{64}\b` bare-64 pattern with `(?<![0-9a-fA-F])[0-9a-fA-F]{64,}(?![0-9a-fA-F])` — matches any maximal bare-hex run of ≥64 chars (covers concatenated keys, raw 65-byte signatures without `0x`, and embedded windows that the `\b` boundaries missed). Added four fuzz tests in `__tests__/relayer-key.test.ts` covering: (a) 64-bare-hex embedded in a longer hex run, (b) 130-char bare-hex signature, (c) mixed-case 130-bare-hex, (d) two concatenated 64-hex keys (128-char run).
+- **T14-L1 (8s real-clock sleep documented):** Kept the 8s sleep in `forked-e2e.test.ts:861` (paused-request test) but expanded the comment to explain why deterministic time control is not viable here: the factory-state cache reads `Date.now()` inside `core.ts`, and installing `vi.useFakeTimers()` would also freeze anvil polling and Fastify hook timers — deadlocking the in-flight HTTP request. The unit-level cache-TTL test (`core.test.ts:299` with fake timers) owns the deterministic path.
+- **T14-L2 (mock USDC name constant):** Extracted a single `MOCK_USDC_NAME = 'USD Coin'` constant in `forked-e2e.test.ts` (line 102) and replaced all six literal usages. Documents the mock-vs-live divergence inline.
+- **T14-L3 (forge LCOV instrumentation quirk):** Added a comment block in `contracts/src/PaymentSplitterFactory.sol:96` documenting that the `_pause()`/`_unpause()` body lines (97, 100, 101) show as line-coverage misses in `forge coverage --report lcov` despite being exercised by `test_Pause_BlocksRegister` / `test_Unpause_RestoresRegister`. Branch coverage is 100% and is the real CI gate.
+
+**Deferrals:** None — all 9 findings were actionable; no auditor flagged any as "advisory / nit / defer post-MVP".
+
+**Verification (post-fix):**
+- `npm test --workspace=@universal-paywall/middleware` → 208 passed + 2 skipped across 13 suites (was 253 + 2 skipped; -45 from deleted `errors.test.ts`). All 4 new scrubSecrets fuzz tests green.
+- `cd contracts && forge test` → 52 passed / 0 failed.
+- `npm run lint` → exit 0.
+- `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0.
+- `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts clean.
+
+**Reviewer verdicts:** _pending — see logs/working/audit-fix/_

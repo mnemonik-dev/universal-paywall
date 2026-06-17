@@ -81,18 +81,18 @@ contract PaymentVaultImpl is Initializable, ReentrancyGuard {
         if (msg.sender != developer) revert NotDeveloper();
 
         IPaymentSplitterFactory f = IPaymentSplitterFactory(factory);
-        IERC20 usdc = IERC20(f.usdc());
+        IERC20 usdcToken = IERC20(f.usdc());
 
-        uint256 gross = usdc.balanceOf(address(this));
+        uint256 gross = usdcToken.balanceOf(address(this));
         if (gross == 0) revert NoBalance();
 
-        uint256 feeBps = f.feeBps();
-        uint256 fee = (gross * feeBps) / 10000;
+        uint256 currentFeeBps = f.feeBps();
+        uint256 fee = (gross * currentFeeBps) / 10000;
         uint256 net = gross - fee;
 
-        usdc.safeTransfer(developer, net);
+        usdcToken.safeTransfer(developer, net);
         if (fee > 0) {
-            usdc.safeTransfer(f.platformTreasury(), fee);
+            usdcToken.safeTransfer(f.platformTreasury(), fee);
         }
 
         emit Withdrawal(developer, gross, fee);

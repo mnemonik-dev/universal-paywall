@@ -215,4 +215,44 @@ describe('scrubSecrets', () => {
     expect(scrubSecrets(null)).toBe(null);
     expect(scrubSecrets(true)).toBe(true);
   });
+
+  // T13-M-MW-01: the legacy `\b...\b` boundaries did not fire on hex
+  // characters embedded inside longer hex runs. The negative-lookaround
+  // patterns must redact 64-bare-hex and 130-bare-hex even when their
+  // neighbours are also hex digits.
+  it('redacts 64-bare-hex embedded in a longer hex run (no word boundary)', () => {
+    const addr40 = 'a'.repeat(40);
+    const nonce64 = 'b'.repeat(64);
+    const input = `replay-attempt from ${addr40}${nonce64} end`;
+    const out = scrubSecrets(input) as string;
+    expect(out).toContain(REDACTED);
+    expect(out).not.toContain(nonce64);
+  });
+
+  it('redacts 130-bare-hex run (raw signature without 0x prefix)', () => {
+    const rawSig = 'c'.repeat(130);
+    const input = `sig=${rawSig};other=stuff`;
+    const out = scrubSecrets(input) as string;
+    expect(out).toContain(REDACTED);
+    expect(out).not.toContain(rawSig);
+  });
+
+  it('redacts mixed-case bare 130-hex', () => {
+    const rawSig = 'AbCd'.repeat(32) + 'aA'; // 130 chars, mixed case
+    const input = `before ${rawSig} after`;
+    const out = scrubSecrets(input) as string;
+    expect(out).toContain(REDACTED);
+    expect(out).not.toContain(rawSig);
+  });
+
+  it('redacts two concatenated 64-hex keys (128-char run)', () => {
+    const k1 = 'd'.repeat(64);
+    const k2 = 'e'.repeat(64);
+    const input = `${k1}${k2}`;
+    const out = scrubSecrets(input) as string;
+    expect(out).toContain(REDACTED);
+    // Both 64-hex windows must be redacted.
+    expect(out).not.toContain(k1);
+    expect(out).not.toContain(k2);
+  });
 });
