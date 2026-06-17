@@ -254,7 +254,10 @@ async function run(): Promise<number> {
       args: [],
     });
 
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 30_000,
+    });
     if (receipt.status !== 'success') {
       process.stderr.write('register_failed: receipt_reverted\n');
       return 1;

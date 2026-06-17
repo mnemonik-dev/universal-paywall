@@ -41,7 +41,7 @@ x402 settles in USDC. Arc Testnet pays gas in USDC too, so you need a small bala
 
 1. Open [https://faucet.circle.com](https://faucet.circle.com) and select **Arc Testnet** in the network selector. _Screenshot: faucet showing Arc Testnet selected._
 2. Paste your developer EOA address and claim. If Arc Testnet is not yet listed at Circle's faucet, fall back to [https://thirdweb.com/arc-testnet](https://thirdweb.com/arc-testnet); both are documented in `deployment.md`.
-3. Confirm USDC arrived: paste your address into [https://testnet.arcscan.network](https://testnet.arcscan.network) (Arc Testnet block explorer) and check the USDC balance.
+3. Confirm USDC arrived: paste your address into [https://testnet.arcscan.app](https://testnet.arcscan.app) (Arc Testnet block explorer) and check the USDC balance.
 
 You only need enough USDC to cover the `register()` transaction (~13 micro-USDC at current gas rates) — a single faucet drip is more than enough.
 
