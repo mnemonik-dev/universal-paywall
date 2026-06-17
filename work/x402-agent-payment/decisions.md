@@ -131,3 +131,38 @@ post-completion entries here following the `do-task` skill template.
 - T6 (Wave 5, `networks.ts` author): consume `contracts/scripts/arc-testnet-usdc-domain.json` to populate `NETWORKS['arc-testnet'].usdcEip712Name = "USDC"` (NOT "USD Coin") and `usdcEip712Version = "2"`, and surface every `notes[]` entry at module load via warn-level log (informational only, never blocking).
 - Post-MVP `x402-batched-settlement` feature: gas-cost spike (1212–1290 micro-USDC ≈ 12–13% of a 0.01 USDC payment) exceeds the 5% per-payment-economics threshold; defer batched-settlement work per Risks row 4. MVP per-payment settlement remains acceptable for low/mid-volume APIs per the same row's documented limitation.
 - T6 must also document the gas estimation fallback (60000 gas constant) the artifact records — downstream callers should not assume the published gas cost is RPC-measured.
+
+## Task 4: Factory + Vault contracts
+
+**Status:** Done
+**Commit:** 7aeab21 (impl) + ecdb025 (round-1 fixes) + 6663759 (round-2 fix)
+**Agent:** contracts-author
+**Summary:** Implemented the on-chain core of the x402 settlement flow per D3/D4/D8/D10–D17 and tech-spec Data Models. `PaymentSplitterFactory` (Ownable2Step + Pausable) deploys per-developer USDC vaults as EIP-1167 minimal proxies via `Clones.cloneDeterministic` with `salt = bytes32(uint256(uint160(msg.sender)))` so off-chain middleware can predict the `payTo` address. `PaymentVaultImpl` (Initializable + storage-based ReentrancyGuard) is a passive USDC receiver with split-on-withdraw — developer first, platform second per systemic-fix §7 — and is intentionally unpausable (D12). `IERC3009` interface defines the off-chain ABI helper consumed by middleware; `MockUsdcEip3009` (under `test/mocks/`, not `src/`) implements EIP-3009 with Circle FiatTokenV2_2 EIP-712 domain (`name = "USD Coin"`, `version = "2"`, decimals 6) for Foundry tests. Custom errors (`NotDeveloper`, `NoBalance`, `ZeroAddress`, `AlreadyRegistered`, `InvalidFeeBps`) used throughout for gas efficiency and test-selector matching. Constructor takes exactly 3 args `(usdc, platformTreasury, initialFeeBps)`; `vaultImpl` is deployed inside the constructor and immutable.
+**Deviations:** None from spec — event signatures (`VaultDeployed`, `FeeBpsUpdated`, `PlatformTreasuryUpdated`, `Withdrawal`) match tech-spec Data Models exactly after round 1. Note: `PlatformTreasuryUpdated` uses parameter names `oldTreasury/newTreasury` (more descriptive than spec's `oldTo/newTo`) — ABI-compatible per security-auditor confirmation.
+
+**Reviews:**
+
+*Round 1:*
+- code-reviewer-t4: request_changes (2 major event-indexing deviations, 4 minor) → [logs/working/task-4/code-reviewer-t4-round1.json](logs/working/task-4/code-reviewer-t4-round1.json)
+- security-auditor-t4: PASS_WITH_NOTES (1 medium operator-DoS doc, 3 low, 3 info) → [logs/working/task-4/security-auditor-t4-round1.json](logs/working/task-4/security-auditor-t4-round1.json)
+- test-reviewer-t4: needs_improvement (2 medium, 3 low) → [logs/working/task-4/test-reviewer-t4-round1.json](logs/working/task-4/test-reviewer-t4-round1.json)
+
+*Round 2 (after fixes):*
+- code-reviewer-t4: approved_with_minor_notes (1 minor — comment constants imprecision T4-R2-01) → [logs/working/task-4/code-reviewer-t4-round2.json](logs/working/task-4/code-reviewer-t4-round2.json)
+- security-auditor-t4: PASS (all round-1 findings resolved; SA-T4-03 retracted as false positive on author pushback) → [logs/working/task-4/security-auditor-t4-round2.json](logs/working/task-4/security-auditor-t4-round2.json)
+- test-reviewer-t4: passed (T4-TRV1-002 retracted on author pushback — current `<= validAfter` matches Circle's `require(now > validAfter)`) → [logs/working/task-4/test-reviewer-t4-round2.json](logs/working/task-4/test-reviewer-t4-round2.json)
+
+*Round 3 (after T4-R2-01 fix):*
+- code-reviewer-t4: approved (final) → [logs/working/task-4/code-reviewer-t4-round3.json](logs/working/task-4/code-reviewer-t4-round3.json)
+
+**Verification:**
+- `cd contracts && forge build` → exit 0, no warnings (27 files compiled with solc 0.8.20).
+- D15 grep checks on `src/PaymentVaultImpl.sol` (selfdestruct/delegatecall/assembly executable lines) → empty.
+- D16/D17 grep (receive/fallback/setDeveloper/setFactory) → empty.
+- `@custom:security-invariant no_selfdestruct no_delegatecall single_initializer no_setters_for_developer_or_factory` NatSpec confirmed on `PaymentVaultImpl` (anchor for T13 security audit).
+- gitleaks pre-commit hook → 0 leaks.
+
+**Open items for future tasks:**
+- T5 (Wave 3 contract tests, Foundry): implement the 16 TDD anchors listed in `tasks/4.md` lines 96–114; both `ZeroAddress` errors (defined in factory AND vault) must be qualified by contract in `vm.expectRevert(PaymentSplitterFactory.ZeroAddress.selector)` vs `PaymentVaultImpl.ZeroAddress.selector`. Add the security-auditor's suggested coverage: `MockRevertingTreasury` to verify withdraw DoSes (SA-T4-01) and `feeBps=0` workaround test.
+- T6 (Wave 5 middleware `networks.ts`): use `Clones.predictDeterministicAddress` math equivalent in JS — salt is `bytes32(uint256(uint160(developer)))` (left-padded address), deployer is factory address. Match the on-chain formula exactly or off-chain `payTo` will diverge.
+- Pre-deploy wave: README operational guide must document treasury-DoS risk (SA-T4-01) — `platformTreasury` MUST be plain EOA or audited multisig, never a contract with custom token-receive logic. Currently documented in `PaymentVaultImpl.withdraw()` NatSpec only.

@@ -1,0 +1,61 @@
+{
+  "reviewer": "code-reviewer-t4",
+  "task": 4,
+  "round": 2,
+  "timestamp": "2026-06-17",
+  "verdict": "approved_with_minor_notes",
+  "summary": "Both major event-signature deviations from round 1 are correctly fixed. The @return NatSpec addition is good. The two new additions (ReentrancyGuard slot comment and treasury-DOS operator note) are well-intentioned but the ReentrancyGuard comment contains a factual inaccuracy about OZ 5.x constants that should be corrected to avoid misleading future auditors. The treasury-DOS note is valuable and correctly placed. No blocking issues remain.",
+  "round1_fixes_verified": {
+    "T4-C-01": {
+      "status": "fixed",
+      "description": "VaultDeployed.vault is no longer indexed — matches tech-spec Data Models line 302 exactly."
+    },
+    "T4-C-02": {
+      "status": "fixed",
+      "description": "PlatformTreasuryUpdated args are no longer indexed — matches tech-spec Data Models line 304 exactly."
+    },
+    "T4-C-05": {
+      "status": "fixed",
+      "description": "@return vault NatSpec added to register() — clear and correct."
+    },
+    "T4-C-03": {
+      "status": "skipped_accepted",
+      "description": "Reviewer self-marked no bug, skip is appropriate."
+    },
+    "T4-C-04": {
+      "status": "skipped_accepted",
+      "description": "Task spec implementation hints explicitly use this variable name. Skip is justified."
+    }
+  },
+  "new_issues": [
+    {
+      "id": "T4-R2-01",
+      "severity": "minor",
+      "dimension": "3_code_readability",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "lines": "57-60",
+      "title": "ReentrancyGuard slot comment contains factual imprecision about NOT_ENTERED constant",
+      "description": "The added comment states: 'OZ 5.x checks `_status == ENTERED (2)`, so the zero-default is safe for the first withdraw and the guard transitions through ENTERED→NOT_ENTERED on use.' This is behaviorally correct — a clone starting with `_status = 0` will pass the `_status == ENTERED` check (0 != 2) — but it omits a critical fact: `NOT_ENTERED = 1`, not 0. The actual OZ 5.x constants are `NOT_ENTERED = 1` and `ENTERED = 2` (verified in `lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol` lines 34-35). The clone starts at 0 (uninitialized), which works because the guard only rejects `ENTERED (2)`, not 0. After the first successful `nonReentrant` call, `_status` becomes `NOT_ENTERED (1)` — not 0 — and remains at 1 thereafter. A future auditor reading this comment may falsely conclude that `_status` permanently stays at 0 or that `NOT_ENTERED == 0`, leading to incorrect reasoning about guard state. Additionally: the correct place to explain this EIP-1167 + ReentrancyGuard interaction is the constructor NatSpec or contract-level docs, not inside `initialize`, since the concern is about the guard slot not being set by the constructor, which has nothing to do with initialization logic.",
+      "recommendation": "Correct the comment to accurately state the constants and move it to the constructor NatSpec or contract-level docs. Suggested replacement (in constructor NatSpec block):\n\n```\n/// @dev EIP-1167 clones skip the constructor, so ReentrancyGuard._status\n///      is never set to NOT_ENTERED (1) by the constructor; it starts at 0.\n///      This is safe: the guard only reverts when _status == ENTERED (2),\n///      so 0 passes the entry check. After the first withdraw, _status\n///      transitions 0→ENTERED(2)→NOT_ENTERED(1) and remains at 1 thereafter.\n```\n\nRemove the existing comment from inside `initialize`."
+    },
+    {
+      "id": "T4-R2-02",
+      "severity": "pass",
+      "dimension": "8_security",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "lines": "70-75",
+      "title": "Treasury-DOS operator note is accurate and correctly placed",
+      "description": "The added NatSpec documents the known risk that a reverting `platformTreasury` (misconfigured contract address) freezes withdrawals when `fee > 0`. The description is accurate: developer funds are not lost, just inaccessible until the factory owner calls `setPlatformTreasury` with a working address. Developer-first transfer ordering (T4 systemic-fix §7) means the developer always receives their `net` portion before the treasury transfer is attempted, so partial DOS (only the fee transfer failing) is the actual failure mode — the comment is slightly imprecise on this. However the overall guidance ('treasury MUST be a plain EOA or audited multisig') is correct and useful for operators. No change required."
+    }
+  ],
+  "required_changes": [
+    "Fix T4-R2-01: Correct the ReentrancyGuard slot comment — NOT_ENTERED is 1 not 0; move it to constructor NatSpec where it contextually belongs."
+  ],
+  "optional_improvements": [],
+  "positive_observations": [
+    "All round 1 required changes applied correctly and verified against tech-spec.",
+    "Treasury-DOS operator note is a good proactive addition that documents a real operational risk.",
+    "The @return vault NatSpec is clean and accurate."
+  ],
+  "overall_assessment": "Implementation is correct and spec-compliant after round 1 fixes. The only outstanding item is a minor factual imprecision in a non-functional comment (T4-R2-01). If contracts-author corrects the ReentrancyGuard comment, this task is ready to close. If the comment correction is deferred, the code itself remains functionally correct — the guard works properly regardless of the comment wording."
+}

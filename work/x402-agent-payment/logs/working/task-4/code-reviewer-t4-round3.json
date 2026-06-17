@@ -1,0 +1,23 @@
+{
+  "reviewer": "code-reviewer-t4",
+  "task": 4,
+  "round": 3,
+  "timestamp": "2026-06-17",
+  "verdict": "approved",
+  "summary": "T4-R2-01 is correctly resolved. The ReentrancyGuard slot comment is now in the constructor NatSpec where it belongs, constants are accurate (NOT_ENTERED = 1, ENTERED = 2), and the 0 -> ENTERED (2) -> NOT_ENTERED (1) transition is correctly documented. No remaining issues. Task 4 implementation is approved.",
+  "round2_fixes_verified": {
+    "T4-R2-01": {
+      "status": "fixed",
+      "description": "Comment relocated from initialize() to constructor NatSpec. Constants corrected: NOT_ENTERED = 1, ENTERED = 2. Transition documented as 0 -> ENTERED (2) -> NOT_ENTERED (1). Factually accurate and correctly placed."
+    }
+  },
+  "new_issues": [],
+  "required_changes": [],
+  "optional_improvements": [],
+  "final_state": {
+    "PaymentSplitterFactory.sol": "approved — all spec requirements met, event signatures match tech-spec Data Models, CEI ordering correct, custom errors throughout",
+    "PaymentVaultImpl.sol": "approved — D15/D16/D17 enforced, ReentrancyGuard storage-based, withdraw transfer ordering canonical, NatSpec complete and accurate",
+    "interfaces/IERC3009.sol": "approved — minimal correct interface",
+    "test/mocks/MockUsdcEip3009.sol": "approved — EIP-712 domain matches Circle USDC, boundary checks correct, placed under test/ not src/"
+  }
+}

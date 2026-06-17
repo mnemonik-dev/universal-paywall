@@ -1,0 +1,176 @@
+{
+  "reviewer": "test-reviewer-t4",
+  "task": "4",
+  "round": 1,
+  "status": "needs_improvement",
+  "summary": "Contracts are largely testable as written. Three medium-severity issues would block specific TDD anchor tests or produce silent incorrect behavior in T5: (1) the `VaultDeployed` event's `vault` arg is indexed — diverges from the tech-spec Data Models which shows it as non-indexed, though the impact is cosmetic/structural; (2) `MockUsdcEip3009.transferWithAuthorization` uses strict inequality for the `validAfter` bound (`<= validAfter`) whereas the user-spec and middleware use `validAfter <= now`, meaning a timestamp exactly equal to `validAfter` should pass on-chain but reverts in the mock — a boundary mismatch that will cause middleware integration tests to flicker; (3) `_authorizationState` mapping is `private` which prevents T5 tests from asserting `authorizationState` state directly via the public getter (getter IS present, so this is only an observation — confirmed OK). One low-severity gap: the `IPaymentSplitterFactory` mini-interface lives inside `PaymentVaultImpl.sol` rather than as its own file, which is fine for compilation but means T5 cannot import it independently. All TDD anchor tests listed in task 4 (lines 96–114) can be implemented without further contract changes.",
+
+  "findings": [
+    {
+      "id": "T4-TRV1-001",
+      "severity": "medium",
+      "category": "event_signature_deviation",
+      "file": "contracts/src/PaymentSplitterFactory.sol",
+      "line": 21,
+      "title": "VaultDeployed event: `vault` arg is indexed — deviates from tech-spec Data Models",
+      "detail": "The diff declares `event VaultDeployed(address indexed developer, address indexed vault)`. The tech-spec Data Models section shows `event VaultDeployed(address indexed developer, address vault)` — `vault` is NOT indexed. While double-indexing is not wrong on its own, it creates a structural mismatch: (a) any T5 test that pattern-matches the event using the exact ABI from the spec will compute a different topic signature; (b) if the forked-e2e test (T10) or the deploy script parses event logs by topic layout, the extra index shifts the data fields. More importantly, T5's test `test_Register_DeploysVaultAtPredictedAddress` should assert the emitted vault address matches `computeVaultAddress(developer)` — that works regardless of indexing. But if T5 imports a vendored ABI generated from the spec, the mismatch will surface as an ABI decode error at runtime.",
+      "tdd_anchor_impact": "Indirect — does not block any specific TDD anchor test from compiling or running, but produces a structural drift that will cause issues in T10 forked-e2e and any downstream ABI consumer.",
+      "recommendation": "Align the event signature with the tech-spec Data Models: remove `indexed` from `vault` in `VaultDeployed`. `developer` remains indexed (for filter-by-developer queries); `vault` address is recoverable from the non-indexed data field. If double-indexing is intentional (e.g. for filter-by-vault queries), document the deviation in `decisions.md` and update the tech-spec Data Models before T5 is written."
+    },
+    {
+      "id": "T4-TRV1-002",
+      "severity": "medium",
+      "category": "mock_boundary_mismatch",
+      "file": "contracts/test/mocks/MockUsdcEip3009.sol",
+      "line": 44,
+      "title": "transferWithAuthorization uses strict `<=` for validAfter — off-by-one vs. EIP-3009 and middleware spec",
+      "detail": "The mock checks `if (block.timestamp <= validAfter) revert AuthorizationNotYetValid()`. EIP-3009 semantics (and the Circle USDC source) use `block.timestamp > validAfter` as the pass condition, i.e. the authorization is valid AT `validAfter` itself (non-strict). The mock's strict inequality means a transaction where `block.timestamp == validAfter` will revert with `AuthorizationNotYetValid`, whereas the real USDC and the middleware's verifier (which checks `validAfter <= now`, allowing equality) would accept it. The tech-spec Testing Strategy for `verify.ts` includes boundary tests (`validBefore == now + 6s` → pass); the equivalent lower-bound boundary for `validAfter` would be `validAfter == now` → pass — but the mock will fail this. This creates a test that gives false confidence: a forked-e2e test where the agent sets `validAfter = block.timestamp` will fail against the mock but would pass against real USDC.",
+      "tdd_anchor_impact": "Directly affects the forked-e2e test (T10) and any T5 test that exercises `withdraw()` via a `transferWithAuthorization` call at the boundary timestamp. The TDD anchor `test_Withdraw_WorksWhenFactoryPaused` or `test_Withdraw_SplitsGrossCorrectly` indirectly depend on the mock's transfer behavior being correct.",
+      "recommendation": "Change the check to match EIP-3009: `if (block.timestamp <= validAfter)` should be `if (block.timestamp < validAfter)` — i.e., strict less-than, so `validAfter == block.timestamp` passes. Equivalently written as `require(block.timestamp > validAfter, ...)`. Verify against Circle's FiatTokenV2_2 source: `require(now > validAfter, \"FiatTokenV2_2: authorization is not yet valid\")` (strict greater-than on `now`)."
+    },
+    {
+      "id": "T4-TRV1-003",
+      "severity": "low",
+      "category": "testability_observation",
+      "file": "contracts/test/mocks/MockUsdcEip3009.sol",
+      "line": 17,
+      "title": "authorizationState mapping is private — public getter is present, test access is fine",
+      "detail": "The `_authorizationState` mapping is declared `private`. However, the contract exposes a public `authorizationState(address, bytes32) returns (bool)` getter function that delegates to the private mapping. T5 and T10 tests can call `mockUsdc.authorizationState(from, nonce)` directly to assert post-settle state. This is correct and idiomatic. Flagged as a low note only because the contracts-author should confirm that `authorizationState` is the getter name that T10's forked-e2e will call (matching `IERC3009` interface) — which it is.",
+      "tdd_anchor_impact": "None — no blocker.",
+      "recommendation": "No change needed. This is a confirmation that the testability hook is correct."
+    },
+    {
+      "id": "T4-TRV1-004",
+      "severity": "low",
+      "category": "testability_observation",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "line": 9,
+      "title": "IPaymentSplitterFactory mini-interface is file-scoped inside PaymentVaultImpl.sol",
+      "detail": "The `IPaymentSplitterFactory` interface is declared at file scope inside `PaymentVaultImpl.sol` (not a separate file or imported from `interfaces/`). This is valid Solidity and will compile. T5 Foundry tests that need to cast a mock to `IPaymentSplitterFactory` for a reentrancy fixture (e.g. `test_Withdraw_ReentrancyBlocked`) will need to either: (a) import `PaymentVaultImpl.sol` and get the interface transitively, or (b) redeclare the interface inline in the test file. Both are acceptable; option (a) is cleaner. No blocker.",
+      "tdd_anchor_impact": "None — does not block any TDD anchor test.",
+      "recommendation": "Consider moving `IPaymentSplitterFactory` to `contracts/src/interfaces/IPaymentSplitterFactory.sol` for clean import in both the vault and T5 tests, but this is optional. If left in `PaymentVaultImpl.sol`, T5 tests should import `PaymentVaultImpl.sol` to access the interface type."
+    },
+    {
+      "id": "T4-TRV1-005",
+      "severity": "low",
+      "category": "natspec_gap",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "line": 16,
+      "title": "@custom:security-invariant NatSpec tag is missing from the contract declaration",
+      "detail": "Task 4 acceptance criteria (line 125) and D15/D17 both require `@custom:security-invariant no_selfdestruct no_delegatecall single_initializer no_setters_for_developer_or_factory` as a NatSpec tag on the `PaymentVaultImpl` contract declaration. The diff does not include any NatSpec comment above `contract PaymentVaultImpl is Initializable, ReentrancyGuard`. This tag is referenced by the security-auditor's slither filter and by T5's ABI-assertion test (D17 layer 3). While it does not affect compilation or test execution in T5 today, it is a documented acceptance criterion for T4 itself.",
+      "tdd_anchor_impact": "Does not block T5 test execution. However the security-auditor review (T13) anchors its invariant check to this NatSpec tag — without it, the auditor cannot confirm the invariant is declared.",
+      "recommendation": "Add the NatSpec block before the contract declaration:\n```\n/// @custom:security-invariant no_selfdestruct no_delegatecall single_initializer no_setters_for_developer_or_factory\ncontract PaymentVaultImpl is Initializable, ReentrancyGuard {\n```"
+    }
+  ],
+
+  "tdd_anchor_coverage": {
+    "test_Register_DeploysVaultAtPredictedAddress": {
+      "status": "implementable",
+      "notes": "computeVaultAddress is a view function using Clones.predictDeterministicAddress with the canonical salt. register() uses Clones.cloneDeterministic with the same salt. These will agree. The emitted VaultDeployed event (despite the indexed-vault deviation in T4-TRV1-001) carries the vault address and can be asserted."
+    },
+    "test_Register_Idempotent_Reverts": {
+      "status": "implementable",
+      "notes": "AlreadyRegistered custom error is defined. vm.expectRevert(PaymentSplitterFactory.AlreadyRegistered.selector) will work."
+    },
+    "test_Register_WhenPaused_Reverts": {
+      "status": "implementable",
+      "notes": "register() has whenNotPaused modifier. OZ 5.x Pausable emits EnforcedPause() custom error. vm.expectRevert(Pausable.EnforcedPause.selector) will work."
+    },
+    "test_SetFeeBps_CapsAt1000": {
+      "status": "implementable",
+      "notes": "InvalidFeeBps custom error is defined. setFeeBps(1001) will revert with it."
+    },
+    "test_SetPlatformTreasury_ZeroAddress_Reverts": {
+      "status": "implementable",
+      "notes": "ZeroAddress custom error is defined on the factory."
+    },
+    "test_Ownable2Step_TransferHappyPath": {
+      "status": "implementable",
+      "notes": "Factory inherits Ownable2Step. transferOwnership + acceptOwnership pattern is available. OZ 5.x Ownable2Step exposes pendingOwner() for assertion."
+    },
+    "test_DisableInitializersOnImpl": {
+      "status": "implementable",
+      "notes": "Constructor calls _disableInitializers(). Calling initialize() on the impl address (not a clone) will revert with OZ 5.x InvalidInitialization() custom error. vm.expectRevert(Initializable.InvalidInitialization.selector) will work."
+    },
+    "test_Initialize_SingleCall": {
+      "status": "implementable",
+      "notes": "Calling initialize() twice on a clone will revert with InvalidInitialization()."
+    },
+    "test_NoReceiveNoFallback": {
+      "status": "implementable",
+      "notes": "No receive() or fallback() declared. vm.deal + address(vault).call{value: 1}('') will revert."
+    },
+    "test_NoSettersForDeveloperOrFactory": {
+      "status": "implementable",
+      "notes": "Neither setDeveloper nor setFactory appears in the source. ABI-level selector check in Foundry: compute keccak256('setDeveloper(address)')[0:4] and assert it does not appear in vault.code using vm assembly read or a helper."
+    },
+    "test_Withdraw_SplitsGrossCorrectly": {
+      "status": "implementable",
+      "notes": "Fee math: fee = gross * feeBps / 10000, net = gross - fee. SafeERC20.safeTransfer used. developer-first transfer order is correct (matches systemic-fix §7). MockUsdcEip3009 mint helper provides setup."
+    },
+    "test_Withdraw_FeeZeroBps_NoSecondTransfer": {
+      "status": "implementable",
+      "notes": "fee = 0 when feeBps = 0. The `if (fee > 0)` guard prevents the second safeTransfer. ERC20 Transfer event count can be asserted: vm.recordLogs() → assert only 1 Transfer event emitted."
+    },
+    "test_Withdraw_FeeMaxBps": {
+      "status": "implementable",
+      "notes": "setFeeBps(1000) is allowed (hard cap is inclusive). gross * 1000 / 10000 = gross / 10 correct."
+    },
+    "test_Withdraw_TruncationZeroFee": {
+      "status": "implementable",
+      "notes": "gross = 1, feeBps = 50: fee = 1 * 50 / 10000 = 0 (integer truncation). Developer receives 1. The if (fee > 0) guard means no second transfer."
+    },
+    "test_Withdraw_WorksWhenFactoryPaused": {
+      "status": "implementable",
+      "notes": "withdraw() has no whenNotPaused modifier and does not read factory.paused(). Pausing the factory and then calling vault.withdraw() will succeed. D12 is correctly implemented."
+    },
+    "test_Withdraw_ReentrancyBlocked": {
+      "status": "implementable",
+      "notes": "nonReentrant modifier is present. A MockMaliciousTreasury that calls vault.withdraw() in its ERC20 receive hook will be blocked by the reentrancy guard. The safeTransfer to treasury happens after the developer transfer (second in order), so the guard slot is still locked when treasury's callback fires."
+    }
+  },
+
+  "public_state_vars_checklist": {
+    "factory.usdc": "public immutable IERC20 — readable",
+    "factory.feeBps": "public uint16 — readable",
+    "factory.platformTreasury": "public address — readable",
+    "factory.vaultImpl": "public immutable address — readable",
+    "factory.vaults": "public mapping — readable via vaults(address)",
+    "vault.developer": "public address — readable",
+    "vault.factory": "public address — readable",
+    "mock.authorizationState": "public getter function — readable"
+  },
+
+  "custom_errors_checklist": {
+    "AlreadyRegistered()": "defined in PaymentSplitterFactory — selector matchable",
+    "InvalidFeeBps()": "defined in PaymentSplitterFactory — selector matchable",
+    "ZeroAddress()": "defined in both contracts — note: same error name in two contracts, T5 tests must qualify by contract (PaymentSplitterFactory.ZeroAddress vs PaymentVaultImpl.ZeroAddress)",
+    "NotDeveloper()": "defined in PaymentVaultImpl — selector matchable",
+    "NoBalance()": "defined in PaymentVaultImpl — selector matchable"
+  },
+
+  "events_checklist": {
+    "VaultDeployed(address indexed developer, address indexed vault)": "DEVIATION: vault is indexed in implementation, non-indexed in tech-spec — see T4-TRV1-001",
+    "FeeBpsUpdated(uint16 oldBps, uint16 newBps)": "matches spec — no indexed fields, both args in data",
+    "PlatformTreasuryUpdated(address indexed oldTreasury, address indexed newTreasury)": "both args indexed — spec shows them as indexed, correct",
+    "Withdrawal(address indexed developer, uint256 gross, uint256 fee)": "matches spec"
+  },
+
+  "counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 3
+  },
+
+  "task_required": {
+    "needed": false,
+    "reason": "No critical or high-severity issues. The medium issues (event indexing deviation and mock boundary mismatch) should be fixed before T5 is written, but do not require a separate task — they are quick corrections in the same files already touched by T4."
+  },
+
+  "required_fixes_before_t5": [
+    "T4-TRV1-001: Remove `indexed` from `vault` in VaultDeployed event (or document the intentional deviation and update the tech-spec Data Models).",
+    "T4-TRV1-002: Fix MockUsdcEip3009 validAfter boundary: change `if (block.timestamp <= validAfter)` to `if (block.timestamp < validAfter)` to match EIP-3009 semantics.",
+    "T4-TRV1-005: Add @custom:security-invariant NatSpec tag to PaymentVaultImpl contract declaration (acceptance criterion for T4)."
+  ]
+}

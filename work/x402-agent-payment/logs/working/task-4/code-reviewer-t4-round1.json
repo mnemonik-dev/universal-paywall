@@ -1,0 +1,124 @@
+{
+  "reviewer": "code-reviewer-t4",
+  "task": 4,
+  "round": 1,
+  "timestamp": "2026-06-17",
+  "verdict": "request_changes",
+  "summary": "Implementation is well-structured, compiles cleanly, and correctly implements the majority of D3-D17 security decisions. Two issues require changes before approval: one event signature deviation from the tech-spec Data Models (VaultDeployed and PlatformTreasuryUpdated have extra indexed fields not in the spec), and one minor EIP-3009 boundary semantic difference in the mock that may cause subtle test failures. Several minor readability and robustness points noted.",
+  "dimensions_reviewed": [
+    "1_architectural_patterns",
+    "2_separation_of_concerns",
+    "3_code_readability",
+    "4_error_handling",
+    "5_type_safety",
+    "6_testing_coverage",
+    "7_dependencies",
+    "8_security",
+    "9_performance",
+    "10_cross_file_consistency",
+    "11_resource_management"
+  ],
+  "issues": [
+    {
+      "id": "T4-C-01",
+      "severity": "major",
+      "dimension": "10_cross_file_consistency",
+      "file": "contracts/src/PaymentSplitterFactory.sol",
+      "line": 31,
+      "title": "VaultDeployed event: vault indexed — deviates from tech-spec Data Models",
+      "description": "The implementation declares `event VaultDeployed(address indexed developer, address indexed vault)`. The tech-spec Data Models (line 302) specify `event VaultDeployed(address indexed developer, address vault)` — vault is NOT indexed. Adding an extra indexed topic changes the ABI event signature hash (Keccak of the canonical signature with indexed keyword omitted in ABI encoding, but it affects `topic[2]` presence). Any off-chain subscriber (middleware, indexer, dashboard) filtering this event by the vault address from a raw log will behave differently than expected; additionally, code generated from the ABI (e.g. viem `watchContractEvent`) will not match the spec ABI used by Task 11's deploy script or Task 10's forked test, which will reference the spec-defined ABI.",
+      "recommendation": "Change to: `event VaultDeployed(address indexed developer, address vault);` — remove `indexed` from vault param to match tech-spec exactly."
+    },
+    {
+      "id": "T4-C-02",
+      "severity": "major",
+      "dimension": "10_cross_file_consistency",
+      "file": "contracts/src/PaymentSplitterFactory.sol",
+      "line": 33,
+      "title": "PlatformTreasuryUpdated event: both addresses indexed — deviates from tech-spec Data Models",
+      "description": "The implementation declares `event PlatformTreasuryUpdated(address indexed oldTreasury, address indexed newTreasury)`. The tech-spec Data Models (line 304) specify `event PlatformTreasuryUpdated(address oldTreasury, address newTreasury)` — neither address is indexed. Same ABI deviation risk as T4-C-01. If Task 5 contract tests and Task 10 forked-e2e assert event args using spec-derived ABIs, the indexed mismatch will cause silent failures or wrong topic filtering.",
+      "recommendation": "Change to: `event PlatformTreasuryUpdated(address oldTreasury, address newTreasury);` — remove both `indexed` to match tech-spec exactly."
+    },
+    {
+      "id": "T4-C-03",
+      "severity": "minor",
+      "dimension": "10_cross_file_consistency",
+      "file": "contracts/test/mocks/MockUsdcEip3009.sol",
+      "line": 59,
+      "title": "validAfter check uses strict inequality — may cause boundary test failures for validAfter=0",
+      "description": "The mock checks `if (block.timestamp <= validAfter) revert AuthorizationNotYetValid()`. The user-spec happy-path example sets `validAfter: 0` (line 72 of user-spec), meaning the intent is that `validAfter=0` is always valid. With `block.timestamp <= 0` this would never revert (block.timestamp is always > 0 in practice). However, the user-spec middleware AC states `validAfter <= now` (i.e. `now >= validAfter`), which is equivalent to `block.timestamp >= validAfter` for the middleware check. The EIP-3009 spec text uses 'valid after this time', meaning strictly after. The mock's strict inequality `block.timestamp > validAfter` (enforced via `<= validAfter` revert) is correct per EIP-3009. This is consistent. No bug here, but document why `validAfter=0` always passes: because `block.timestamp` is always >= 1 for any mined block.",
+      "recommendation": "Add a short inline comment: `// EIP-3009: valid strictly after validAfter (validAfter=0 always passes — intended for immediate authorizations)`. This prevents future confusion when tests set validAfter=0."
+    },
+    {
+      "id": "T4-C-04",
+      "severity": "minor",
+      "dimension": "3_code_readability",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "line": 75,
+      "title": "Local variable feeBps shadows the storage name convention from IPaymentSplitterFactory",
+      "description": "Inside `withdraw()`, the code reads `uint256 feeBps = f.feeBps()`. The local variable name `feeBps` shadows the concept of the interface function `feeBps()`. While Solidity allows this and there is no actual shadowing conflict (it is a local variable, not a state variable on this contract), it can cause a reader to momentarily confuse the local uint256 value with a function call. The task spec uses `feeBps = f.feeBps()` as a hint in the implementation guide, so this is intentional, but rename for clarity.",
+      "recommendation": "Rename local variable to `currentFeeBps` or `bps`: `uint256 bps = f.feeBps(); uint256 fee = (gross * bps) / 10000;`"
+    },
+    {
+      "id": "T4-C-05",
+      "severity": "minor",
+      "dimension": "8_security",
+      "file": "contracts/src/PaymentSplitterFactory.sol",
+      "line": 60,
+      "title": "register() has no return value documented in NatSpec for the vault address",
+      "description": "The function `register() external whenNotPaused returns (address vault)` returns the vault address but has no `@return` NatSpec tag. This is a documentation-only gap, but callers (including the register CLI in Task 11) may want to know they can read the returned address instead of calling `computeVaultAddress` separately.",
+      "recommendation": "Add `@return vault The deterministic vault address deployed for msg.sender.` to the `register` NatSpec block."
+    },
+    {
+      "id": "T4-C-06",
+      "severity": "minor",
+      "dimension": "3_code_readability",
+      "file": "contracts/test/mocks/MockUsdcEip3009.sol",
+      "line": 1,
+      "title": "MockUsdcEip3009 missing @dev NatSpec note about not having access control on mint",
+      "description": "The `mint` function has a single-line `@notice` comment `Test-only mint — no access control.` which is sufficient. However, the contract-level NatSpec block does not mention the lack of mint access control as a deliberate choice for testing. For a reviewer scanning the contract-level docs, it is useful to call out that unrestricted mint is intentional to enable test fixture setup.",
+      "recommendation": "This is a negligible nitpick — the per-function comment is adequate. No change required."
+    }
+  ],
+  "positive_observations": [
+    "D3 salt formula is correct: `bytes32(uint256(uint160(msg.sender)))` matches the canonical form from the spec and will align with off-chain middleware `computeVaultAddress`.",
+    "D15 is properly enforced: `_disableInitializers()` in constructor, and grep confirmed no selfdestruct/delegatecall/assembly in production sources.",
+    "D16 is correctly implemented: no receive() or fallback() — native asset calls will revert at the EVM dispatch level.",
+    "D17 is correctly implemented: developer and factory are written once in initialize with no setters.",
+    "Canonical `@custom:security-invariant` NatSpec is present on PaymentVaultImpl as required.",
+    "CEI (Checks-Effects-Interactions) pattern is correctly followed in register(): AlreadyRegistered check first, then mapping write, then external initialize call.",
+    "Withdraw transfer order is correct per systemic-fix §7: developer first, platform second.",
+    "fee=0 branch correctly skips the second safeTransfer, saving gas.",
+    "feeBps is uint16 throughout (storage, IPaymentSplitterFactory return type, local widened to uint256 for safe math) — correct.",
+    "OZ 5.x ReentrancyGuard (storage-based, not transient) is correctly imported and used — satisfies D8.",
+    "Ownable2Step constructor call `Ownable(msg.sender)` is the correct OZ 5.x pattern.",
+    "MockUsdcEip3009 uses OZ EIP712 helper with correct domain params (name='USD Coin', version='2') matching real Circle USDC domain.",
+    "MockUsdcEip3009 is correctly placed under test/mocks/ not src/ — production sources are clean.",
+    "IPaymentSplitterFactory mini-interface declared inline in PaymentVaultImpl.sol avoids circular import — correct approach per task spec.",
+    "All custom errors are used instead of require-with-string — gas efficient and test-friendly.",
+    "Constructor validates all three parameters with correct custom errors."
+  ],
+  "spec_deviations": [
+    {
+      "id": "DEV-01",
+      "severity": "major",
+      "description": "VaultDeployed event has vault as indexed (address indexed vault). Tech-spec Data Models specify address vault (not indexed). See T4-C-01.",
+      "action_required": true
+    },
+    {
+      "id": "DEV-02",
+      "severity": "major",
+      "description": "PlatformTreasuryUpdated has both addresses indexed. Tech-spec Data Models specify neither as indexed. See T4-C-02.",
+      "action_required": true
+    }
+  ],
+  "required_changes": [
+    "Fix T4-C-01: Remove indexed from vault in VaultDeployed event.",
+    "Fix T4-C-02: Remove indexed from both addresses in PlatformTreasuryUpdated event."
+  ],
+  "optional_improvements": [
+    "Fix T4-C-03: Add clarifying comment on validAfter=0 behavior.",
+    "Fix T4-C-04: Rename local variable feeBps in withdraw() to avoid visual shadowing.",
+    "Fix T4-C-05: Add @return NatSpec to register()."
+  ]
+}
