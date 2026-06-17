@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['src/__tests__/**/*.test.ts'],
+    // Forked-e2e (T10) spawns `anvil` in beforeAll (cold-CI: up to 15 s) and
+    // deploys + waits on chain receipts inside the suite (the paused-branch
+    // case in particular waits ~5 s for the factory-state cache TTL to expire).
+    testTimeout: 60_000,
+    hookTimeout: 30_000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
