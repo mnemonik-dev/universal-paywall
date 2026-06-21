@@ -63,8 +63,8 @@ submit is behind a `Settler` interface so tests don't need a live chain.
 
 ## Status checklist
 
-- [ ] Rail contracts + Foundry tests (green)
-- [ ] Facilitator core (ledger + batching) + vitest
-- [ ] Facilitator HTTP API
-- [ ] Creator SDK
-- [ ] Wire-up notes + remaining-work doc
+- [x] Rail contracts + Foundry tests (green) — `contracts/src/rail/`, 39 tests pass
+- [x] Facilitator core (ledger + batching) + vitest — `packages/facilitator/`, 14 tests pass
+- [x] Facilitator HTTP API — `packages/facilitator/src/server.ts`
+- [x] Creator SDK — `packages/sdk/`, 4 tests pass
+- [x] Wire-up notes + remaining-work doc — `STATUS.md`
