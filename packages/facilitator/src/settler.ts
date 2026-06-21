@@ -1,16 +1,8 @@
-import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { buildChain } from './chain.js';
 import { stakeVaultAbi, stakeVaultFactoryAbi } from './abi.js';
 import type { FacilitatorConfig, Hex, SettleResult, SettlementBatch, Settler, VaultResolver } from './types.js';
-
-function buildChain(chainId: number, rpcUrl: string) {
-  return defineChain({
-    id: chainId,
-    name: `chain-${chainId}`,
-    nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-    rpcUrls: { default: { http: [rpcUrl] } },
-  });
-}
 
 function classifyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);

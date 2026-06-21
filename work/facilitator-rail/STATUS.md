@@ -101,11 +101,26 @@ payer:      vault.withdrawRemainder(...) / revoke() anytime
   (issue a 402, accept a stake/permission grant) is the remaining integration
   piece to make standard x402 agents drive the flow.
 
+## Added this session
+
+- [x] **Deploy script** — `contracts/script/DeployStakeRail.s.sol` (feeless
+      factory; only USDC arg). Compiles; mirrors the repo's `Deploy.s.sol`.
+- [x] **x402 `402` edge** — `packages/facilitator/src/x402.ts`: `build402Body`
+      (stake-scheme 402 with grant instructions) + `checkGrant` gate (reads
+      `vault.policy()`, validates facilitator/expiry/remaining) + viem
+      `createPolicyReader`. 6 new vitest tests (facilitator now 20 passing).
+- [x] **Local anvil e2e** — `packages/facilitator/scripts/e2e-anvil.ts`
+      (`npm run e2e:anvil --workspace=@universal-paywall/facilitator`): deploys
+      MockUSDC + factory, createVault → deposit → grant → 2 charges via the real
+      `OnChainSettler` → **batched on-chain settle** → asserts creator got the
+      aggregated 150000, vault `spent==150000`, payer `withdrawable==400000`.
+      **PASS** against anvil (chain 31337).
+
 ## Remaining work (next session)
 
-- [ ] Deploy script for `StakeVaultFactory` (Foundry) + address registry entry.
-- [ ] x402 `402` edge: emit payment requirements; accept stake-grant; resume.
-- [ ] Forked/testnet e2e: real deposit → grant → charge → batched settle → withdraw.
-- [ ] Payee allowlist + signed-receipt hardening (above).
+- [ ] Testnet e2e on Arc Testnet (same flow against live USDC + a deployed factory).
+- [ ] Payee allowlist + signed-receipt hardening (dual-auth on `settle`).
+- [ ] Gasless EIP-3009 `receiveWithAuthorization` funding; durable ledger.
+- [ ] Wire `build402`/`checkGrant` into a resource-server adapter (middleware).
 - [ ] Reconcile the old-paradigm docs (`tech-spec`, `decisions`, diagrams,
       project-knowledge) per `../x402-agent-payment/` review — or supersede them.
