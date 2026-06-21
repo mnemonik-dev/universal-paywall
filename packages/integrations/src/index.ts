@@ -12,3 +12,16 @@ export type { JellyfinMeterOptions, JellyfinWebhookEvent } from './jellyfin.js';
 
 export { handleCitation } from './rsshub.js';
 export type { CitationEvent, CitationOptions } from './rsshub.js';
+
+export { handleSharedLinkResolve } from './immich.js';
+export type { SharedLinkOptions, SharedLinkResolveEvent } from './immich.js';
+
+export {
+  createSidecarServer,
+  subsonicRoute,
+  owncastRoute,
+  jellyfinRoute,
+  citationRoute,
+  immichRoute,
+} from './serve.js';
+export type { Route, RouteHandler, SidecarServerOptions } from './serve.js';
