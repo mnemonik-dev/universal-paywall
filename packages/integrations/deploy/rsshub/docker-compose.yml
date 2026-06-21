@@ -1,0 +1,24 @@
+# RSSHub per-citation recipe (scaffold).
+# Preferred attach is crawler-side; this compose just co-locates RSSHub + sidecar
+# so a crawler can POST citations to http://up-sidecar:8410/citation.
+services:
+  rsshub:
+    image: diygod/rsshub:latest
+    ports:
+      - "1200:1200"
+    environment:
+      NODE_ENV: production
+
+  up-sidecar:
+    image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
+    environment:
+      PLATFORM: rsshub
+      FACILITATOR_URL: ${FACILITATOR_URL:?set facilitator url}
+      FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:?set facilitator api key}
+      RATE: ${RATE:-5000}                  # micro-USDC per grounded citation
+      PAYER_WALLETS: ${PAYER_WALLETS:-{}}      # {"<crawlerId>":"0x..."}
+      CREATOR_WALLETS: ${CREATOR_WALLETS:-{}}  # {"<author-url>":"0x..."}
+      PORT: "8410"
+    ports:
+      - "8410:8410"
+</content>

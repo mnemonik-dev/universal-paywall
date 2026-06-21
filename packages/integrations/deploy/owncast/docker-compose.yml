@@ -1,0 +1,33 @@
+# Owncast presence-billing recipe (scaffold).
+# Wires Owncast + the up-integration sidecar. The facilitator + rail are assumed
+# running (local anvil or Arc Testnet); fill FACILITATOR_URL/KEY and wallet maps.
+services:
+  owncast:
+    image: owncast/owncast:latest
+    ports:
+      - "8080:8080"   # web + admin (admin: admin/abc123 for local)
+      - "1935:1935"   # RTMP ingest
+    volumes:
+      - owncast-data:/app/data
+
+  up-sidecar:
+    # TODO: build from packages/integrations (no published image yet).
+    # build: { context: ../../.., dockerfile: packages/integrations/deploy/Dockerfile }
+    image: universal-paywall/integrations:dev
+    environment:
+      PLATFORM: owncast
+      FACILITATOR_URL: ${FACILITATOR_URL:?set facilitator url}
+      FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:?set facilitator api key}
+      STREAMER_KEY: ${STREAMER_KEY:-streamer}
+      RATE: ${RATE:-1000}            # micro-USDC per second of presence
+      PAYER_WALLETS: ${PAYER_WALLETS:-{}}    # {"viewer-username":"0x..."}
+      CREATOR_WALLETS: ${CREATOR_WALLETS:-{}} # {"streamer":"0x..."}
+      PORT: "8410"
+    ports:
+      - "8410:8410"
+    depends_on:
+      - owncast
+
+volumes:
+  owncast-data:
+</content>

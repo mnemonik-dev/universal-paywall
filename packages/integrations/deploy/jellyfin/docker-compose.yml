@@ -1,0 +1,31 @@
+# Jellyfin per-minute VOD recipe (scaffold).
+# Attaches via the official jellyfin-plugin-webhook (installed in-app, not a fork edit).
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    ports:
+      - "8096:8096"
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ./media:/media:ro   # TODO: mount a media library
+    depends_on:
+      - up-sidecar
+
+  up-sidecar:
+    image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
+    environment:
+      PLATFORM: jellyfin
+      FACILITATOR_URL: ${FACILITATOR_URL:?set facilitator url}
+      FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:?set facilitator api key}
+      RATE: ${RATE:-2000}                  # micro-USDC per minute
+      PAYER_WALLETS: ${PAYER_WALLETS:-{}}      # {"<UserId>":"0x..."}
+      CREATOR_WALLETS: ${CREATOR_WALLETS:-{}}  # {"<ItemId>":"0x..."}
+      PORT: "8410"
+    ports:
+      - "8410:8410"
+
+volumes:
+  jellyfin-config:
+  jellyfin-cache:
+</content>
