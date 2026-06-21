@@ -84,12 +84,14 @@ module.exports = { register, unregister: () => Promise.resolve() }
    and the viewer/channel wallet maps.
 3. View a video -> hook -> facilitator charge -> settle.
 
-## Verify (local)
+## Verify (real instance — done 2026-06-21)
 
-`docker run peertube`, install the local plugin build (Admin -> Plugins -> install
-from disk), view a video, confirm a charge reaches the facilitator and settles on
-anvil. See `../../../../work/creator-platform-integrations/testing-plan.md` (PeerTube row).
-
-> No `docker-compose.yml` here yet: the recipe is gated on the plugin package
-> existing (built in the implementation phase).
+A **self-contained esbuild bundle** of `packages/peertube-plugin/` was installed
+into a live **PeerTube 7.3.0** (postgres + redis): it **installs, registers the
+`action:api.video.viewed` hook + settings, is enabled**, and configures via
+`PUT /api/v1/plugins/.../settings`. The hook fires on a PeerTube *counted* view
+(watch-time threshold + viewer-stats), which a real player session drives; the
+per-view charge logic is covered by the plugin's unit test. See
+`../../../../work/creator-platform-integrations/testing-plan.md` (PeerTube row) for
+the full container/install recipe.
 </content>

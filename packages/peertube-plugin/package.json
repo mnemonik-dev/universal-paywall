@@ -18,9 +18,13 @@
   "clientScripts": [],
   "translations": {},
   "scripts": {
+    "build": "esbuild main.js --bundle --platform=node --format=cjs --target=node18 --outfile=dist/main.js",
     "test": "node test.mjs"
   },
   "dependencies": {
     "@universal-paywall/integrations": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
   }
 }

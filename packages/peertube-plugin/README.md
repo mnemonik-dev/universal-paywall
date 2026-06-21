@@ -31,12 +31,21 @@ settingsManager })`). `test.mjs` proves: settings registered, the view hook fire
 charge with the resolved viewer/channel wallets and configured price, and
 unknown-payer / unconfigured cases make no charge.
 
-## Publish
+## Build (self-contained) + publish
 
-`npm publish` as `peertube-plugin-universal-paywall` (and/or submit to the PeerTube
-plugin index). Depends on `@universal-paywall/integrations`. Publishing is the only
-step that can't be done from the integration repo's CI.
+`@universal-paywall/integrations` is a workspace package (not on npm), so a raw
+`yarn install` of this plugin would fail. `npm run build` (esbuild) bundles it +
+its deps into a single self-contained `dist/main.js`, so the published plugin has
+**no external runtime dependency**. To publish: build, point `library` at
+`dist/main.js` (and drop the dependency), then `npm publish` /submit to the
+PeerTube plugin index. Publishing is the only step that can't be done from CI.
 
-> Real-instance L3 (PeerTube + Postgres + Redis): install this plugin, upload a
-> video, view it, and confirm the charge settles. See
-> `work/creator-platform-integrations/testing-plan.md` (PeerTube row).
+## Verified on a real PeerTube (2026-06-21)
+
+The self-contained bundle was installed into a live **PeerTube 7.3.0** (postgres +
+redis): the plugin **installs, registers the `action:api.video.viewed` hook + its
+settings, and is enabled** (confirmed via logs + the `/api/v1/plugins` API), and is
+configurable through `PUT /api/v1/plugins/.../settings`. Note: the hook fires only
+on a PeerTube *counted* view (its anti-fraud watch-time threshold + viewer-stats
+processing), which a real player session drives; the per-view charge behavior
+itself is proven by `test.mjs`. See the testing plan (PeerTube row).

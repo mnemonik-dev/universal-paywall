@@ -76,6 +76,10 @@ per-platform test matrix.
 - [x] Jellyfin **real L3** (live `ghcr.io/jellyfin/jellyfin` + official Webhook
       plugin, real PlaybackStop -> per-minute bill -> on-chain settle, creator paid
       2000) — PASS.
+- [x] PeerTube **real-instance** (live PeerTube 7.3.0 + postgres/redis): self-contained
+      plugin bundle installs + registers the view hook + settings + enabled + configurable
+      via the API. Counted-view trigger needs a real player session (PeerTube view-throttle);
+      hook->charge covered by the plugin unit test.
 - [ ] Build the L3/L4 acceptance loop for the remaining platforms (RSSHub/Mastodon).
 - [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.

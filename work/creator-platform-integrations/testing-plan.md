@@ -56,7 +56,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | **L3+L4 PASS** (live RSSHub item) |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + donation L4 PASS** (`e2e:mastodon`) |
-| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **plugin built + tested** (9 assertions); real-instance L3 pending |
+| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **plugin built + tested** (9 assertions); **installs+registers+configures on real PeerTube 7.3.0**; counted-view trigger needs a real player session |
 | **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
 | **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | **built + tested** (signer abstraction + 13 assertions); browser E2E pending |
 
@@ -190,4 +190,22 @@ Via `scripts/e2e-jellyfin-live-docker.mjs` against a live
 
 Note: `SendAllProperties:true` makes the plugin emit those exact PascalCase keys, so
 no Handlebars template is needed.
+
+## PeerTube real-instance verification — done (2026-06-21)
+
+Against a live **PeerTube 7.3.0** stack (postgres + redis, host net, transcoding
+off): a **self-contained esbuild bundle** of `peertube-plugin-universal-paywall`
+(integrations + sdk inlined, so no unpublished-dep install failure) was installed
+via the plugin CLI and **registered the `action:api.video.viewed` hook + settings,
+enabled** (confirmed in logs and `/api/v1/plugins`), and configured via
+`PUT /api/v1/plugins/.../settings` (facilitator URL + wallet maps + price).
+
+Not reached: a PeerTube **counted** view. The hook fires only when
+`VideoStatsManager.processLocalView` returns `successView`, which needs the
+watch-time threshold (`count_view_after`, default 10s) met via accumulated
+viewer-stats — driven by a real player sending periodic progress over time, not by
+scripted view POSTs (verified: instrumented the hook; it did not fire from the
+API). The per-view hook->charge->settle behavior itself is covered by the unit test
+(`test.mjs`, 9 assertions incl. a real HTTP charge). A browser-driven view session
+would close this last step.
 </content>
