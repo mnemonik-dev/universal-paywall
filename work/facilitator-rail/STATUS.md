@@ -127,13 +127,38 @@ payer:      vault.withdrawRemainder(...) / revoke() anytime
       adapter reports the charge → facilitator settles on-chain → **creator paid
       50000**. **PASS** (anvil 31337).
 
+## Added (agent + fastify session)
+
+- [x] **Agent-side helper** — `packages/agent/`: `createPayerAgent(...)` with
+      `fetchWithPaywall` (x402 auto-pay: send proof → on `402`, createVault +
+      deposit shortfall + grantPolicy on-chain → retry) plus `buildAccessProof` /
+      `proofHeaders` / `parseGrantRequirements`. **7 vitest tests** (proof
+      sign→recover roundtrip via real viem; 402 parsing). Typecheck + build clean.
+- [x] **Agent-driven full-loop e2e** — `packages/agent/scripts/e2e-agent-anvil.ts`
+      (`npm run e2e:anvil -w @universal-paywall/agent`): the agent helper itself
+      auto-funds + grants and retries → **200**, charge → facilitator settle →
+      **creator paid 50000**. **PASS** (anvil 31337).
+- [x] **Fastify adapter** — `packages/resource-adapter/src/fastify.ts`:
+      `fastifyStakePaywall(opts)` plugin (preHandler gate + onResponse charge,
+      `skip-override` so a parent route is gated). Shared `runtime.ts` now backs
+      both node + fastify. **2 fastify inject tests** (402/401 paths); adapter now
+      10 tests.
+- [x] **Bug fix** — `createPolicyReader` now treats an undeployed counterfactual
+      vault (no code at the address) as "no grant" → clean `402`, instead of
+      throwing. Surfaced by the agent e2e (first request before the vault exists).
+
+## Test totals
+
+contracts **39** · facilitator **20** · sdk **4** · resource-adapter **10** ·
+agent **7**  →  **80 unit tests**, plus 3 anvil e2e scripts (settle / adapter /
+agent) all PASS.
+
 ## Remaining work (next session)
 
 - [ ] Testnet e2e on Arc Testnet (same flow against live USDC + a deployed factory).
 - [ ] Payee allowlist + signed-receipt hardening (dual-auth on `settle`).
 - [ ] Gasless EIP-3009 `receiveWithAuthorization` funding; durable ledger.
-- [ ] Fastify adapter + a small agent-side client helper (sign proof, grant, retry).
 - [ ] Extract a `@universal-paywall/rail-core` for the shared read-only primitives
-      (currently the adapter imports them from `@universal-paywall/facilitator`).
+      (the adapter + agent currently duplicate/borrow ABI + gate helpers).
 - [ ] Reconcile the old-paradigm docs (`tech-spec`, `decisions`, diagrams,
       project-knowledge) per `../x402-agent-payment/` review — or supersede them.

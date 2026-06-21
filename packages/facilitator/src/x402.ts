@@ -127,12 +127,27 @@ export async function checkGrant(
 export function createPolicyReader(config: { rpcUrl: string; chainId: number }): PolicyReader {
   const chain = buildChain(config.chainId, config.rpcUrl);
   const pub = createPublicClient({ chain, transport: http(config.rpcUrl) });
+  const ZERO_POLICY: OnChainPolicy = {
+    facilitator: '0x0000000000000000000000000000000000000000',
+    cap: 0n,
+    spent: 0n,
+    validUntil: 0n,
+    epoch: 0n,
+  };
   return async (vault: Hex): Promise<OnChainPolicy> => {
-    const r = (await pub.readContract({
-      address: vault,
-      abi: stakeVaultAbi,
-      functionName: 'policy',
-    })) as readonly [Hex, bigint, bigint, bigint, bigint];
-    return { facilitator: r[0], cap: r[1], spent: r[2], validUntil: r[3], epoch: r[4] };
+    try {
+      const r = (await pub.readContract({
+        address: vault,
+        abi: stakeVaultAbi,
+        functionName: 'policy',
+      })) as readonly [Hex, bigint, bigint, bigint, bigint];
+      return { facilitator: r[0], cap: r[1], spent: r[2], validUntil: r[3], epoch: r[4] };
+    } catch {
+      // Vault not deployed yet (no code at the counterfactual address) or the
+      // read failed — treat as "no grant" so the gate returns a clean 402
+      // rather than throwing.
+      return ZERO_POLICY;
+    }
   };
 }
+
