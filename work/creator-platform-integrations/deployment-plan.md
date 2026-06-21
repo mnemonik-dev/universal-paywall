@@ -40,9 +40,9 @@ Every anchor below was confirmed by reading the fork on branch
 
 `@universal-paywall/integrations` ships the `up-integration` CLI (default port
 `:8410`, env `PLATFORM|FACILITATOR_URL|FACILITATOR_API_KEY|PAYER_WALLETS|CREATOR_WALLETS|RATE|STREAMER_KEY|PORT|SIDECAR_API_KEY`)
-with routes for `subsonic|owncast|jellyfin|rsshub|immich`.
+with routes for `subsonic|navidrome|owncast|jellyfin|rsshub|immich|mastodon`.
 
-Gaps the recipes expose (tracked here, **not** built this session):
+Gaps the recipes expose:
 
 1. ~~**Navidrome ListenBrainz-target mode**~~ — **CLOSED.** The sidecar now exposes
    `GET /1/validate-token` + `POST /1/submit-listens` (`src/listenbrainz.ts`,
@@ -57,12 +57,22 @@ Gaps the recipes expose (tracked here, **not** built this session):
    + request spec and live HTTP-smoke-tested. No facilitator needed (config-only).
    +5 unit tests. `RouteResponse` added to `serve.ts` for the 204 path.
 3. **PeerTube plugin** — sidecars-only means PeerTube still needs the separately
-   **published** `peertube-plugin-universal-paywall` to emit the view event to the
-   sidecar (draft in `pr-drafts.md`). The recipe documents installing it; building/
-   publishing the plugin is a follow-up (and is *not* a fork edit).
-4. **MusicBrainz resolver** — replace `mapResolver(staticMap)` with a resolver that
-   looks up `recording_mbid → artist → wallet` (the moat). Needs a wallet registry
-   keyed on MBID; MusicBrainz WS/2 supplies the MBID→artist half.
+   **published** `peertube-plugin-universal-paywall` to emit `action:api.video.viewed`
+   to the sidecar. Full plugin design (register API grounded against the PeerTube
+   plugin-test fixture, package layout, `main.js`, open questions on payer identity
+   / dedupe / bundling) is in `deploy/peertube/README.md`. Building it is the
+   implementation step; **publishing** to npm/the plugin index is external.
+4. **MusicBrainz resolver** — replace `mapResolver(staticMap)` with
+   `createMusicBrainzResolver`: `recording_mbid → artist_mbid` via WS/2
+   (`/recording?inc=artists`), then `artist_mbid → wallet` (the moat). Needs a
+   cached, rate-limited resolver and an **async `Resolve`** (small `core.ts`
+   change). Full design in `deploy/musicbrainz/README.md`.
+5. **Browser-extension adaptor (payer-side)** — a new vertical: let *any* browser
+   extension auto-pay paywalls via `@universal-paywall/agent` (library / host-bridge
+   / page-bridge modes). **Prerequisite:** the agent must gain an account/signer
+   abstraction (it currently takes a raw `payerKey`, unsafe in an extension). Full
+   design in `deploy/browser-extension/README.md`. This is the consumer side that
+   pays the paywalls the creator sidecars meter.
 
 ## Recipe scaffold (this session's deliverable)
 
@@ -81,14 +91,26 @@ are marked `TODO`.
 4. Wallet registry populated for that platform's identity space (the moat).
 5. Operator install/configure docs + the compose recipe.
 
-## Recommended build order (after this scaffold is approved)
+## How each integration is tested
 
-1. **Owncast** — already e2e-proven; recipe is pure config (webhook register). Fastest real-instance verification.
-2. **Navidrome** — add `listenbrainzRoute`; verify by pointing `ND_LISTENBRAINZ_BASEURL` at the sidecar and playing a track.
-3. **Jellyfin** — install official webhook plugin; verify play→stop billing.
-4. **RSSHub** — citation toll at the crawler boundary.
-5. **Mastodon** — add the provider route; point `DONATION_CAMPAIGNS_URL` at it.
-6. **PeerTube** — build + publish the plugin (separate package), then recipe.
-7. **MusicBrainz** — stand up the MBID→wallet registry (the moat) feeding `resolveCreator`.
-</content>
-</invoke>
+See **`testing-plan.md`** for the four-layer verification (L1 unit → L2 sidecar
+HTTP contract → L3 real Docker'd instance → L4 anvil on-chain money loop) and the
+per-platform test matrix. The universal acceptance check: *after one event from a
+staked consumer, the payee's on-chain balance increased by exactly rate × units.*
+
+## Recommended build order
+
+Routes #1 (Navidrome) and #2 (Mastodon) are **done**. Remaining:
+
+1. **Owncast** — already e2e-proven; recipe is pure config (webhook register). Do the
+   real-instance L3/L4 acceptance first to validate the whole harness.
+2. **Navidrome** — wire `MusicBrainz resolver` (gap #4) as `resolveCreator`, then
+   L3/L4 by pointing `ND_LISTENBRAINZ_BASEURL` at the sidecar and playing a track.
+3. **MusicBrainz resolver** (gap #4) — unblocks Navidrome's payout; self-contained.
+4. **Jellyfin** — install official webhook plugin; verify play→stop billing.
+5. **RSSHub** — citation toll at the crawler boundary.
+6. **Mastodon** — provider built; do the donation-flow L4 via the agent loop.
+7. **Browser-extension** (gap #5) — first add the agent signer abstraction
+   (prerequisite), then the MV3 adaptor.
+8. **PeerTube** — build the plugin package; publish is external.
+

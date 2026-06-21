@@ -34,6 +34,12 @@ Each maps to: `resolvePayer(userId|crawlerId) → payerWallet`, `resolveCreator(
 | 6 | Fediverse fundraising | [mastodon/mastodon](https://github.com/mastodon/mastodon) | `GET /api/v1/donation_campaigns` ([#37880](https://github.com/mastodon/mastodon/pull/37880), merged) | **Provider** | Run an external campaign-source service the instance points at. *Fills a sanctioned slot — no core PR.* |
 | 7 | Photo | [immich-app/immich](https://github.com/immich-app/immich) | `GET /shared-link/:id` controller; `ownerId` + EXIF `Artist` | **Wrapper** (reverse-proxy / access-log tail) | Per-resolve license fee to the EXIF Artist; coexists with Immich's own license program (different value chain). Sidecar — no PR. |
 
+## Consumer / payer-side vertical
+
+| # | Vertical | Anchor | Slot | Pattern | Integration path |
+|---|---|---|---|---|---|
+| 8 | Browser extension (**payer-side**) | any WebExtension (Chrome/Firefox MV3) | `@universal-paywall/agent.fetchWithPaywall` | **Adaptor** | Publish `@universal-paywall/extension`: a background service worker hosts the payer agent; other extensions/pages request paid fetches via `onMessageExternal` / a page bridge. Auto-pays the paywalls the creator sidecars meter. **Prereq:** agent signer abstraction (no raw key in an extension). Design: `../../packages/integrations/deploy/browser-extension/README.md`. |
+
 ## Not our model (permissioned by design)
 
 - **Podcasting** ([Castopod](https://github.com/ad-aures/castopod), [AntennaPod](https://github.com/AntennaPod/AntennaPod)) — Podcasting 2.0 `<podcast:value>` carries wallet routing in the feed XML itself; payment is protocol-level, not a sidecar attachment.

@@ -1,0 +1,112 @@
+---
+feature: creator-platform-integrations
+doc: testing-plan
+created: 2026-06-21
+question: "how do we know Universal Paywall actually works with each platform?"
+---
+
+# Testing Plan — Per-Integration Verification
+
+How we prove each integration end-to-end. Four layers per platform; an integration
+is "done" only when its layer-4 money loop settles on-chain.
+
+## The four test layers
+
+| Layer | What it proves | Tools | Where |
+|---|---|---|---|
+| **L1 Unit** | the adapter maps a platform event -> the right `charge` args | vitest | `packages/integrations/src/__tests__` |
+| **L2 Sidecar-contract** | the running sidecar answers real platform-shaped HTTP correctly (status, body, headers) | node `fetch` against `createSidecarServer` | per-platform smoke script |
+| **L3 Real-instance** | a real platform instance, wired per its recipe, actually calls our sidecar on a real event | Docker compose (`deploy/<platform>/`) | local / CI-with-services |
+| **L4 Anvil money loop** | the full chain: stake+grant -> event -> charge -> facilitator batch -> `settle` -> **payee balance increases** | anvil + `e2e:anvil` | `scripts/e2e-integration-anvil.ts` |
+
+L1+L2 run in CI on every push (fast, hermetic). L3+L4 are the acceptance gates per
+platform (heavier; run on the platform branch).
+
+## The one universal assertion
+
+For every platform the success check is the same:
+
+> After the platform emits one consumption event from a staked consumer, the
+> resolved **payee's on-chain USDC balance increased by exactly the expected
+> amount** (rate x units), in one batched `StakeVault.settle`.
+
+Everything else (HTTP shapes, webhook registration) is plumbing that exists to make
+that one assertion true.
+
+## Shared L4 harness (already proven for Owncast)
+
+```bash
+export PATH="/tmp/foundry:$PATH"
+anvil --chain-id 31337 --port 8545 --silent &        # local chain
+# deploy StakeVaultFactory; start up-facilitator; (per HANDOFF bootstrap)
+# consumer: @universal-paywall/agent -> ensureVault + deposit + grant(facilitator, cap, validUntil)
+# run the platform event; assert payee balance delta; pkill -x anvil
+npm run e2e:anvil -w @universal-paywall/integrations   # Owncast loop today; extend per platform
+```
+
+Each new platform adds a variant of `e2e-integration-anvil.ts` that injects that
+platform's event shape, then reuses the same stake/grant/settle/assert spine.
+
+## Per-platform test matrix
+
+| Platform | Trigger (L3) | Sidecar observation | Expected charge | L2 contract check | L4 status |
+|---|---|---|---|---|---|
+| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **PASS** (shipped) |
+| **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | TODO (route built) |
+| **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | TODO |
+| **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
+| **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | provider verified (L2 live) |
+| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | TODO (needs plugin) |
+| **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | TODO (needs resolver) |
+| **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | TODO (needs signer abstraction) |
+
+## L2 contract checks (write one per platform)
+
+A node script that boots the sidecar via `createSidecarServer` and asserts the
+exact bytes a real platform sends/expects. Pattern (already done live for Mastodon:
+200 with echoed `locale`, 204 empty):
+
+```js
+const srv = createSidecarServer([routeUnderTest]);
+srv.listen(PORT);
+const res = await fetch(url, { method, headers, body });
+assert(res.status === expected && (await res.json()) matches shape);
+```
+
+Promote the stable ones into vitest using `node:http` + an ephemeral port so they
+run in CI without Docker.
+
+## Platform-specific notes
+
+- **Navidrome:** point `ND_LISTENBRAINZ_BASEURL` at the sidecar; link with a token
+  that's in `PAYER_WALLETS`. Assert the scrobble (not now-playing) triggers exactly
+  one charge to the `recording_mbid`'s artist.
+- **Jellyfin:** the official webhook plugin must template `NotificationType`,
+  `UserId`, `ItemId`, `PlaybackPositionTicks`; assert we bill on Stop only and round
+  down whole minutes (no double-count from Progress events).
+- **Mastodon:** no money loop in the provider itself — its L4 is the **donation
+  flow at `donation_url`**, which reuses the agent+facilitator L4 loop. Test the
+  provider at L2; test the donation settlement via the agent e2e.
+- **MusicBrainz:** run the **local fork** for L3/L4 to avoid the public WS/2
+  ~1 req/s limiter and egress limits; assert the recording->artist cache prevents
+  repeat lookups.
+- **Browser extension:** L3 = load unpacked MV3 against a resource gated by
+  `@universal-paywall/resource-adapter`; assert auto-pay yields 200 and a second
+  extension gets a paid response via `onMessageExternal`. Gated on the agent signer
+  abstraction.
+
+## CI vs. acceptance
+
+- **CI (every push):** L1 (vitest) + L2 (in-process HTTP). Hermetic, no Docker, no
+  chain. Keeps egress at zero.
+- **Acceptance (per-platform branch, before marking a gap done):** L3 against the
+  Docker'd platform + L4 anvil money loop. This is the gate that flips a row to
+  PASS.
+
+## Definition of "tested" per platform
+
+1. L1 adapter unit test green.
+2. L2 contract check green (real platform request/response bytes).
+3. L3 a real instance calls the sidecar on a real event.
+4. L4 the payee's on-chain balance increased by the expected amount.
+</content>

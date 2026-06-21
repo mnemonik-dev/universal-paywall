@@ -45,6 +45,13 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `jellyfin/` | Jellyfin (VOD) | official webhook plugin → `/jellyfin` | route exists |
 | `rsshub/` | RSSHub (feeds) | crawler boundary → `/citation` | route exists |
 | `mastodon/` | Mastodon (fediverse) | `DONATION_CAMPAIGNS_URL` → provider | route built (`PLATFORM=mastodon`) |
-| `peertube/` | PeerTube (fed. VOD) | published plugin → sidecar | **needs published plugin** |
-| `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | **needs registry resolver** |
+| `peertube/` | PeerTube (fed. VOD) | published plugin → sidecar | **needs published plugin** (design doc'd) |
+| `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | **needs registry resolver** (design doc'd) |
+| `browser-extension/` | Any browser extension (**payer-side**) | `agent.fetchWithPaywall` + messaging bridge | **needs agent signer abstraction** (design doc'd) |
+
+> All recipes above are creator/payee-side except `browser-extension/`, which is the
+> consumer/payer side — it auto-pays the paywalls the others meter.
+
+See `../../../work/creator-platform-integrations/testing-plan.md` for how each
+recipe is verified (L1 unit → L4 on-chain money loop).
 </content>
