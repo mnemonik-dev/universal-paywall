@@ -55,7 +55,11 @@ export class OnChainSettler implements Settler {
  * Resolves a payer to its counterfactual vault address via the factory's
  * `computeVaultAddress` view, cached per process.
  */
-export function createVaultResolver(config: FacilitatorConfig): VaultResolver {
+export function createVaultResolver(config: {
+  rpcUrl: string;
+  chainId: number;
+  stakeVaultFactory: Hex;
+}): VaultResolver {
   const chain = buildChain(config.chainId, config.rpcUrl);
   const pub = createPublicClient({ chain, transport: http(config.rpcUrl) });
   const cache = new Map<Hex, Hex>();

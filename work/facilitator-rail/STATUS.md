@@ -109,18 +109,31 @@ payer:      vault.withdrawRemainder(...) / revoke() anytime
       (stake-scheme 402 with grant instructions) + `checkGrant` gate (reads
       `vault.policy()`, validates facilitator/expiry/remaining) + viem
       `createPolicyReader`. 6 new vitest tests (facilitator now 20 passing).
-- [x] **Local anvil e2e** — `packages/facilitator/scripts/e2e-anvil.ts`
-      (`npm run e2e:anvil --workspace=@universal-paywall/facilitator`): deploys
-      MockUSDC + factory, createVault → deposit → grant → 2 charges via the real
-      `OnChainSettler` → **batched on-chain settle** → asserts creator got the
-      aggregated 150000, vault `spent==150000`, payer `withdrawable==400000`.
-      **PASS** against anvil (chain 31337).
+- [x] **Local anvil e2e (settle path)** — `packages/facilitator/scripts/e2e-anvil.ts`
+      (`npm run e2e:anvil -w @universal-paywall/facilitator`): deploy → createVault
+      → deposit → grant → 2 charges via the real `OnChainSettler` → **batched
+      on-chain settle** → creator got aggregated 150000, vault `spent==150000`,
+      payer `withdrawable==400000`. **PASS** (anvil 31337).
+- [x] **Resource-server adapter** — `packages/resource-adapter/`: `withStakePaywall`
+      (Node http) + framework-agnostic `evaluateAccess` gate. Verifies a payer
+      proof signature, gates on the on-chain grant (`checkGrant`), returns a `402`
+      with `build402Body` instructions when absent, serves on success, then reports
+      metered usage to the facilitator via the SDK. **8 vitest tests** (all gate
+      branches). Typecheck + build clean.
+- [x] **Full-loop adapter e2e** — `packages/resource-adapter/scripts/e2e-adapter-anvil.ts`
+      (`npm run e2e:anvil -w @universal-paywall/resource-adapter`): real facilitator
+      HTTP server + real resource server. Agent with no proof → **402
+      payer_required**; agent with a signed proof + active grant → **200 served**;
+      adapter reports the charge → facilitator settles on-chain → **creator paid
+      50000**. **PASS** (anvil 31337).
 
 ## Remaining work (next session)
 
 - [ ] Testnet e2e on Arc Testnet (same flow against live USDC + a deployed factory).
 - [ ] Payee allowlist + signed-receipt hardening (dual-auth on `settle`).
 - [ ] Gasless EIP-3009 `receiveWithAuthorization` funding; durable ledger.
-- [ ] Wire `build402`/`checkGrant` into a resource-server adapter (middleware).
+- [ ] Fastify adapter + a small agent-side client helper (sign proof, grant, retry).
+- [ ] Extract a `@universal-paywall/rail-core` for the shared read-only primitives
+      (currently the adapter imports them from `@universal-paywall/facilitator`).
 - [ ] Reconcile the old-paradigm docs (`tech-spec`, `decisions`, diagrams,
       project-knowledge) per `../x402-agent-payment/` review — or supersede them.
