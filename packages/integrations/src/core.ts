@@ -2,9 +2,12 @@ import { createPaywallClient, type PaywallClient } from '@universal-paywall/sdk'
 
 export type Hex = `0x${string}`;
 
+export type MaybePromise<T> = T | Promise<T>;
+
 /** Maps a platform-native id (userId, mediaFileId, artist MBID, author URL, …) to
- *  a wallet. This registry is the integration's moat. */
-export type Resolve = (key: string) => Hex | null | undefined;
+ *  a wallet. This registry is the integration's moat. May be async (e.g. a
+ *  MusicBrainz MBID→artist lookup). */
+export type Resolve = (key: string) => MaybePromise<Hex | null | undefined>;
 
 export interface ReporterConfig {
   /** Resolves the consuming user → payer wallet (who pre-staked via the agent). */
@@ -53,9 +56,9 @@ export function createReporter(cfg: ReporterConfig): Reporter {
   return {
     async report({ payerKey, creatorKey, amount, ref }: ReportInput): Promise<ReportOutcome> {
       if (amount <= 0n) return { status: 'zero_amount' };
-      const payer = cfg.resolvePayer(payerKey);
+      const payer = await cfg.resolvePayer(payerKey);
       if (payer === null || payer === undefined) return { status: 'unresolved_payer' };
-      const creator = cfg.resolveCreator(creatorKey);
+      const creator = await cfg.resolveCreator(creatorKey);
       if (creator === null || creator === undefined) return { status: 'unresolved_creator' };
       const ack = await charge.charge({ payer, creator, amount, ...(ref !== undefined ? { ref } : {}) });
       return { status: 'charged', id: ack.id, payer, creator, amount };

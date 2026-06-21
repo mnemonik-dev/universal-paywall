@@ -1,5 +1,8 @@
 export { createReporter, mapResolver } from './core.js';
-export type { Hex, Reporter, ReporterConfig, ReportInput, ReportOutcome, Resolve } from './core.js';
+export type { Hex, MaybePromise, Reporter, ReporterConfig, ReportInput, ReportOutcome, Resolve } from './core.js';
+
+export { createMusicBrainzResolver } from './musicbrainz.js';
+export type { MusicBrainzResolverOptions } from './musicbrainz.js';
 
 export { handleScrobble, parseSubsonicScrobble } from './subsonic.js';
 export type { ScrobbleEvent, ScrobbleOptions } from './subsonic.js';

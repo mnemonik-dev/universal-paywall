@@ -43,16 +43,18 @@ plumbing).
 ## Whole-repo test totals (this branch)
 
 contracts **39** · facilitator **20** · sdk **4** · resource-adapter **10** ·
-agent **7** · integrations **31**  →  **111 unit tests**, plus anvil e2es
-(settle / adapter / agent / integration / **owncast-acceptance**) all PASS.
+agent **7** · integrations **39**  →  **119 unit tests**, plus anvil e2es
+(settle / adapter / agent / integration / **owncast-acceptance**) and a real
+Owncast L3 + live MusicBrainz WS/2 validation, all PASS.
 
 ## Deployment recipes + gap status (forks now in scope)
 
 `packages/integrations/deploy/<platform>/` — grounded sidecar-attach recipes.
-Closed gaps: **#1 Navidrome** (ListenBrainz target) and **#2 Mastodon** (campaign
-provider). Designed + documented, not yet built: **#3 PeerTube plugin**,
-**#4 MusicBrainz resolver**, **#5 browser-extension adaptor (payer-side)**. See
-`deployment-plan.md` and the per-recipe READMEs.
+Closed gaps: **#1 Navidrome** (ListenBrainz target), **#2 Mastodon** (campaign
+provider), **#4 MusicBrainz resolver** (recording→artist→wallet via WS/2; async
+`Resolve`; live-validated). Designed + documented, not yet built: **#3 PeerTube
+plugin**, **#5 browser-extension adaptor (payer-side)**. See `deployment-plan.md`
+and the per-recipe READMEs.
 
 ## Testing
 
@@ -68,7 +70,8 @@ per-platform test matrix.
       join/part -> real webhook -> on-chain settle, streamer paid 14000) — PASS.
       Docker works here once `dockerd` is started.
 - [ ] Build the L3/L4 acceptance loop for the remaining platforms (reuse the harness).
-- [ ] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — the moat behind Navidrome.
+- [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
+- [ ] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
 - [ ] Gap #3: build + publish `peertube-plugin-universal-paywall`.
 - [ ] Immich shared-link reverse-proxy variant (out of scope here — no fork).

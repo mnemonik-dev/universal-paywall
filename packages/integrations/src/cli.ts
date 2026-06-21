@@ -1,5 +1,6 @@
-import { createReporter, mapResolver, type Hex, type Reporter } from './core.js';
+import { createReporter, mapResolver, type Hex, type Reporter, type Resolve } from './core.js';
 import { OwncastPresenceMeter } from './owncast.js';
+import { createMusicBrainzResolver } from './musicbrainz.js';
 import type { CampaignAmounts, CampaignTemplate } from './mastodon.js';
 import {
   citationRoute,
@@ -55,22 +56,37 @@ function campaignFromEnv(): CampaignTemplate {
 function main(): void {
   const platform = env('PLATFORM');
   // Built lazily: the Mastodon provider serves config and needs no facilitator.
-  const reporter = (): Reporter =>
+  // An optional `resolveCreator` override lets music platforms plug in the
+  // MusicBrainz registry (recording_mbid -> artist_mbid -> wallet).
+  const reporter = (resolveCreator?: Resolve): Reporter =>
     createReporter({
       facilitatorUrl: env('FACILITATOR_URL'),
       apiKey: env('FACILITATOR_API_KEY'),
       resolvePayer: mapResolver(jsonMap('PAYER_WALLETS')),
-      resolveCreator: mapResolver(jsonMap('CREATOR_WALLETS')),
+      resolveCreator: resolveCreator ?? mapResolver(jsonMap('CREATOR_WALLETS')),
     });
+
+  // If MUSICBRAINZ_USER_AGENT is set, wrap CREATOR_WALLETS (keyed on artist_mbid)
+  // with a MusicBrainz resolver so scrobbled recording_mbids resolve to artists.
+  function musicCreatorResolver(): Resolve {
+    const registry = mapResolver(jsonMap('CREATOR_WALLETS'));
+    const ua = process.env.MUSICBRAINZ_USER_AGENT;
+    if (ua === undefined || ua === '') return registry;
+    return createMusicBrainzResolver({
+      walletRegistry: registry,
+      userAgent: ua,
+      ...(process.env.MUSICBRAINZ_BASE_URL !== undefined ? { baseUrl: process.env.MUSICBRAINZ_BASE_URL } : {}),
+    });
+  }
 
   let routes: readonly Route[];
   switch (platform) {
     case 'subsonic':
-      routes = [subsonicRoute(reporter(), { ratePerPlay: rate() })];
+      routes = [subsonicRoute(reporter(musicCreatorResolver()), { ratePerPlay: rate() })];
       break;
     case 'navidrome':
       // Navidrome scrobbles natively to a ListenBrainz target (validate-token + submit-listens).
-      routes = listenBrainzRoutes(reporter(), { ratePerListen: rate() });
+      routes = listenBrainzRoutes(reporter(musicCreatorResolver()), { ratePerListen: rate() });
       break;
     case 'owncast':
       routes = [owncastRoute(new OwncastPresenceMeter(reporter(), { ratePerSecond: rate(), streamerKey: env('STREAMER_KEY') }))];

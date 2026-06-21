@@ -35,6 +35,8 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `STREAMER_KEY` | Owncast only: the creator key for the stream |
 | `PORT` | sidecar port (default `8410`) |
 | `SIDECAR_API_KEY` | optional `x-api-key` gate on the sidecar |
+| `MUSICBRAINZ_USER_AGENT` | music modes: enables `recording_mbid → artist_mbid → wallet` via WS/2 (`CREATOR_WALLETS` keyed on artist MBID) |
+| `MUSICBRAINZ_BASE_URL` | override WS/2 base (point at the local fork in CI) |
 
 ## Recipes
 
@@ -46,7 +48,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `rsshub/` | RSSHub (feeds) | crawler boundary → `/citation` | route exists |
 | `mastodon/` | Mastodon (fediverse) | `DONATION_CAMPAIGNS_URL` → provider | route built (`PLATFORM=mastodon`) |
 | `peertube/` | PeerTube (fed. VOD) | published plugin → sidecar | **needs published plugin** (design doc'd) |
-| `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | **needs registry resolver** (design doc'd) |
+| `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | resolver built (`MUSICBRAINZ_USER_AGENT`); live-validated |
 | `browser-extension/` | Any browser extension (**payer-side**) | `agent.fetchWithPaywall` + messaging bridge | **needs agent signer abstraction** (design doc'd) |
 
 > All recipes above are creator/payee-side except `browser-extension/`, which is the

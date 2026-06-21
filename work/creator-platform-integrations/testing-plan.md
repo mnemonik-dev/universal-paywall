@@ -57,7 +57,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | provider verified (L2 live) |
 | **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | TODO (needs plugin) |
-| **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | TODO (needs resolver) |
+| **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
 | **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | TODO (needs signer abstraction) |
 
 ## L2 contract checks (write one per platform)

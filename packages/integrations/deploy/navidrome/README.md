@@ -17,8 +17,10 @@ The sidecar now implements the two ListenBrainz endpoints Navidrome's client cal
   (fallback first `artist_mbids`) → `resolveCreator`, and the `Token` → `resolvePayer`,
   then charges `RATE`. `playing_now` submissions are metered-and-skipped.
 
-Run with `PLATFORM=navidrome RATE=<micro-USDC per listen>`. The MusicBrainz recipe
-supplies the `recording_mbid → artist → wallet` registry behind `resolveCreator`.
+Run with `PLATFORM=navidrome RATE=<micro-USDC per listen>`. Set
+`MUSICBRAINZ_USER_AGENT` to resolve `recording_mbid → artist_mbid → wallet` via
+WS/2 (gap #4, built + live-validated) with `CREATOR_WALLETS` keyed on artist MBID;
+see `../musicbrainz/README.md`.
 
 ## Steps
 

@@ -62,11 +62,12 @@ Gaps the recipes expose:
    plugin-test fixture, package layout, `main.js`, open questions on payer identity
    / dedupe / bundling) is in `deploy/peertube/README.md`. Building it is the
    implementation step; **publishing** to npm/the plugin index is external.
-4. **MusicBrainz resolver** — replace `mapResolver(staticMap)` with
-   `createMusicBrainzResolver`: `recording_mbid → artist_mbid` via WS/2
-   (`/recording?inc=artists`), then `artist_mbid → wallet` (the moat). Needs a
-   cached, rate-limited resolver and an **async `Resolve`** (small `core.ts`
-   change). Full design in `deploy/musicbrainz/README.md`.
+4. ~~**MusicBrainz resolver**~~ — **CLOSED.** `createMusicBrainzResolver`
+   (`src/musicbrainz.ts`): `recording_mbid → artist_mbid` via WS/2
+   (`/recording?inc=artists`) → `artist_mbid → wallet`, cached + rate-limited,
+   never throws. Made `Resolve` async (`core.ts`); wired into the Navidrome/Subsonic
+   CLI via `MUSICBRAINZ_USER_AGENT`. +8 unit tests and **live-validated against the
+   public WS/2** (real recording → John Lennon → wallet; cache + unknown paths).
 5. **Browser-extension adaptor (payer-side)** — a new vertical: let *any* browser
    extension auto-pay paywalls via `@universal-paywall/agent` (library / host-bridge
    / page-bridge modes). **Prerequisite:** the agent must gain an account/signer

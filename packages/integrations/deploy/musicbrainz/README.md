@@ -16,10 +16,18 @@ moat. Closing this replaces the static `mapResolver` with a real
 - Run the fork locally, or use the public `https://musicbrainz.org/ws/2/`
   (rate-limited to ~1 req/s; **must** send a descriptive `User-Agent`).
 
-## What we build (gap #4 — implementation phase)
+## Status: BUILT + live-validated (gap #4 closed)
 
-A `musicbrainzResolver` in `@universal-paywall/integrations` that composes with the
-existing `Resolve` type (`core.ts`). Two stages, both cached:
+`createMusicBrainzResolver` (`src/musicbrainz.ts`) is implemented, unit-tested
+(8 tests), and **validated against the real public WS/2** (2026-06-21): the
+recording `f1aa509e-7cda-4e0e-b59b-f6ccfb53783c` resolved to its artist
+(`4d5447d7-...` John Lennon) -> wallet; a repeated lookup was served from cache (1
+network call); unknown -> null. `Resolve` is now async (`core.ts`), and the
+Navidrome/Subsonic CLI modes use it when `MUSICBRAINZ_USER_AGENT` is set.
+
+## How it works
+
+A `Resolve` that composes with the existing type (`core.ts`). Two stages, both cached:
 
 ```
 recording_mbid --[WS/2 /recording?inc=artists]--> artist_mbid --[wallet registry]--> 0xCreator
@@ -59,18 +67,27 @@ ListenBrainz sidecar (PLATFORM=navidrome)
    recording_mbid -> artist_mbid -> wallet -> charge
 ```
 
-## Steps
+## Use it (Navidrome / Subsonic CLI)
 
-1. Implement `createMusicBrainzResolver` (+ cache + limiter) and allow async
-   `Resolve`.
-2. Seed the `walletRegistry` (artist_mbid -> wallet) — static map first, a managed
-   registry later.
-3. Point the Navidrome sidecar's `resolveCreator` at it.
+Set `MUSICBRAINZ_USER_AGENT` (required by WS/2 etiquette) and key `CREATOR_WALLETS`
+on `artist_mbid`:
+
+```bash
+PLATFORM=navidrome RATE=100 \
+MUSICBRAINZ_USER_AGENT="universal-paywall/0.1 (ops@example.com)" \
+CREATOR_WALLETS='{"4d5447d7-c61c-4120-ba1b-d7f471d385b9":"0xArtistWallet"}' \
+FACILITATOR_URL=... FACILITATOR_API_KEY=... up-integration
+```
+
+`MUSICBRAINZ_BASE_URL` overrides WS/2 (point at the local `musicbrainz-server` fork
+in CI to avoid the public ~1 req/s limiter). Without `MUSICBRAINZ_USER_AGENT` the
+sidecar falls back to a direct `CREATOR_WALLETS` lookup (no MBID resolution).
 
 ## Verify
 
-Given a known `recording_mbid`, the resolver returns a stable `artist_mbid` and (if
-registered) a wallet; an unknown MBID returns `null`. Test against the local
-`musicbrainz-server` fork so CI doesn't hit the public rate limiter. See the
-testing plan (MusicBrainz/Navidrome row).
+- **Unit:** `npm test -w @universal-paywall/integrations` (musicbrainz.test.ts).
+- **Live:** point the resolver at `https://musicbrainz.org/ws/2` with a known
+  `recording_mbid`; it returns the credited artist's wallet, caches the
+  recording->artist mapping, and returns `null` for unknowns. Prefer the local fork
+  for repeated/CI runs. See the testing plan (MusicBrainz/Navidrome row).
 </content>
