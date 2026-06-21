@@ -1,6 +1,8 @@
+import { createServer } from 'node:http';
 import { createReporter, mapResolver, type Hex, type Reporter, type Resolve } from './core.js';
 import { OwncastPresenceMeter } from './owncast.js';
 import { createMusicBrainzResolver } from './musicbrainz.js';
+import { createImmichProxy } from './immich-proxy.js';
 import type { CampaignAmounts, CampaignTemplate } from './mastodon.js';
 import {
   citationRoute,
@@ -79,6 +81,19 @@ function main(): void {
     });
   }
 
+  const port = Number(process.env.PORT ?? '8410');
+
+  // Immich reverse-proxy variant: a full transparent proxy in front of Immich
+  // (not a route on the sidecar server), metering shared-link asset resolves.
+  if (platform === 'immich-proxy') {
+    const proxy = createServer(createImmichProxy({ upstreamUrl: env('UPSTREAM_URL'), reporter: reporter(), licenseFee: rate() }));
+    proxy.listen(port, () => {
+      // eslint-disable-next-line no-console
+      console.log(`up-integration [immich-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`);
+    });
+    return;
+  }
+
   let routes: readonly Route[];
   switch (platform) {
     case 'subsonic':
@@ -105,13 +120,12 @@ function main(): void {
       routes = [mastodonCampaignRoute({ campaign: campaignFromEnv() })];
       break;
     default:
-      throw new Error(`unknown PLATFORM: ${platform} (use subsonic|navidrome|owncast|jellyfin|rsshub|immich|mastodon)`);
+      throw new Error(`unknown PLATFORM: ${platform} (use subsonic|navidrome|owncast|jellyfin|rsshub|immich|immich-proxy|mastodon)`);
   }
 
   const server = createSidecarServer(routes, {
     ...(process.env.SIDECAR_API_KEY !== undefined ? { apiKey: process.env.SIDECAR_API_KEY } : {}),
   });
-  const port = Number(process.env.PORT ?? '8410');
   server.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`up-integration [${platform}] listening on :${port} (paths ${routes.map((r) => r.path).join(', ')})`);

@@ -191,6 +191,24 @@ Via `scripts/e2e-jellyfin-live-docker.mjs` against a live
 Note: `SendAllProperties:true` makes the plugin emit those exact PascalCase keys, so
 no Handlebars template is needed.
 
+## Immich real L3 — done (2026-06-21)
+
+Via `scripts/e2e-immich-live-docker.mjs` against a live Immich (server +
+vectorchord postgres + redis): `createImmichProxy` sits in front of Immich; an
+external viewer resolves a real shared-link asset THROUGH the proxy:
+
+1. Admin signup -> upload a photo -> create an INDIVIDUAL shared link (real key).
+2. `GET <proxy>/api/assets/<id>/original?key=<key>` -> proxy streams the real image
+   bytes from Immich (200, 4279 bytes) AND meters the resolve: it looks up the
+   asset owner via `GET /api/assets/<id>?key=<key>` (EXIF artist when present, else
+   `ownerId`) and reports a license fee.
+3. fee -> facilitator -> on-chain settle -> **owner paid 25000 micro-USDC.** PASS.
+
+No Immich fork was needed (none is in scope) - the L3 ran the upstream
+`ghcr.io/immich-app/immich-server` image, same as every other platform's L3.
+Note: Immich's `exifInfo` did not expose an `artist` field for the test photo, so
+the proxy correctly fell back to `ownerId` (the documented behavior).
+
 ## PeerTube real-instance verification — done (2026-06-21)
 
 Against a live **PeerTube 7.3.0** stack (postgres + redis, host net, transcoding

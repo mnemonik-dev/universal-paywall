@@ -18,7 +18,7 @@ layer + CLI.
 | Live video (Owncast) | `OwncastPresenceMeter` | `owncastRoute` (POST `/owncast`) | ✓ |
 | VOD (Jellyfin) | `handleJellyfinEvent` | `jellyfinRoute` (POST `/jellyfin`) | ✓ |
 | Feeds (RSSHub) | `handleCitation` | `citationRoute` (POST `/citation`) | ✓ |
-| Photo (Immich) | `handleSharedLinkResolve` | `immichRoute` (POST `/immich/resolve`) | ✓ |
+| Photo (Immich) | `handleSharedLinkResolve` + `createImmichProxy` (reverse-proxy) | `immichRoute` / `PLATFORM=immich-proxy` | ✓ (real L3) |
 | Fediverse (Mastodon) | `buildDonationCampaign` | `mastodonCampaignRoute` (GET `/api/v1/donation_campaigns`) | ✓ |
 
 - `createSidecarServer(routes)` + `up-integration` CLI: run any sidecar from env
@@ -88,5 +88,8 @@ per-platform test matrix.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
 - [ ] Gap #3: build + publish `peertube-plugin-universal-paywall`.
-- [ ] Immich shared-link reverse-proxy variant (out of scope here — no fork).
+- [x] Immich shared-link **reverse-proxy variant** (`createImmichProxy`, `PLATFORM=immich-proxy`):
+      built + 5 unit tests + **real L3** against live Immich (server + vectorchord pg + redis):
+      external viewer resolves a shared-link asset through the proxy -> license fee -> on-chain
+      settle -> owner paid 25000. No Immich fork needed (ran the upstream image).
 - [ ] Federation-peer sidecar for Mastodon per-user (`attributedTo`) reshare settlement.

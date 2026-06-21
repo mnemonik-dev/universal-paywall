@@ -37,6 +37,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `SIDECAR_API_KEY` | optional `x-api-key` gate on the sidecar |
 | `MUSICBRAINZ_USER_AGENT` | music modes: enables `recording_mbid → artist_mbid → wallet` via WS/2 (`CREATOR_WALLETS` keyed on artist MBID) |
 | `MUSICBRAINZ_BASE_URL` | override WS/2 base (point at the local fork in CI) |
+| `UPSTREAM_URL` | `immich-proxy` only: the Immich base URL to proxy + meter |
 
 ## Recipes
 
@@ -46,6 +47,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `navidrome/` | Navidrome (music) | `ND_LISTENBRAINZ_BASEURL` → sidecar | route built (`PLATFORM=navidrome`) |
 | `jellyfin/` | Jellyfin (VOD) | official webhook plugin → `/jellyfin` | route exists |
 | `rsshub/` | RSSHub (feeds) | crawler boundary → `/citation` | route exists |
+| `immich/` | Immich (photo) | reverse-proxy in front → meters shared-link resolves | `PLATFORM=immich-proxy`; real L3 |
 | `mastodon/` | Mastodon (fediverse) | `DONATION_CAMPAIGNS_URL` → provider | route built (`PLATFORM=mastodon`) |
 | `peertube/` | PeerTube (fed. VOD) | published plugin → sidecar | **needs published plugin** (design doc'd) |
 | `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | resolver built (`MUSICBRAINZ_USER_AGENT`); live-validated |

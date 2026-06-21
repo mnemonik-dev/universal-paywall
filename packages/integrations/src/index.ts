@@ -19,6 +19,9 @@ export type { CitationEvent, CitationOptions } from './rsshub.js';
 export { handleSharedLinkResolve } from './immich.js';
 export type { SharedLinkOptions, SharedLinkResolveEvent } from './immich.js';
 
+export { createImmichProxy, parseAssetResolve } from './immich-proxy.js';
+export type { ImmichProxyOptions } from './immich-proxy.js';
+
 export { handleListenSubmit, listenCreatorKey, parseListenToken } from './listenbrainz.js';
 export type {
   ListenAdditionalInfo,
