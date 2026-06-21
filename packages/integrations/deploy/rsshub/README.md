@@ -25,5 +25,9 @@ an operator add-on, not an upstream change.
 
 ## Verify
 
-Run RSSHub, fetch a feed, POST a citation event for one item, confirm it settles.
+**Real L3+L4 (PROVEN 2026-06-21):** `scripts/e2e-rsshub-live-docker.mjs` fetches a
+real item from a live `ghcr.io/diygod/rsshub` `/test/1` feed (author `DIYgod1`),
+POSTs a crawler citation to `/citation`, and settles the toll on anvil (author paid
+5000). Note: on a host without IPv6, run RSSHub with `DISABLE_IPV6=true` or it binds
+`::` and never serves on 127.0.0.1.
 </content>

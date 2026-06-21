@@ -54,7 +54,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness) |
 | **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz) |
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
-| **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
+| **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | **L3+L4 PASS** (live RSSHub item) |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | provider verified (L2 live) |
 | **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | TODO (needs plugin) |
 | **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
