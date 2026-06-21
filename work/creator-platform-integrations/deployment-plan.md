@@ -56,12 +56,12 @@ Gaps the recipes expose:
    the stale `pr-drafts.md` array shape corrected), verified against the controller
    + request spec and live HTTP-smoke-tested. No facilitator needed (config-only).
    +5 unit tests. `RouteResponse` added to `serve.ts` for the 204 path.
-3. **PeerTube plugin** — sidecars-only means PeerTube still needs the separately
-   **published** `peertube-plugin-universal-paywall` to emit `action:api.video.viewed`
-   to the sidecar. Full plugin design (register API grounded against the PeerTube
-   plugin-test fixture, package layout, `main.js`, open questions on payer identity
-   / dedupe / bundling) is in `deploy/peertube/README.md`. Building it is the
-   implementation step; **publishing** to npm/the plugin index is external.
+3. ~~**PeerTube plugin**~~ — **BUILT.** `packages/peertube-plugin/`
+   (`peertube-plugin-universal-paywall`): `main.js` registers
+   `action:api.video.viewed` → settings-driven `createReporter` → facilitator
+   charge. Tested (`node test.mjs`, 9 assertions): hook fires a charge with the
+   resolved viewer/channel wallets + configured price; anonymous/unconfigured →
+   no charge. Only **publishing** (npm / the PeerTube index) is external.
 4. ~~**MusicBrainz resolver**~~ — **CLOSED.** `createMusicBrainzResolver`
    (`src/musicbrainz.ts`): `recording_mbid → artist_mbid` via WS/2
    (`/recording?inc=artists`) → `artist_mbid → wallet`, cached + rate-limited,

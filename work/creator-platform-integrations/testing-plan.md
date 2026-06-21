@@ -56,7 +56,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | **L3+L4 PASS** (live RSSHub item) |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + donation L4 PASS** (`e2e:mastodon`) |
-| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | TODO (needs plugin) |
+| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **plugin built + tested** (9 assertions); real-instance L3 pending |
 | **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
 | **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | TODO (needs signer abstraction) |
 
