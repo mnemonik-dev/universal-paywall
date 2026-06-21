@@ -57,6 +57,15 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * JSON serializer that stringifies bigints. Route outcomes carry `amount: bigint`
+ * (micro-USDC), which `JSON.stringify` cannot serialize natively — without this an
+ * HTTP-served charge would 500/400. Emits amounts as decimal strings.
+ */
+function toJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+}
+
 /** Builds a small HTTP server that dispatches platform events to the routes. */
 export function createSidecarServer(routes: readonly Route[], opts: SidecarServerOptions = {}): Server {
   return createServer((req, res) => {
@@ -102,11 +111,11 @@ async function dispatch(
       return;
     }
     res.writeHead(result.status, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(result.body));
+    res.end(toJson(result.body));
     return;
   }
   res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify(result ?? { ok: true }));
+  res.end(toJson(result ?? { ok: true }));
 }
 
 // ----- per-platform route builders -----

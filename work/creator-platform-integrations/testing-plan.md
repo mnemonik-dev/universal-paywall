@@ -51,7 +51,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 
 | Platform | Trigger (L3) | Sidecar observation | Expected charge | L2 contract check | L4 status |
 |---|---|---|---|---|---|
-| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **PASS** (shipped) |
+| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L4 PASS** (`e2e:owncast`); L3 needs docker daemon |
 | **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | TODO (route built) |
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | TODO |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
@@ -109,4 +109,24 @@ run in CI without Docker.
 2. L2 contract check green (real platform request/response bytes).
 3. L3 a real instance calls the sidecar on a real event.
 4. L4 the payee's on-chain balance increased by the expected amount.
+
+## Owncast acceptance — done (2026-06-21)
+
+`scripts/e2e-owncast-acceptance-anvil.ts` (`npm run e2e:owncast`) runs the **real
+sidecar HTTP server** (`createSidecarServer` + `owncastRoute`) and POSTs the
+**byte-exact Owncast webhook JSON** (full `eventData` envelope: `status`,
+`serverURL`, `id`, `timestamp`, `user.id`), through the facilitator to an on-chain
+settle. **PASS** — streamer paid `60s x rate`.
+
+- **Bug found + fixed by running L4 over real HTTP:** charge outcomes carry
+  `amount: bigint`, which `JSON.stringify` cannot serialize — every charge response
+  was 400ing over the wire. The in-process e2e and unit tests never serialized, so
+  they missed it. Fixed with a bigint-safe serializer in `serve.ts` (`toJson`,
+  amounts -> decimal strings); added an HTTP regression test. This bug affected
+  **all** charge-returning routes (owncast/subsonic/jellyfin/rsshub/immich), so the
+  fix unblocks every platform's real-HTTP path, not just Owncast.
+- **Environment limit:** no Docker daemon here (`/var/run/docker.sock` absent), so
+  the Owncast *process* (L3) can't run in this container. The acceptance replays the
+  exact wire bytes against the real sidecar instead; the L3 docker-compose +
+  `register-webhook.sh` path is documented and runs wherever a daemon exists.
 </content>

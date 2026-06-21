@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "vitest run --passWithNoTests",
-    "e2e:anvil": "tsx scripts/e2e-integration-anvil.ts"
+    "e2e:anvil": "tsx scripts/e2e-integration-anvil.ts",
+    "e2e:owncast": "tsx scripts/e2e-owncast-acceptance-anvil.ts"
   },
   "dependencies": {
     "@universal-paywall/sdk": "*"

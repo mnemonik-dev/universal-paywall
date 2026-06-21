@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Hex, Reporter, ReportInput, ReportOutcome } from '../core.js';
 import { handleSharedLinkResolve } from '../immich.js';
-import { citationRoute, immichRoute, listenBrainzRoutes, mastodonCampaignRoute, owncastRoute, RouteResponse, subsonicRoute } from '../serve.js';
+import { citationRoute, createSidecarServer, immichRoute, listenBrainzRoutes, mastodonCampaignRoute, owncastRoute, RouteResponse, subsonicRoute } from '../serve.js';
+import type { AddressInfo } from 'node:net';
 import { OwncastPresenceMeter } from '../owncast.js';
 import { handleListenSubmit, listenCreatorKey, parseListenToken } from '../listenbrainz.js';
 import { buildDonationCampaign, type CampaignTemplate } from '../mastodon.js';
@@ -186,5 +187,50 @@ describe('mastodon donation-campaign provider', () => {
     expect(out).toBeInstanceOf(RouteResponse);
     expect((out as RouteResponse).status).toBe(204);
     expect((out as RouteResponse).body).toBeUndefined();
+  });
+});
+
+describe('createSidecarServer over real HTTP', () => {
+  async function withServer(routes: Parameters<typeof createSidecarServer>[0], fn: (base: string) => Promise<void>) {
+    const srv = createSidecarServer(routes);
+    await new Promise<void>((r) => srv.listen(0, r));
+    const port = (srv.address() as AddressInfo).port;
+    try {
+      await fn(`http://127.0.0.1:${port}`);
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
+  }
+
+  // Regression: a charge outcome carries `amount: bigint`, which JSON.stringify
+  // cannot serialize. Without the bigint-safe serializer this 400s over HTTP.
+  it('serializes a bigint charge amount as a string (does not 500/400)', async () => {
+    const { reporter } = spyReporter();
+    const meter = new OwncastPresenceMeter(reporter, { ratePerSecond: 2n, streamerKey: 's' });
+    await withServer([owncastRoute(meter)], async (base) => {
+      const join = await fetch(`${base}/owncast`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'USER_JOINED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:00Z' } }),
+      });
+      expect(join.status).toBe(200);
+      const part = await fetch(`${base}/owncast`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'USER_PARTED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:10Z' } }),
+      });
+      expect(part.status).toBe(200);
+      const body = (await part.json()) as { status: string; amount: string };
+      expect(body.status).toBe('charged');
+      expect(body.amount).toBe('20'); // 10s * 2, as a string
+    });
+  });
+
+  it('serves the Mastodon provider 204 with an empty body over HTTP', async () => {
+    await withServer([mastodonCampaignRoute({ campaign: null })], async (base) => {
+      const res = await fetch(`${base}/api/v1/donation_campaigns?locale=en`);
+      expect(res.status).toBe(204);
+      expect((await res.text()).length).toBe(0);
+    });
   });
 });

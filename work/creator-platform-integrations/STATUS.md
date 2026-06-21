@@ -43,8 +43,8 @@ plumbing).
 ## Whole-repo test totals (this branch)
 
 contracts **39** · facilitator **20** · sdk **4** · resource-adapter **10** ·
-agent **7** · integrations **29**  →  **109 unit tests**, plus 4 anvil e2es
-(settle / adapter / agent / integration) all PASS.
+agent **7** · integrations **31**  →  **111 unit tests**, plus anvil e2es
+(settle / adapter / agent / integration / **owncast-acceptance**) all PASS.
 
 ## Deployment recipes + gap status (forks now in scope)
 
@@ -62,7 +62,9 @@ per-platform test matrix.
 
 ## Remaining / future
 
-- [ ] Build the L3/L4 acceptance loop for each platform (Owncast first; harness proven).
+- [x] Owncast L4 acceptance over real HTTP (`e2e:owncast`) — PASS; found+fixed the
+      bigint-over-HTTP serialization bug affecting all charge routes. L3 (docker) pending a daemon.
+- [ ] Build the L3/L4 acceptance loop for the remaining platforms (reuse the harness).
 - [ ] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — the moat behind Navidrome.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
 - [ ] Gap #3: build + publish `peertube-plugin-universal-paywall`.
