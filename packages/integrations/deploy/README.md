@@ -28,7 +28,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 
 | Env | Meaning |
 |---|---|
-| `PLATFORM` | `subsonic` \| `owncast` \| `jellyfin` \| `rsshub` (`navidrome`, `mastodon` are TODO routes) |
+| `PLATFORM` | `subsonic` \| `navidrome` \| `owncast` \| `jellyfin` \| `rsshub` (`mastodon` is a TODO route) |
 | `FACILITATOR_URL` / `FACILITATOR_API_KEY` | where to report charges |
 | `PAYER_WALLETS` / `CREATOR_WALLETS` | JSON maps: platform id → `0x` wallet |
 | `RATE` | unit price (per play / per second / per minute / per citation), micro-USDC |
@@ -41,7 +41,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | Folder | Platform | Attach surface | Build status |
 |---|---|---|---|
 | `owncast/` | Owncast (live) | admin webhook → `/owncast` | route exists; e2e-proven |
-| `navidrome/` | Navidrome (music) | `ND_LISTENBRAINZ_BASEURL` → sidecar | **needs `listenbrainzRoute`** |
+| `navidrome/` | Navidrome (music) | `ND_LISTENBRAINZ_BASEURL` → sidecar | route built (`PLATFORM=navidrome`) |
 | `jellyfin/` | Jellyfin (VOD) | official webhook plugin → `/jellyfin` | route exists |
 | `rsshub/` | RSSHub (feeds) | crawler boundary → `/citation` | route exists |
 | `mastodon/` | Mastodon (fediverse) | `DONATION_CAMPAIGNS_URL` → provider | **needs provider route** |

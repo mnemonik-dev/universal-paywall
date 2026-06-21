@@ -6,27 +6,27 @@ configurable — `consts/consts.go:82` defaults
 `ND_LISTENBRAINZ_BASEURL`. Point it at the sidecar and Navidrome scrobbles each
 play to us natively, with **zero fork change** and no proxy.
 
-## Gap to close first (route not built yet)
+## Route status: BUILT (gap #1 closed)
 
-The current sidecar speaks Subsonic `scrobble.view` (GET). For the ListenBrainz
-attach it must expose a ListenBrainz-compatible endpoint:
+The sidecar now implements the two ListenBrainz endpoints Navidrome's client calls
+(verified against `navidrome/adapters/listenbrainz/client.go`):
 
-- `POST /1/submit-listens` accepting the ListenBrainz JSON payload, mapping
-  `payload[].track_metadata.additional_info.recording_mbid` (or
-  `artist_mbid`) → `resolveCreator`, and `userId` (auth token / header) →
-  `resolvePayer`, then `reporter.report({ amount: RATE })`.
-- Add `case 'navidrome'` to the CLI selecting this route.
+- `GET /1/validate-token` (`Authorization: Token <token>`) → `{ valid: true, user_name, code: 200 }`
+  so the token links.
+- `POST /1/submit-listens` → maps `payload[].track_metadata.additional_info.recording_mbid`
+  (fallback first `artist_mbids`) → `resolveCreator`, and the `Token` → `resolvePayer`,
+  then charges `RATE`. `playing_now` submissions are metered-and-skipped.
 
-Track this in `work/creator-platform-integrations/deployment-plan.md` (gap #1).
-The MusicBrainz recipe supplies the `recording_mbid → artist → wallet` registry.
+Run with `PLATFORM=navidrome RATE=<micro-USDC per listen>`. The MusicBrainz recipe
+supplies the `recording_mbid → artist → wallet` registry behind `resolveCreator`.
 
-## Steps (after the route exists)
+## Steps
 
 1. Start rail + facilitator + sidecar + Navidrome (`docker-compose.yml`).
 2. Set `ND_LISTENBRAINZ_ENABLED=true` and
    `ND_LISTENBRAINZ_BASEURL=http://up-sidecar:8410/1/` in the Navidrome service.
-3. In Navidrome, link ListenBrainz with any non-empty token (the sidecar treats it
-   as the payer key → `resolvePayer`).
+3. In Navidrome, link ListenBrainz with the listener's token (the sidecar treats
+   it as the payer key → `resolvePayer`; map it in `PAYER_WALLETS`).
 4. Play a track → Navidrome scrobbles → sidecar charges `RATE` to the resolved
    artist → facilitator settles.
 

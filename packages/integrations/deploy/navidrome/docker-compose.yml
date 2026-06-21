@@ -19,7 +19,7 @@ services:
   up-sidecar:
     image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
     environment:
-      PLATFORM: navidrome                  # TODO: route not implemented yet (gap #1)
+      PLATFORM: navidrome                  # validate-token + submit-listens (gap #1 closed)
       FACILITATOR_URL: ${FACILITATOR_URL:?set facilitator url}
       FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:?set facilitator api key}
       RATE: ${RATE:-100}                   # micro-USDC per listen

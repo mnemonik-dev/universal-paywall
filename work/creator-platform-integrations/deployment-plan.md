@@ -44,15 +44,19 @@ with routes for `subsonic|owncast|jellyfin|rsshub|immich`.
 
 Gaps the recipes expose (tracked here, **not** built this session):
 
-1. **Navidrome ListenBrainz-target mode** — the cleanest attach is to point
-   `ND_LISTENBRAINZ_BASEURL` at the sidecar, which means the sidecar must expose a
-   ListenBrainz-compatible `POST /1/submit-listens` endpoint that maps
-   `track_metadata.additional_info.recording_mbid → resolveCreator`. Today the
-   sidecar only speaks Subsonic `scrobble.view` (GET). **New route needed:**
-   `listenbrainzRoute` + `PLATFORM=navidrome`.
+1. ~~**Navidrome ListenBrainz-target mode**~~ — **CLOSED.** The sidecar now exposes
+   `GET /1/validate-token` + `POST /1/submit-listens` (`src/listenbrainz.ts`,
+   `listenBrainzRoutes`, `PLATFORM=navidrome`), verified against
+   `navidrome/adapters/listenbrainz/client.go`. Token → payer, `recording_mbid`
+   (fallback first `artist_mbids`) → creator; `playing_now` skipped. +7 unit tests.
 2. **Mastodon provider** — the CLI has no `mastodon` case. Needs a provider route
-   that answers `GET /api/v1/donation_campaigns?platform&seed&locale&environment`
-   with the campaign JSON (draft in `pr-drafts.md`). **New route needed.**
+   that answers `GET /api/v1/donation_campaigns?platform&seed&locale` with the
+   campaign JSON. ⚠️ The `pr-drafts.md` draft is **stale**; the real schema
+   (verified in `mastodon/spec/requests/api/v1/donation_campaigns_spec.rb`) is:
+   `{id, banner_message, banner_button_text, donation_message, donation_button_text,
+   donation_success_post, amounts:{one_time:{EUR:[…],USD:[…]}, monthly:{…}},
+   default_currency, donation_url, locale}` — `amounts` is a nested object, not an
+   array — and the provider must echo the requested `locale`. **New route needed.**
 3. **PeerTube plugin** — sidecars-only means PeerTube still needs the separately
    **published** `peertube-plugin-universal-paywall` to emit the view event to the
    sidecar (draft in `pr-drafts.md`). The recipe documents installing it; building/

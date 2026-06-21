@@ -16,6 +16,15 @@ export type { CitationEvent, CitationOptions } from './rsshub.js';
 export { handleSharedLinkResolve } from './immich.js';
 export type { SharedLinkOptions, SharedLinkResolveEvent } from './immich.js';
 
+export { handleListenSubmit, listenCreatorKey, parseListenToken } from './listenbrainz.js';
+export type {
+  ListenAdditionalInfo,
+  ListenBrainzOptions,
+  ListenPayloadItem,
+  ListenSubmission,
+  ListenTrackMetadata,
+} from './listenbrainz.js';
+
 export {
   createSidecarServer,
   subsonicRoute,
@@ -23,5 +32,6 @@ export {
   jellyfinRoute,
   citationRoute,
   immichRoute,
+  listenBrainzRoutes,
 } from './serve.js';
 export type { Route, RouteHandler, SidecarServerOptions } from './serve.js';

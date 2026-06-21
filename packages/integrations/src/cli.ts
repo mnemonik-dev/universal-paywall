@@ -5,6 +5,7 @@ import {
   createSidecarServer,
   immichRoute,
   jellyfinRoute,
+  listenBrainzRoutes,
   owncastRoute,
   subsonicRoute,
   type Route,
@@ -35,34 +36,38 @@ function main(): void {
     resolveCreator: mapResolver(jsonMap('CREATOR_WALLETS')),
   });
 
-  let route: Route;
+  let routes: readonly Route[];
   switch (platform) {
     case 'subsonic':
-      route = subsonicRoute(reporter, { ratePerPlay: rate() });
+      routes = [subsonicRoute(reporter, { ratePerPlay: rate() })];
+      break;
+    case 'navidrome':
+      // Navidrome scrobbles natively to a ListenBrainz target (validate-token + submit-listens).
+      routes = listenBrainzRoutes(reporter, { ratePerListen: rate() });
       break;
     case 'owncast':
-      route = owncastRoute(new OwncastPresenceMeter(reporter, { ratePerSecond: rate(), streamerKey: env('STREAMER_KEY') }));
+      routes = [owncastRoute(new OwncastPresenceMeter(reporter, { ratePerSecond: rate(), streamerKey: env('STREAMER_KEY') }))];
       break;
     case 'jellyfin':
-      route = jellyfinRoute(reporter, { ratePerMinute: rate() });
+      routes = [jellyfinRoute(reporter, { ratePerMinute: rate() })];
       break;
     case 'rsshub':
-      route = citationRoute(reporter, { toll: rate() });
+      routes = [citationRoute(reporter, { toll: rate() })];
       break;
     case 'immich':
-      route = immichRoute(reporter, { licenseFee: rate() });
+      routes = [immichRoute(reporter, { licenseFee: rate() })];
       break;
     default:
-      throw new Error(`unknown PLATFORM: ${platform} (use subsonic|owncast|jellyfin|rsshub|immich)`);
+      throw new Error(`unknown PLATFORM: ${platform} (use subsonic|navidrome|owncast|jellyfin|rsshub|immich)`);
   }
 
-  const server = createSidecarServer([route], {
+  const server = createSidecarServer(routes, {
     ...(process.env.SIDECAR_API_KEY !== undefined ? { apiKey: process.env.SIDECAR_API_KEY } : {}),
   });
   const port = Number(process.env.PORT ?? '8410');
   server.listen(port, () => {
     // eslint-disable-next-line no-console
-    console.log(`up-integration [${platform}] listening on :${port} (path ${route.path})`);
+    console.log(`up-integration [${platform}] listening on :${port} (paths ${routes.map((r) => r.path).join(', ')})`);
   });
 }
 

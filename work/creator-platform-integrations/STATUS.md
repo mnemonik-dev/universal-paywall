@@ -13,7 +13,8 @@ layer + CLI.
 
 | Vertical | Adapter | Runnable route | Tested |
 |---|---|---|---|
-| Music (Subsonic/Navidrome) | `handleScrobble`, `parseSubsonicScrobble` | `subsonicRoute` (GET `/rest/scrobble.view`) | ✓ |
+| Music (Subsonic) | `handleScrobble`, `parseSubsonicScrobble` | `subsonicRoute` (GET `/rest/scrobble.view`) | ✓ |
+| Music (Navidrome/ListenBrainz) | `handleListenSubmit`, `parseListenToken`, `listenCreatorKey` | `listenBrainzRoutes` (GET `/1/validate-token`, POST `/1/submit-listens`) | ✓ |
 | Live video (Owncast) | `OwncastPresenceMeter` | `owncastRoute` (POST `/owncast`) | ✓ |
 | VOD (Jellyfin) | `handleJellyfinEvent` | `jellyfinRoute` (POST `/jellyfin`) | ✓ |
 | Feeds (RSSHub) | `handleCitation` | `citationRoute` (POST `/citation`) | ✓ |
@@ -22,7 +23,7 @@ layer + CLI.
 - `createSidecarServer(routes)` + `up-integration` CLI: run any sidecar from env
   (`PLATFORM`, `FACILITATOR_URL`, `FACILITATOR_API_KEY`, `PAYER_WALLETS`,
   `CREATOR_WALLETS`, `RATE`, `STREAMER_KEY`, `PORT`, `SIDECAR_API_KEY`).
-- **17 unit tests** (core resolver, 5 verticals, route builders).
+- **24 unit tests** (core resolver, 5 verticals + ListenBrainz/Navidrome, route builders).
 
 ## Proven end-to-end
 
