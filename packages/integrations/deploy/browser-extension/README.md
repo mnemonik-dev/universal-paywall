@@ -50,18 +50,17 @@ Messaging API (typed in `bridge.ts`):
 | `up:ensureGrant { cap, validUntil }` | establish/refresh the facilitator grant |
 | `up:status` | vault address, balance, current grant, spend-so-far |
 
-## The one real blocker (must fix in the agent first)
+## Status: BUILT (gap #5)
 
-`PayerAgentConfig` takes a **raw `payerKey: Hex`** and builds a viem wallet client
-from it. Shipping a raw private key inside an extension is unacceptable. So the
-agent needs an **account/signer abstraction** before this adaptor is safe:
+Implemented in `packages/extension/` (`@universal-paywall/extension`, MV3). The
+prerequisite is done: `@universal-paywall/agent` now accepts an injected
+`account` (+ optional `walletTransport`) instead of only a raw `payerKey`, so the
+extension signs via a browser wallet (EIP-1193) or a managed cap-bounded session
+account — never a raw key in code. Tested core handler + bridge (`node test.mjs`,
+13 assertions). Only store-publishing is external.
 
-- Accept an injected EIP-1193 provider (MetaMask / browser wallet) or a viem
-  `Account`/`LocalAccount`, instead of only a raw key, for deposit/grant txs.
-- Keep the existing `ProofSigner` for the off-chain access proof (already abstracted).
-
-Track this as the **prerequisite** for the extension vertical (it also benefits
-server deployments that use a KMS/remote signer).
+> The prerequisite (agent account/transport injection) also benefits server
+> deployments using a KMS/remote signer.
 
 ## Security model (decide during implementation)
 

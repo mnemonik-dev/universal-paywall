@@ -49,7 +49,7 @@ platform instance  ──event──▶  up-integration sidecar  ──charge─
 | `mastodon/` | Mastodon (fediverse) | `DONATION_CAMPAIGNS_URL` → provider | route built (`PLATFORM=mastodon`) |
 | `peertube/` | PeerTube (fed. VOD) | published plugin → sidecar | **needs published plugin** (design doc'd) |
 | `musicbrainz/` | MusicBrainz (registry) | WS/2 MBID lookups → resolver | resolver built (`MUSICBRAINZ_USER_AGENT`); live-validated |
-| `browser-extension/` | Any browser extension (**payer-side**) | `agent.fetchWithPaywall` + messaging bridge | **needs agent signer abstraction** (design doc'd) |
+| `browser-extension/` | Any browser extension (**payer-side**) | `agent.fetchWithPaywall` + messaging bridge | built: `packages/extension/` (MV3) + agent account injection |
 
 > All recipes above are creator/payee-side except `browser-extension/`, which is the
 > consumer/payer side — it auto-pays the paywalls the others meter.

@@ -50,11 +50,12 @@ Owncast L3 + live MusicBrainz WS/2 validation, all PASS.
 ## Deployment recipes + gap status (forks now in scope)
 
 `packages/integrations/deploy/<platform>/` — grounded sidecar-attach recipes.
-Closed gaps: **#1 Navidrome** (ListenBrainz target), **#2 Mastodon** (campaign
-provider + donation L4), **#3 PeerTube plugin** (`packages/peertube-plugin/`, built
-+ tested; publish is external), **#4 MusicBrainz resolver** (recording→artist→wallet
-via WS/2; async `Resolve`; live-validated). Remaining: **#5 browser-extension
-adaptor (payer-side)**. See `deployment-plan.md` and the per-recipe READMEs.
+All five gaps **closed**: **#1 Navidrome** (ListenBrainz target), **#2 Mastodon**
+(campaign provider + donation L4), **#3 PeerTube plugin** (`packages/peertube-plugin/`),
+**#4 MusicBrainz resolver** (recording→artist→wallet via WS/2; async `Resolve`;
+live-validated), **#5 browser-extension adaptor** (`packages/extension/` MV3 +
+agent account/transport injection). Only external store/registry **publishing**
+remains. See `deployment-plan.md` and the per-recipe READMEs.
 
 ## Testing
 

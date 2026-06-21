@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, defineChain, erc20Abi, http } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Account, type Transport } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { stakeVaultAbi, stakeVaultFactoryAbi } from './abi.js';
 import { parseGrantRequirements, type GrantRequirements } from './parse402.js';
@@ -9,7 +9,20 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 export interface PayerAgentConfig {
   rpcUrl: string;
   chainId: number;
-  payerKey: Hex;
+  /** Raw private key (dev / server with a local key). Provide this OR `account`. */
+  payerKey?: Hex;
+  /**
+   * An injected viem `Account` — a browser wallet (EIP-1193), KMS, or remote
+   * signer — used instead of a raw key. Required for the browser-extension adaptor,
+   * where shipping a raw private key is unacceptable. Provide this OR `payerKey`.
+   */
+  account?: Account;
+  /**
+   * Transport for the wallet client (writes + message signing). Defaults to the
+   * RPC. Pass `custom(window.ethereum)` to route signing through a browser wallet
+   * (EIP-1193) — the extension adaptor uses this so writes are wallet-approved.
+   */
+  walletTransport?: Transport;
   stakeVaultFactory: Hex;
   usdc: Hex;
   /** Optional fetch override (defaults to global fetch). */
@@ -46,9 +59,15 @@ export function createPayerAgent(config: PayerAgentConfig): PayerAgent {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [config.rpcUrl] } },
   });
-  const account = privateKeyToAccount(config.payerKey);
+  const account: Account =
+    config.account ??
+    (config.payerKey !== undefined
+      ? privateKeyToAccount(config.payerKey)
+      : (() => {
+          throw new Error('createPayerAgent requires `account` or `payerKey`');
+        })());
   const pub = createPublicClient({ chain, transport: http(config.rpcUrl) });
-  const wallet = createWalletClient({ account, chain, transport: http(config.rpcUrl) });
+  const wallet = createWalletClient({ account, chain, transport: config.walletTransport ?? http(config.rpcUrl) });
   const doFetch = config.fetchImpl ?? fetch;
   const payer = account.address;
 

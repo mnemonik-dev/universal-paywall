@@ -68,12 +68,13 @@ Gaps the recipes expose:
    never throws. Made `Resolve` async (`core.ts`); wired into the Navidrome/Subsonic
    CLI via `MUSICBRAINZ_USER_AGENT`. +8 unit tests and **live-validated against the
    public WS/2** (real recording → John Lennon → wallet; cache + unknown paths).
-5. **Browser-extension adaptor (payer-side)** — a new vertical: let *any* browser
-   extension auto-pay paywalls via `@universal-paywall/agent` (library / host-bridge
-   / page-bridge modes). **Prerequisite:** the agent must gain an account/signer
-   abstraction (it currently takes a raw `payerKey`, unsafe in an extension). Full
-   design in `deploy/browser-extension/README.md`. This is the consumer side that
-   pays the paywalls the creator sidecars meter.
+5. ~~**Browser-extension adaptor (payer-side)**~~ — **BUILT.** Prerequisite done:
+   the agent now accepts an injected `account` (+ `walletTransport`) instead of a
+   raw `payerKey` (`@universal-paywall/agent`, +4 tests). `packages/extension/`
+   (`@universal-paywall/extension`, MV3): tested core message handler over the agent
+   (`up:status`/`up:ensureGrant`/`up:fetch`), a bridge client, page/external
+   wiring, manifest, and a signer model that refuses to run without an injected
+   account. `node test.mjs` — 13 assertions. Only store-publishing is external.
 
 ## Recipe scaffold (this session's deliverable)
 
