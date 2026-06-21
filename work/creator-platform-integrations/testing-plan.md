@@ -52,7 +52,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | Platform | Trigger (L3) | Sidecar observation | Expected charge | L2 contract check | L4 status |
 |---|---|---|---|---|---|
 | **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness) |
-| **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | TODO (route built) |
+| **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz) |
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | TODO |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | provider verified (L2 live) |
@@ -147,4 +147,26 @@ pulls (Docker Hub) succeed. Full real L3 ran green via
 This is the genuine L3: a live Owncast process emitting real webhooks settled
 through the rail. The acceptance script (`e2e:owncast`) remains the fast,
 Docker-free CI proxy using the same (now field-verified) bytes.
+
+## Navidrome REAL L3 — done (2026-06-21)
+
+Full vertical incl. the moat, via `scripts/e2e-navidrome-live-docker.mjs` against a
+live `ghcr.io/navidrome/navidrome` container (GHCR avoids Docker Hub's anon pull
+limit). Navidrome scrobbles natively to our ListenBrainz target — **zero Navidrome
+changes**:
+
+1. Tagged track (ffmpeg, `MUSICBRAINZ_TRACKID=f1aa509e...`) scanned; admin
+   auto-created (`ND_DEVAUTOCREATEADMINPASSWORD`); `ND_LISTENBRAINZ_BASEURL` ->
+   `http://localhost:8410/1/` (host network).
+2. Link a ListenBrainz token via the native API (`PUT /api/listenbrainz/link?jwt=`)
+   -> hits our `GET /1/validate-token` (returns valid). The token is the payer key.
+3. Subsonic `scrobble.view?...&submission=true` -> Navidrome forwards to the
+   ListenBrainz target -> our `POST /1/submit-listens`.
+4. **Real Navidrome payload matched the parser exactly:** `listen_type:"single"`,
+   `recording_mbid:"f1aa509e-..."`, `artist_mbids:["4d5447d7-..."]`.
+5. recording_mbid -> **live MusicBrainz WS/2 resolver** -> John Lennon -> wallet ->
+   charge 100 -> facilitator -> **artist paid 100 micro-USDC on-chain.** PASS.
+
+So both gap #1 (ListenBrainz target) and gap #4 (MusicBrainz resolver) are now
+field-verified together against a real instance + the real MusicBrainz API.
 </content>

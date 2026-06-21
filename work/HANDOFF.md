@@ -125,7 +125,9 @@ pkill -x anvil
 ### Gotchas learned
 - **Docker works** in this environment — the daemon just isn't auto-started. As root:
   `nohup dockerd >/tmp/dockerd.log 2>&1 &` then `docker pull` (Docker Hub reachable).
-  Enables real L3 platform runs (proven: live Owncast → real webhook → on-chain settle).
+  Enables real L3 platform runs (proven: live Owncast AND live Navidrome → real
+  event → MusicBrainz resolve → on-chain settle). Docker Hub anon pulls are
+  rate-limited (~a few/6h) — prefer GHCR (`ghcr.io/navidrome/navidrome`) to avoid it.
 - `pkill -f anvil` kills the e2e scripts (filenames contain "anvil") — use `pkill -x anvil`.
 - Egress allowlist blocks many hosts (`x402.org`, `thecanteenapp.com`); GitHub/npm/code.claude.com are allowed. Article content lives in `work/x402-agent-payment/external-analysis.md`.
 - Public anvil dev keys in e2e scripts are annotated `// gitleaks:allow` (not secrets).

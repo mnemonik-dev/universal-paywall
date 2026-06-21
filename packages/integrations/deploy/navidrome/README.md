@@ -34,6 +34,14 @@ see `../musicbrainz/README.md`.
 
 ## Verify
 
-Play a track (or `POST /1/submit-listens` directly), confirm a charge reaches the
-facilitator and settles on anvil.
+**Real L3+L4 (PROVEN 2026-06-21):** `scripts/e2e-navidrome-live-docker.mjs` runs the
+full loop against a live `ghcr.io/navidrome/navidrome` container — link a
+ListenBrainz token, scrobble an MBID-tagged track, resolve `recording_mbid` ->
+artist via live MusicBrainz WS/2, settle on anvil. The real Navidrome scrobble
+payload matched the parser exactly (`listen_type:"single"`,
+`recording_mbid`, `artist_mbids`); artist paid 100 micro-USDC. See the testing plan
+(Navidrome row) for the exact container/env recipe.
+
+Quick check: play a track (or `POST /1/submit-listens` directly) and confirm a
+charge reaches the facilitator and settles on anvil.
 </content>
