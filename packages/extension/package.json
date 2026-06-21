@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node test.mjs"
+    "test": "node test.mjs",
+    "e2e:anvil": "node e2e-anvil.mjs"
   },
   "dependencies": {
     "@universal-paywall/agent": "*"

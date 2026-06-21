@@ -80,6 +80,9 @@ per-platform test matrix.
       plugin bundle installs + registers the view hook + settings + enabled + configurable
       via the API. Counted-view trigger needs a real player session (PeerTube view-throttle);
       hook->charge covered by the plugin unit test.
+- [x] Browser-extension **E2E** (`e2e:anvil`): real payer loop through the handler+bridge,
+      agent from an injected account, auto-pays a real x402 resource -> 402->grant->200 ->
+      on-chain settle -> creator paid 50000. Headless equivalent of the extension auto-paying.
 - [ ] Build the L3/L4 acceptance loop for the remaining platforms (RSSHub/Mastodon).
 - [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.

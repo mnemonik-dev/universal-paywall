@@ -80,8 +80,14 @@ account — never a raw key in code. Tested core handler + bridge (`node test.mj
 
 ## Verify
 
-Load the unpacked extension, browse to an x402-gated resource served by
-`@universal-paywall/resource-adapter`, confirm the extension auto-pays and the
-resource returns 200; confirm a second extension can obtain a paid response via
+**E2E (PROVEN, Docker-free):** `npm run e2e:anvil -w @universal-paywall/extension`
+(anvil on :8545) drives the real payer loop through the extension handler + bridge
+with an injected-account agent against a real x402 resource
+(`@universal-paywall/resource-adapter`): `bridge.upFetch` -> `fetchWithPaywall` ->
+402 -> auto vault/deposit/grant -> 200 -> facilitator settle -> creator paid 50000
+on-chain. This is the headless equivalent of the extension auto-paying.
+
+Full browser run: load the unpacked extension, browse to an x402-gated resource,
+confirm auto-pay; confirm a second extension gets a paid response via
 `onMessageExternal`. See the testing plan (browser-extension row).
 </content>

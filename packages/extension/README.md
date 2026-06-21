@@ -47,9 +47,17 @@ Two supported models, wired in `config.js#buildAccount`:
 ## Test
 
 ```bash
-npm test    # node test.mjs — handler routing + bridge (13 assertions)
+npm test         # node test.mjs — handler routing + bridge (13 assertions)
+npm run e2e:anvil  # node e2e-anvil.mjs — full payer loop on anvil (needs anvil :8545)
 ```
 
-Covers: `up:status`/`up:ensureGrant`/`up:fetch` routing, response serialization,
-bad/unknown messages, the external-sender allowlist, agent-error handling, and the
-bridge returning a real `Response`.
+Unit (`test.mjs`): `up:status`/`up:ensureGrant`/`up:fetch` routing, response
+serialization, bad/unknown messages, the external-sender allowlist, agent-error
+handling, and the bridge returning a real `Response`.
+
+E2E (`e2e-anvil.mjs`): the headless equivalent of the extension auto-paying a
+paywall — a real `PayerAgent` built from an **injected account** (the signer
+abstraction), driven through the handler + bridge against a real x402 resource
+(`@universal-paywall/resource-adapter`): `bridge.upFetch` -> `up:fetch` ->
+`fetchWithPaywall` -> 402 -> auto vault/deposit/grant -> 200 served -> facilitator
+settles -> **creator paid on-chain**. PASS.
