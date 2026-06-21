@@ -51,7 +51,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 
 | Platform | Trigger (L3) | Sidecar observation | Expected charge | L2 contract check | L4 status |
 |---|---|---|---|---|---|
-| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L4 PASS** (`e2e:owncast`); L3 needs docker daemon |
+| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness) |
 | **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | TODO (route built) |
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | TODO |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
@@ -125,8 +125,26 @@ settle. **PASS** — streamer paid `60s x rate`.
   amounts -> decimal strings); added an HTTP regression test. This bug affected
   **all** charge-returning routes (owncast/subsonic/jellyfin/rsshub/immich), so the
   fix unblocks every platform's real-HTTP path, not just Owncast.
-- **Environment limit:** no Docker daemon here (`/var/run/docker.sock` absent), so
-  the Owncast *process* (L3) can't run in this container. The acceptance replays the
-  exact wire bytes against the real sidecar instead; the L3 docker-compose +
-  `register-webhook.sh` path is documented and runs wherever a daemon exists.
+## Owncast REAL L3 — done (2026-06-21)
+
+Docker **does** work in this environment — the daemon just isn't started by
+default. Start it as root (`nohup dockerd >/tmp/dockerd.log 2>&1 &`) and image
+pulls (Docker Hub) succeed. Full real L3 ran green via
+`scripts/e2e-owncast-live-docker.mjs`:
+
+1. `docker run -d --network host owncast/owncast:latest` (host net so it reaches the
+   host sidecar + anvil).
+2. ffmpeg RTMP push (`rtmp://localhost:1935/live/abc123`) brings the stream online —
+   required, since Owncast only fires the USER_JOINED webhook while online
+   (`services/chat/server.go:180`).
+3. Register a real chat user (`POST /api/chat/register`), register our webhook
+   (`POST /api/admin/webhooks/create`, Basic admin/abc123), connect a real chat
+   websocket -> real USER_JOINED; disconnect -> USER_PARTED after the 10s prune.
+4. **Real webhook bytes matched the sidecar shape exactly** (`type`,
+   `eventData.user.id`, `eventData.timestamp` RFC3339); 14s presence -> charge
+   **14000** -> facilitator settle -> **streamer paid 14000 micro-USDC on-chain.**
+
+This is the genuine L3: a live Owncast process emitting real webhooks settled
+through the rail. The acceptance script (`e2e:owncast`) remains the fast,
+Docker-free CI proxy using the same (now field-verified) bytes.
 </content>

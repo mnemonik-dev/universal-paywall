@@ -38,10 +38,13 @@ the **real sidecar HTTP server** with the **byte-exact JSON Owncast posts**
 `owncast/services/webhooks/*.go` + `models/user.go`), through the facilitator to an
 on-chain settle. Asserts the streamer is paid `(parted-joined)*RATE`. **PASS.**
 
-**L3 real-instance (needs a Docker daemon):** `docker compose up`, run
-`./register-webhook.sh`, join/leave as a viewer, confirm the same settlement. The
-sidecar's expected shape (`eventData.user.id`, `eventData.timestamp`) was verified
-to match Owncast's real payload, so the acceptance bytes equal the wire bytes.
+**L3 real-instance (Docker — PROVEN):** start the daemon (`nohup dockerd &` as
+root), then `scripts/e2e-owncast-live-docker.mjs` runs the full real loop: live
+`owncast/owncast` container, ffmpeg RTMP push to bring the stream online (required
+for the join webhook to fire), a real chat websocket join/part, our webhook
+registered via the admin API, settling on anvil. Verified 2026-06-21: real webhook
+bytes match the sidecar shape; 14s presence -> streamer paid 14000 on-chain. The
+`docker-compose.yml` + `register-webhook.sh` are the operator-facing equivalents.
 
 > Owncast dev admin creds for local testing: `admin` / `abc123` (Basic auth).
 </content>

@@ -63,7 +63,10 @@ per-platform test matrix.
 ## Remaining / future
 
 - [x] Owncast L4 acceptance over real HTTP (`e2e:owncast`) — PASS; found+fixed the
-      bigint-over-HTTP serialization bug affecting all charge routes. L3 (docker) pending a daemon.
+      bigint-over-HTTP serialization bug affecting all charge routes.
+- [x] Owncast **real L3** (live `owncast/owncast` container, RTMP stream, real chat
+      join/part -> real webhook -> on-chain settle, streamer paid 14000) — PASS.
+      Docker works here once `dockerd` is started.
 - [ ] Build the L3/L4 acceptance loop for the remaining platforms (reuse the harness).
 - [ ] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — the moat behind Navidrome.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
