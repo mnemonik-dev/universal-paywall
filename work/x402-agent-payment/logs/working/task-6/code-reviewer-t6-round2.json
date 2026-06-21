@@ -1,0 +1,55 @@
+{
+  "reviewer": "code-reviewer-t6",
+  "round": 2,
+  "commit": "eb4b845",
+  "task": "6",
+  "timestamp": "2026-06-17",
+  "verdict": "approved",
+  "summary": "All round-1 major findings (T6-R1-01, T6-R1-02) are resolved correctly and the scrubSecrets cycle fix (T6-R1-06) is a genuine improvement over the original. The WeakMap-based secret storage is strictly stronger than the private class field approach — no class member can extract the key. No new issues introduced.",
+  "findings": [],
+  "round1_resolution": [
+    {
+      "id": "T6-R1-01",
+      "resolution": "resolved",
+      "notes": "getRelayerKeySecret removed from index.ts re-exports. A clear comment explains why. settle.ts can import it directly from ./relayer-key.js. Verified: grep finds only the explanatory comment, not an export statement."
+    },
+    {
+      "id": "T6-R1-02",
+      "resolution": "resolved_better_than_requested",
+      "notes": "Rather than making _extract a private class method (#extract), the implementation replaced the entire class-field approach with a module-private WeakMap<OpaqueRelayerKey, string>. This is strictly stronger: there is NO class member (public, private, or otherwise) that can extract the key. getRelayerKeySecret is the only extraction path and it is not re-exported from index.ts. The defensive TypeError on SECRET_TABLE.get() === undefined correctly guards against prototype-manipulation attacks."
+    },
+    {
+      "id": "T6-R1-04",
+      "resolution": "resolved",
+      "notes": "UP_SUPPRESS_T3_NOTES=1 prefixed to both test and test:e2e scripts in package.json with an explanatory //test-env comment. Notes still fire in non-test contexts as intended."
+    },
+    {
+      "id": "T6-R1-05",
+      "resolution": "resolved_by_documentation",
+      "notes": "insert() now has a JSDoc explaining it does not lazy-evict (no now arg) and steering production callers to checkAndInsert. This is the correct trade-off — adding now to InsertInput would change the public API. The replay-store test also gains size() assertions around the TTL eviction test, making the stale-count behavior explicitly observable."
+    },
+    {
+      "id": "T6-R1-06",
+      "resolution": "resolved_beyond_scope",
+      "notes": "scrubSecrets was rewritten from WeakSet-based cycle detection (returns original on re-visit) to Map<original, scrubbed_copy>-based tracking, pre-registering each output before walking children. This correctly resolves back-edges to the partial scrubbed copy. Three new tests verify: (1) cycle back-edge points to scrubbed copy (out.self === out, out.self.v contains REDACTED), (2) array cycles, (3) DAG shared-reference preservation (out.a === out.b). Logic verified by manual trace and node -e confirmation."
+    },
+    {
+      "id": "T6-R1-07",
+      "resolution": "resolved",
+      "notes": "Dead static readonly [BRAND] field removed from OpaqueRelayerKey class. Instance brand stamp in constructor is the only brand mechanism, consistent with is() checking the instance property."
+    },
+    {
+      "id": "T6-R1-03",
+      "resolution": "deferred_accepted",
+      "notes": "Leading zeros in PRICE_RE not tightened (e.g. '00.01'). The math is correct; this is a cosmetic edge case not covered by the spec. Acceptable to defer."
+    }
+  ],
+  "positive_observations": [
+    "WeakMap approach is a stronger isolation guarantee than private class fields: not even subclass authors or prototype manipulators can get the key out via any class member path.",
+    "scrubSecrets Map-based cycle resolution correctly handles the leaking-back-edge case AND preserves shared DAG references — both properties are now tested.",
+    "The parseUsdPrice zero-reason test was simplified with toThrowError(expect.objectContaining({reason: 'zero'})) — cleaner than the try/catch approach it replaced.",
+    "Adding the missing 'payload' leaf to the decodeXPayment table-driven test fills a gap from round 1 (11 leaves were listed in the spec; the test now covers all of them)."
+  ],
+  "blocking": false,
+  "requires_changes": []
+}

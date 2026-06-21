@@ -1,0 +1,116 @@
+metadata:
+  feature_name: x402-agent-payment
+  work_type: feature
+  size: L
+  status: in_progress
+  started: "2026-06-16"
+  last_updated: "2026-06-16"
+  current_question_num: 0
+
+phase1_feature_overview:
+  feature_name:
+    value: "x402-agent-payment"
+    score: 100
+    status: done
+
+  work_type:
+    value: "feature"
+    score: 100
+    status: done
+
+  what_we_build:
+    value: "Chain-agnostic x402 middleware + PaymentSplitter contract. Arc as first chain. Developer registers wallet in contract once. Middleware: withPaywall(handler, { price, developerId }). Agent gets 402 → pays → retries → tx verified in contract → 200."
+    score: 90
+    gaps: []
+    status: done
+
+  why:
+    value: "AI agents need to pay for API access automatically without human intervention. No existing solution combines x402 protocol with non-custodial on-chain split + developer registry."
+    score: 85
+    gaps: []
+    status: done
+
+  target_users:
+    value: "AI agents (automated buyers), developers (integrate middleware, register wallet in contract)"
+    score: 90
+    gaps: []
+    status: done
+
+  key_scenarios:
+    value: |
+      Happy path: agent request → 402 + PAYMENT-REQUIRED header (asset, network, amount, payTo=contract, developerId) → agent signs USDC payment → retry with payment header → middleware verifies tx in contract → 200.
+      Payment failed: 402 with structured JSON { error, reason, required: {amount, asset, network}, payment_response }.
+      Insufficient funds: error reason = 'insufficient_funds'.
+      Replay attack: protected by smart contract (nonce/tx tracking onchain).
+    score: 90
+    gaps: []
+    status: done
+
+  out_of_scope:
+    value: "Solana, Ethereum mainnet, human fiat payments, subscriptions, middleware-level replay storage"
+    score: 90
+    gaps: []
+    status: done
+
+phase2_user_experience:
+  middleware_api:
+    value: "withPaywall(handler, { price: '0.01', developerId: '0xDev...' }) — framework-agnostic. Contract address baked in by network. Network defaults to arc-mainnet."
+    score: 90
+    gaps: []
+    status: done
+
+  agent_experience:
+    value: "Standard x402: any x402-compatible agent works. Agent reads PAYMENT-REQUIRED header, signs USDC authorization via GatewayClient or own impl, retries with X-Payment header."
+    score: 85
+    gaps: []
+    status: done
+
+  error_handling:
+    value: "HTTP 402 with JSON body: { error, reason (insufficient_funds|payment_failed|invalid_tx), required: {amount, asset, network}, payment_response: {tx_sig, verified_amount} }"
+    score: 90
+    gaps: []
+    status: done
+
+  developer_config:
+    value: "Developer registers wallet in contract via register(wallet) call. Middleware config: { price, developerId }. No API key needed — payment flow is fully on-chain."
+    score: 88
+    gaps: []
+    status: done
+
+phase3_integration:
+  chain_integration:
+    value: "Arc Testnet for dev, Arc Mainnet for MVP. Chain-agnostic design — network passed as param or defaulted. @circle-fin/x402-batching SDK for agent payment handling."
+    score: 85
+    gaps: ["Arc RPC URL", "USDC contract address on Arc Mainnet/Testnet"]
+    status: in_progress
+
+  payment_splitter:
+    value: "Non-custodial. Developer registers wallet onchain. Contract accumulates per-developer balance. Developer calls withdraw() to pull funds. Platform fee configurable (owner-settable). Replay protection in contract."
+    score: 88
+    gaps: []
+    status: done
+
+  deploy_approach:
+    value: "Hardhat or Foundry. Fork Arc Testnet locally for development. Contract deployed to Arc Testnet for staging, Arc Mainnet for MVP."
+    score: 90
+    gaps: []
+    status: done
+
+  manual_user_actions:
+    value: "Developer: (1) register wallet on our PaymentSplitter contract, (2) get USDC on Arc. One shared contract for all developers. Agent: must have USDC balance on Arc network."
+    score: 90
+    gaps: []
+    status: done
+
+  platform_fee_admin:
+    value: "Only contract owner (platform) can change fee via setFee(bps). Developers cannot modify fee."
+    score: 100
+    status: done
+
+conversation_history: []
+
+notes:
+  - "Chain-agnostic middleware, Arc as first chain"
+  - "Arc Testnet for development, Arc Mainnet for MVP"
+  - "PaymentSplitter: non-custodial, 0.5% platform fee"
+  - "Based on arc-nanopayments repo patterns (@circle-fin/x402-batching)"

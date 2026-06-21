@@ -1,0 +1,34 @@
+{
+  "status": "changes_required",
+  "summary": "Checked 14 round-3 claims. New-iteration fixes (selector 0xe3ee160e, IERC20.balanceOf, salt cast in user-spec/diagrams/D3, _disableInitializers, util.inspect.custom, SecurityLogger interface, OZ 5.x imports, viem 2.x APIs) all verify. Found 1 critical mirage: tech-spec line 17 retains an older `bytes20(developer)` salt expression inside `Clones.predictDeterministicAddress(...)` that contradicts the corrected `bytes32(uint256(uint160(msg.sender)))` form used everywhere else (line 156, line 187 user-spec, all 3 diagrams) and would not compile against OZ 5.x signature (salt is bytes32).",
+  "findings": [
+    {
+      "severity": "critical",
+      "type": "name_mismatch",
+      "claim": "tech-spec line 17 (Solution paragraph): `Clones.predictDeterministicAddress(impl, bytes20(developer))` — salt is encoded as `bytes20(developer)`.",
+      "reality": "OZ 5.x `Clones.predictDeterministicAddress(address implementation, bytes32 salt[, address deployer])` requires the salt to be `bytes32`. `bytes20` is not an accepted type. Furthermore, the rest of the spec (tech-spec D3 line 156, user-spec line 187, contract-architecture.puml line 26+32, developer-onboarding.puml line 25, code-research.md line 89) all use `bytes32(uint256(uint160(msg.sender)))`. The line-17 form is left over from an earlier draft and conflicts with the authoritative form. Even if Solidity coerced `bytes20` to `bytes32`, it would left-align the 20 bytes inside a 32-byte word and produce a DIFFERENT salt (and therefore a different vault address) than `bytes32(uint256(uint160(...)))`, which right-aligns. Implementation following line 17 would predict the wrong address.",
+      "source": "tech-spec.md, Solution section (line 17)",
+      "fix": "Replace `bytes20(developer)` with `bytes32(uint256(uint160(developer)))` on line 17 so the salt encoding matches D3 (line 156), user-spec AC (line 187) and the diagrams. Or simply reword to `Clones.predictDeterministicAddress(impl, salt)` and reference D3 for the salt formula."
+    }
+  ],
+  "stats": {
+    "total_claims_checked": 14,
+    "confirmed": 13,
+    "mirages_found": 1,
+    "verified_claims": [
+      "transferWithAuthorization selector 0xe3ee160e (canonical USDC FiatTokenV2 selector for the 9-arg form; replaces the prior wrong 0xef55bec6 which is receiveWithAuthorization)",
+      "user-spec line 202 now uses IERC20(...).balanceOf(this) — IERC20.balanceOf is in OZ 5.x token/ERC20/IERC20.sol",
+      "Diagrams use bytes32(uint256(uint160(msg.sender))) — valid Solidity cast chain (address→uint160→uint256→bytes32)",
+      "_disableInitializers() — internal helper in OZ 5.x @openzeppelin/contracts/proxy/utils/Initializable.sol",
+      "[util.inspect.custom] — real Node.js symbol exported by `util` module (Node ≥10) for custom inspect output",
+      "D18 SecurityLogger — interface internal to this spec, 10 event names match error names used elsewhere in the spec (signature_invalid, nonce_replay_attempt, settlement_failed, paused_request, vault_not_deployed, network_mismatch, header_too_large, malformed_header, relayer_initialized, chain_id_pinned)",
+      "OZ 5.x Initializable, Clones, Ownable2Step, Pausable, ReentrancyGuard, SafeERC20 — all real paths under @openzeppelin/contracts 5.x",
+      "EnforcedPause() — OZ 5.x custom error replacing the v4 revert string in Pausable",
+      "viem 2.x recoverTypedDataAddress — real export of viem 2.x",
+      "viem 2.x publicClient.waitForTransactionReceipt({hash, timeout}) — real signature in viem 2.x",
+      "x402 v1 wire format {x402Version, scheme, network, payload:{signature, authorization}} — matches Coinbase x402 v1 spec",
+      "Arc Testnet constants chainId 5042002, USDC 0x3600...0000, RPC https://rpc.testnet.arc.network — consistent across user-spec, tech-spec, diagrams (Wave 1 Task 3 spike still required for live verification)",
+      "D17 storage pattern: `developer`/`factory` set in initialize, no setters, Initializable guards re-init — consistent with OZ 5.x Initializable semantics"
+    ]
+  }
+}

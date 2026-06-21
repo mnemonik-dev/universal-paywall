@@ -1,0 +1,126 @@
+{
+  "reviewer": "test-reviewer-t10",
+  "task": "10",
+  "round": 1,
+  "commit": "4cb88d9",
+  "status": "needs_improvement",
+  "summary": "The implementation is structurally sound and covers all five forked-e2e cases plus the gated Arc Testnet suite. Anvil lifecycle, deterministic keys, cross-adapter NonceStore replay, and describe.skipIf gating are all correct. Three issues require fixes before the task can be marked passed: one high-severity flaky-test risk in the paused branch, one medium issue with the vault_not_deployed test's authorization setup, and one medium issue with the NETWORKS mutation not being guarded against shared-state leaks across vitest workers.",
+
+  "rubric": {
+    "forked_fork_canonical_block_height": {
+      "result": "pass",
+      "notes": "Anvil is spawned with --chain-id 31337 (not a mainnet/testnet fork). Contracts are deployed programmatically via viem against this local node. No `--fork-url` is used. The 'forked' in the name refers to the test pattern (deploy + wire middleware), not an EVM state fork. This is correct per the task spec."
+    },
+    "deterministic_no_flaky_races": {
+      "result": "partial",
+      "notes": "waitForPort helper is correct (TCP poll, 250 ms interval, 30 s deadline, SIGTERM+SIGKILL escalation). The paused branch uses a hard setTimeout(5_500) to wait for the 5 s cache TTL — this is borderline. If the middleware clock and the test clock drift (slow CI, GC pause mid-wait) the cache may still be warm when the request lands. See finding F1.",
+      "findings": ["F1"]
+    },
+    "live_e2e_gated_skips_cleanly": {
+      "result": "pass",
+      "notes": "describe.skipIf(process.env['ARC_TESTNET_E2E'] !== '1') is correct vitest syntax. The gate-assertion describe block runs always and verifies SHOULD_RUN===false + runCounter===0 when the flag is absent. afterAll closes the HTTP server unconditionally so vitest exits cleanly. env var names match the canonical set from systemic-fix §3 + iter-3 addendum exactly. The sentinel 0x0 guard in beforeAll throws a clear error rather than silently paying the wrong address."
+    },
+    "cross_adapter_nonce_store_replay": {
+      "result": "pass",
+      "notes": "The cross-adapter test sends the IDENTICAL header string (same base64 bytes) to the Fastify endpoint — not a re-serialized copy. buildConfig() for both adapters uses the same ANVIL_KEYS[3] relayer and the same network/developerEoa, which means they are backed by the same module-scope NonceStore instance. The test correctly pins the D5 process-singleton claim. Error string 'nonce_already_used' matches the canonical wire code from systemic-fix §4."
+    }
+  },
+
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "category": "flaky_test",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line_approx": 841,
+      "title": "Paused branch: hard setTimeout(5_500) is a race against the cache TTL — will flake on slow CI",
+      "description": "The factory-state cache TTL is 5 000 ms. The test sleeps 5 500 ms and then issues the request. On a heavily loaded CI runner (GC pause, CPU burst), the 500 ms margin is not enough to guarantee the cache entry has expired by the time publicClient.readContract re-runs inside the middleware. If the cache is still warm the middleware returns 200, not 402 paused, and the test fails non-deterministically.",
+      "litmus_test_failed": false,
+      "replacement": {
+        "approach": "Instead of a fixed sleep, poll the factory.paused() read on the same PublicClient + wait until the middleware's own cache-eviction boundary has passed. The safest deterministic pattern is to wait 1.5× the TTL (7 500 ms), or — better — expose a test-only hook that resets the cache (acceptable in a test helper), or simply use a generous fixed sleep of 8 000 ms (1.6× TTL) which fits comfortably inside testTimeout: 60_000 and removes the flake without additional infrastructure.",
+        "concrete_fix": "Replace `await new Promise((r) => setTimeout(r, 5_500));` with `await new Promise((r) => setTimeout(r, 8_000));` — gives a 3 s margin above the 5 s TTL, well within the 60 s testTimeout, and eliminates the race."
+      }
+    },
+    {
+      "id": "F2",
+      "severity": "medium",
+      "category": "incorrect_test_setup",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line_approx": 786,
+      "title": "vault_not_deployed branch signs authorization to 0x000...000 instead of the computed (non-existent) vault address",
+      "description": "The test constructs the X-PAYMENT header with `to: '0x0000000000000000000000000000000000000000'`. In production, the middleware computes `factory.computeVaultAddress(developerB)` and checks that `authorization.to == computedVault`. The zero address will NOT match the computed vault address for developer B, so the middleware may return `to_mismatch` (or `invalid_signature` if the ecrecover check fires first) rather than `vault_not_deployed`. The test assertion `expect(r.body.error).toBe('vault_not_deployed')` may therefore pass by coincidence if the middleware's check ordering puts the factory-state read before the signature verify, but will fail if the ordering ever changes — or it may already be passing for the wrong reason.",
+      "litmus_test_failed": true,
+      "replacement": {
+        "approach": "Compute the expected vault address for developerB off-chain using the same Clones.predictDeterministicAddress formula and use that as `to` when building the authorization. The vault_not_deployed error fires when factory.vaults(developerB) === 0x0 — the `to` field in the authorization must match the computed address, otherwise a different error fires first.",
+        "concrete_fix": "After deploying the factory, read `factory.computeVaultAddress(developerBEoa)` via publicClient.readContract and store it as `developerBComputedVault`. Use that address as `to` in signEip3009Authorization for this test case. The vault_not_deployed branch fires because factory.vaults(devB) === 0x0, not because the `to` field is wrong."
+      }
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "category": "shared_state_risk",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line_approx": 369,
+      "title": "NETWORKS mutation via Object.defineProperty is not isolated to the vitest worker running this suite",
+      "description": "patchNetworksForAnvil() mutates the exported NETWORKS object in place by calling Object.defineProperty on the live module export. If vitest runs multiple test suites in the same worker process (which it can do by default when not using --pool=forks), this mutation leaks into other test files that import NETWORKS. The afterAll restoreNetworks() call mitigates this for clean runs, but if the suite crashes before afterAll executes, the NETWORKS object is left mutated for subsequent suites in the same worker.",
+      "litmus_test_failed": false,
+      "replacement": {
+        "approach": "Add `singleThread: true` (or `pool: 'forks'` for full isolation) to the vitest.config.ts for the integration test pattern, OR document in a comment that this suite must run in isolation. The simplest production-safe fix is to add a comment at the top of the file explaining the mutation scope, and ensure vitest.config.ts routes `src/__tests__/integration/` to a separate pool. Alternatively, instead of mutating NETWORKS, build the PaywallConfig with an explicit `network` override that passes a full NetworkConfig object, bypassing the NETWORKS lookup.",
+        "concrete_fix": "In vitest.config.ts, add a `poolOptions` or `singleFork: true` setting for the integration directory — or, if the middleware's PaywallConfig accepts a full NetworkConfig object directly, pass the test-local config as that object to avoid touching the module-scope NETWORKS at all."
+      }
+    },
+    {
+      "id": "F4",
+      "severity": "low",
+      "category": "missing_assertion",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "line_approx": 703,
+      "title": "Fastify happy path omits X-PAYMENT-RESPONSE shape validation",
+      "description": "The Node http happy path fully decodes X-PAYMENT-RESPONSE and asserts success, network, transaction hash format, and payer. The Fastify happy path only asserts that the header is defined (`toBeDefined()`). This is a coverage gap — if the Fastify adapter sets the header to an empty string or a malformed value, this test passes.",
+      "replacement": {
+        "approach": "Mirror the full X-PAYMENT-RESPONSE decoding and shape assertions from the node-http happy path into the Fastify happy path. They are identical in shape; a small shared assertion helper would avoid duplication.",
+        "concrete_fix": "After `expect(r200.headers['x-payment-response']).toBeDefined();`, add the same decode+assert block that the node-http test uses (lines 675-684 in the original): parse base64 JSON, assert success===true, transaction matches /^0x[0-9a-fA-F]{64}$/, payer matches signed.authorization.from."
+      }
+    },
+    {
+      "id": "F5",
+      "severity": "low",
+      "category": "missing_case",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "title": "No assertion that the 402 body from the Node http server is ajv-valid against the vendored x402 v1 schema",
+      "description": "The arc-testnet-e2e suite ajv-validates the 402 body. The forked-e2e suite only spot-checks individual fields (x402Version, error, accepts[0].payTo, accepts[0].maxAmountRequired). If the middleware accidentally omits a required field (e.g. 'asset', 'resource', 'extra.assetTransferMethod') the forked-e2e suite passes but the spec AC 'Body shape validated by ajv against vendored x402 v1 JSON Schema' is not exercised in the CI-default path.",
+      "replacement": {
+        "approach": "Load the vendored schema from src/__tests__/fixtures/x402-v1.schema.json (already used by arc-testnet-e2e) and ajv-validate the 402 body in the node-http happy path, just before the per-field assertions.",
+        "concrete_fix": "Import Ajv at the top of forked-e2e.test.ts; in beforeAll, compile the validator from the same fixture path used in arc-testnet-e2e; in the node-http happy path after r402 is received, call `expect(validate402(r402.body)).toBe(true)` (with an error log on failure)."
+      }
+    }
+  ],
+
+  "decision_matrix": {
+    "critical_count": 0,
+    "high_count": 1,
+    "medium_count": 2,
+    "low_count": 2,
+    "verdict": "high >= 1 AND medium >= 2 → needs_improvement"
+  },
+
+  "task_required": {
+    "needed": false,
+    "rationale": "No critical issues. The one high-severity issue (F1 flaky sleep) and both medium issues (F2 wrong `to` address in vault_not_deployed, F3 NETWORKS mutation isolation) can be fixed in a single follow-up edit to forked-e2e.test.ts and vitest.config.ts without rearchitecting the test. The core structure — anvil spawn, viem deploy, cross-adapter replay, describe.skipIf gate — is all correct."
+  },
+
+  "required_fixes_for_pass": ["F1", "F2", "F3"],
+  "recommended_fixes": ["F4", "F5"],
+
+  "positive_observations": [
+    "waitForPort uses TCP socket polling with correct SIGTERM/SIGKILL escalation — no brittle sleep-based readiness.",
+    "TEST_PORT env var is documented and defaulted, CI shard-friendy.",
+    "cross-adapter replay uses the literal captured header string — does not re-encode, so base64 padding is identical. This is the correct approach per the task spec.",
+    "paused branch correctly unpauses in a finally{} block so subsequent test runs are not poisoned.",
+    "arc-testnet-e2e.test.ts sentinel guard (throws when factoryAddress === 0x0) prevents silently testing against the zero address.",
+    "arc-testnet-e2e gate-assertion describe block is a clean structural verification of the skipIf behavior, not just documentation.",
+    "Canonical env var names match systemic-fix §3 exactly (ARC_RPC_URL, PAYWALL_RELAYER_KEY, ARC_TESTNET_PAYER_PK, ARC_TESTNET_DEVELOPER_EOA, PAYMENT_SPLITTER_FACTORY_ADDRESS).",
+    "afterAll in both suites closes all handles (HTTP servers, Fastify, anvil child process) — no open-handle vitest hangs.",
+    "vitest.config.ts change is minimal and well-commented — testTimeout: 60_000 and hookTimeout: 30_000 are correctly placed at the test config level, not inline."
+  ]
+}

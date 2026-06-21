@@ -1,0 +1,91 @@
+{
+  "status": "needs_improvement",
+  "summary": "Iteration 2 successfully closed all Round 2 major gaps (CREATE2 cross-component, _disableInitializers, no-receive/no-setter ABI, D14 chainId pin, full redaction suite, factory-state cache, adapter unit tests, register reentrancy). Remaining issues are second-order: a few new strategy entries are structural-only (assert presence, not behavior), and several invariants stated in Solution/Risks/Decisions have no corresponding test in the strategy. No critical gaps; three major issues plus a handful of minors.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Unit tests (line 389), cross-ref Solution line 119 and Risks line 461",
+      "issue": "Critical invariant 'settlement failure leaves replay-store entry intact, so retry with same nonce returns nonce_already_used' is asserted in the Solution narrative and listed as a Risk mitigation, but has no test. Unit tests cover replay-store TTL/eviction and settle.ts failure taxonomy independently, but never their composition. A future refactor that adds `replayStore.delete(from, nonce)` to a catch block in core.ts would compile, pass every existing test, and silently re-enable infinite-retry replay attacks with one captured X-PAYMENT.",
+      "recommendation": "Add to core.ts unit tests (Task 9): 'settle.ts throws settlement_failed (mock any of the 7 reasons) → core returns 402 settlement_failed → second request with same (from, nonce) returns 402 nonce_already_used, NOT another settlement attempt'. Assert spy on settle.ts is called exactly once. Also add a matching scenario to forked-e2e.test.ts: pause the factory mid-flight to induce a settle failure, then retry the same X-PAYMENT, assert nonce_already_used response."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Forked-integration line 421",
+      "issue": "Forked-e2e asserts 'replay-rejection path against ONE adapter' but the NonceStore is documented as a process-singleton (Shared resources table, line 133). Without a cross-adapter replay test, the singleton guarantee is unverified — a future refactor that accidentally per-adapter-scopes the store would pass all tests. This is the only place the cross-adapter singleton claim can be exercised.",
+      "recommendation": "Replace the single-adapter replay assertion with: 'agent pays via Node http adapter (200), agent retries the SAME X-PAYMENT via Fastify adapter on the same in-process server, asserts 402 nonce_already_used'. Both adapters wired to the same paywall(opts) instance per Shared resources line 133."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: Implementation Tasks → Task 11 (register CLI); no Testing Strategy entry",
+      "issue": "scripts/register.ts is a developer-facing CLI that handles REGISTER_KEY (a private key) wrapped in OpaqueRelayerKey per D13. The Testing Strategy has zero entries for it — neither unit nor smoke. Verify-smoke for Task 11 only exercises the deploy script's dry-run, not register.ts. A regression that prints the unwrapped key to stderr on AlreadyRegistered, or sends the tx from the wrong account, would ship undetected.",
+      "recommendation": "Add a 'CLI tests' subsection or fold into Unit tests: (a) loads key from env into OpaqueRelayerKey, redacts on any thrown error path; (b) invokes factory.register() with msg.sender = developer EOA (assert via mock); (c) on AlreadyRegistered revert, prints a human-readable message NOT containing the key or stack hex; (d) on success, prints the predicted vault address. Listed as a sub-task of Task 9 or as a new Task 11.5."
+    },
+    {
+      "severity": "minor",
+      "category": "empty_test",
+      "location": "Section: Testing Strategy → Unit tests line 392 (D18 SecurityLogger)",
+      "issue": "Strategy says 'each of the 10 event names emits when its trigger condition is met'. This is a presence-of-emit test — it does not constrain payload shape or values. If a future change emits securityEvent('settlement_failed', {}) with no reason field, all tests pass while operators lose forensic data.",
+      "recommendation": "Tighten to: 'each event name emits with payload schema {name, payload} where payload contains the documented fields for that event' — at minimum: settlement_failed → {reason ∈ taxonomy, txHash?}; nonce_replay_attempt → {from, nonce}; network_mismatch → {expected, actual}; chain_id_pinned → {chainId, network}. Add JSON-schema or ad-hoc shape assertions."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Unit tests line 385 (verify.ts validBefore boundary)",
+      "issue": "Boundary tests cover validBefore = now+4s (fail) and validBefore = now+6s (pass), skipping the exact boundary value validBefore = now+5000ms. Solution line 102 specifies strict '>' (validBefore > now + 5_000 ms), so the boundary should fail. Off-by-one bugs cluster at exactly this value and are exactly what boundary tests are meant to catch.",
+      "recommendation": "Add: 'validBefore == now + 5000ms exactly → fail (strict > comparison per Solution 7c)'. Also add the symmetric case validBefore == now + 5001ms → pass."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Unit tests line 390 (relayer-key error-stack redaction)",
+      "issue": "Strategy says 'error stacks redact 0x[a-f0-9]{64} patterns' but does not specify WHERE this redactor runs. settle.ts extracts the underlying key via private symbol per D13; if viem throws and embeds the key in the stack (e.g., signed-payload echoed in error), the redactor must intercept before the SecurityLogger sees it. Without explicit test, an integration-point regression could leak the key.",
+      "recommendation": "Add: 'simulate settle.ts catching an Error whose .stack contains a 64-hex-char string equal to the relayer key; assert the SecurityLogger payload for securityEvent(settlement_failed) contains [REDACTED] in place of the key string, AND that the original Error object passed to logger has the same redaction applied'. Tests the integration of relayer-key.ts + settle.ts + D18, not the regex in isolation."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Contract tests line 415 (D17 no-setter ABI)",
+      "issue": "Structural ABI test asserts no setDeveloper/setFactory selector exists. Does not assert the runtime invariant: a re-initialization attempt via Initializable's _initialized flag reverts. Strategy says 'initialize is single-call; reverts on second call' on line 412 which partially covers this, but not the specific scenario where the second initialize would attempt to mutate developer/factory. A bug in OZ's Initializable upgrade or a custom override could pass current tests while breaking immutability.",
+      "recommendation": "Strengthen line 412 to: 'second initialize call reverts with InvalidInitialization (OZ 5.x); after revert, developer and factory addresses are unchanged from first initialize'. Asserts the read-back, not just the revert."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Unit tests line 393 (factory-state cache)",
+      "issue": "TTL and RPC-error tests are listed, but no concurrent-request test. If 100 requests arrive in the 5s window for the same developer with an empty cache, does the implementation make 100 RPC calls or coalesce to 1? The strategy doesn't say which is required and doesn't test either. Under load this is the difference between a hot loop and a quiet RPC.",
+      "recommendation": "Add: 'concurrent cache fill — N simultaneous paywall(req, opts) calls with the same developerEoa and an empty cache result in exactly 1 PublicClient.readContract call (coalesced fill)'. If coalescing is NOT required, document that explicitly so the test asserts N calls instead. Either way, pin the expected behavior."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy; cross-ref Risks line 453 (rogue clone)",
+      "issue": "Risk 'Rogue clone deployment' is mitigated by computing payTo via factory.computeVaultAddress against the canonical factory baked into NETWORKS[id].factoryAddress. No test verifies this binding — i.e., the test suite does not configure a paywall with a non-canonical factory address and assert middleware refuses or computes against the canonical only.",
+      "recommendation": "Add to core.ts unit tests: 'if developer registered against factory A but NETWORKS[id].factoryAddress = canonical factory B, computeVaultAddress uses B (the configured one) and the on-chain check factory.vaults(developerEoa) on B returns 0x0 → 402 vault_not_deployed'. Pins the mitigation in code."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: Testing Strategy → Unit tests line 391 (D14 chainId pin)",
+      "issue": "D14 pin is tested 'on first request' for a single network. The Shared resources table states '1 per network in use within a process' — multi-network scenarios are valid. No test covers: (a) two networks initialized, each pinned independently; (b) re-creation of a PublicClient (e.g., after explicit teardown) re-runs the pin.",
+      "recommendation": "Add: 'two networks in NETWORKS, both used in the same process, each triggers its own getChainId() pin exactly once' and 'tearing down and recreating the PublicClient for the same network re-runs the pin'."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 1,
+    "litmusTest": {
+      "checked": 32,
+      "passed": 26,
+      "failed": 6
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 24,
+      "integration": 2,
+      "e2e": 1,
+      "assessment": "healthy"
+    }
+  }
+}

@@ -1,0 +1,119 @@
+@startuml contract-architecture
+title Contracts — Factory + Per-Developer Vault (EIP-1167 minimal proxy)
+
+skinparam backgroundColor #FAFAFA
+skinparam classBackgroundColor #E8F5E9
+skinparam classBorderColor #4CAF50
+
+class PaymentSplitterFactory <<Ownable2Step, Pausable>> {
+  -- Storage --
+  + owner: address (Ownable2Step)
+  + platformTreasury: address
+  + feeBps: uint16        // 0..1000, default 50
+  + usdc: IERC20 (immutable)
+  + vaultImpl: address (immutable)
+  + vaults: mapping(address developer => address vault)
+
+  -- Constructor --
+  constructor(IERC20 _usdc, address _treasury, uint16 _initialFeeBps)
+    require _usdc != 0, _treasury != 0, _initialFeeBps <= 1000;
+    deploys PaymentVaultImpl, stores as vaultImpl.
+
+  -- Developer registry --
+  + register() returns (address vault)
+    whenNotPaused;
+    require vaults[msg.sender] == 0  // AlreadyRegistered
+    vault = Clones.cloneDeterministic(vaultImpl, bytes32(uint256(uint160(msg.sender))))
+    IPaymentVault(vault).initialize(msg.sender)
+    vaults[msg.sender] = vault
+    emit VaultDeployed(msg.sender, vault)
+
+  + computeVaultAddress(address developer) view returns (address)
+    return Clones.predictDeterministicAddress(vaultImpl, bytes32(uint256(uint160(developer))), address(this))
+
+  -- Admin --
+  + setFeeBps(uint16): owner-only, require bps <= 1000
+  + setPlatformTreasury(address): owner-only, require addr != 0
+  + pause(): owner-only
+  + unpause(): owner-only
+}
+
+class PaymentVaultImpl <<Initializable, ReentrancyGuard>> {
+  -- Storage (set in initialize, then immutable in practice) --
+  + developer: address
+  + factory: address
+
+  + initialize(address _developer): initializer
+    require _developer != 0
+    developer = _developer; factory = msg.sender
+
+  + withdraw(): nonReentrant
+    require msg.sender == developer  // NotDeveloper
+    IERC20 usdc = IERC20(IFactory(factory).usdc())
+    uint256 gross = usdc.balanceOf(address(this))
+    require gross > 0  // NoBalance
+    uint16 feeBps = IFactory(factory).feeBps()
+    uint256 fee = gross * feeBps / 10000
+    uint256 net = gross - fee
+    SafeERC20.safeTransfer(usdc, developer, net)
+    if (fee > 0) SafeERC20.safeTransfer(usdc, IFactory(factory).platformTreasury(), fee)
+    emit Withdrawal(developer, gross, fee)
+}
+
+class "Middleware\n(off-chain facilitator)" as MW {
+  + withPaywall(handler, config): Handler
+  + fastifyPaywall(config): FastifyPlugin
+  -- config --
+  + price: '0.01' (USD)
+  + developerEoa: 0xDev...
+  + network: 'arc-testnet' | 'eip155:5042002'
+  + facilitator: { mode: 'inline',
+                   relayerKey: OpaqueRelayerKey,
+                   rpcUrl?: string }
+  -- internal --
+  + NonceStore (per-process)
+  + factory state cache (5s TTL)
+}
+
+class "AI Agent\n(buyer)" as Agent {
+  + Any x402 v1 client
+    (CDP SDK / Circle SDK / custom)
+  + Signs EIP-712 TransferWithAuthorization
+    off-chain (no gas)
+  + USDC balance on Arc Testnet
+}
+
+class "USDC (Arc Testnet)\n0x3600000000000000000000000000000000000000" as USDC {
+  + transferWithAuthorization(from, to, value, ...)
+  + authorizationState(from, nonce): bool
+}
+
+Agent ..> MW : 1) GET (no header)
+MW ..> Agent : 2) 402 + JSON body\n   payTo=computeVaultAddress(devEoa)
+Agent ..> MW : 3) GET + X-PAYMENT\n   (signed authorization)
+MW ..> MW : 4) verify EIP-712 off-chain;\n   NonceStore (sync has+insert);\n   factory.paused()/vaults[] checks
+MW --> USDC : 5) USDC.transferWithAuthorization(\n     from, to=vault, value, ...)\n   (relayer pays gas in USDC)
+USDC -> PaymentVaultImpl : 6) transfer in (vault accumulates)
+MW ..> Agent : 7) 200 + X-PAYMENT-RESPONSE
+
+"Developer" --> PaymentSplitterFactory : register()  (one-time)
+PaymentSplitterFactory --> PaymentVaultImpl : Clones.cloneDeterministic
+"Developer" --> PaymentVaultImpl : withdraw()  (any time)
+PaymentVaultImpl --> USDC : safeTransfer(net → developer,\n                fee → platformTreasury)
+
+note bottom of PaymentSplitterFactory
+  Single factory per chain.
+  vaultImpl deployed in constructor.
+  Per-developer vaults are minimal-proxy clones
+  → cheap deploy, deterministic addresses.
+  Pause read off-chain by middleware
+  (vaults never block withdrawals).
+end note
+
+note bottom of PaymentVaultImpl
+  Passive USDC receiver — no on-chain hook
+  on inbound transfer (ERC-20 has no callback).
+  Fee splits ONLY at withdraw().
+end note
+
+@enduml

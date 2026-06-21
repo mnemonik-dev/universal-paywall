@@ -1,0 +1,80 @@
+{
+  "reviewer": "security-auditor-t2",
+  "task": "2",
+  "round": 1,
+  "commit": "628ff4d",
+  "timestamp": "2026-06-17",
+  "overall": "PASS",
+  "summary": "Task 2 (Foundry setup) has no security vulnerabilities. This is a tooling-only commit with no Solidity sources, no secrets in committed files, correct gitignore coverage, proper env-var naming discipline, and pinned dependency SHAs. All security acceptance criteria from the task spec are satisfied. Two low-severity observations are noted for awareness but do not block merge.",
+  "findings": [
+    {
+      "id": "T2-SEC-01",
+      "severity": "Low",
+      "category": "Secrets Management",
+      "title": "DEPLOYER_KEY placeholder is a valid-looking 32-byte zero key, not obviously a placeholder",
+      "location": "contracts/.env.example:8",
+      "description": "The placeholder value for DEPLOYER_KEY is `0x0000000000000000000000000000000000000000000000000000000000000000` — a structurally valid Ethereum private key (the zero key). A developer who copies .env.example to .env and runs a forge script without replacing DEPLOYER_KEY will not get a clear error; the script will silently use account 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf (the deterministic address for the zero private key), which is not their own EOA. This is a usability-security concern rather than a leak: no actual secret is committed, and contracts/.env is correctly gitignored.",
+      "recommendation": "Change the DEPLOYER_KEY placeholder to a non-key-shaped value that forge will reject at parse time, e.g. `DEPLOYER_KEY=<replace-with-your-0x-prefixed-private-key>`. This forces the developer to provide a real value before the script can run and eliminates the zero-key silent footgun.",
+      "references": ["task-2 AC: .env.example contains placeholder values only", "OWASP A02: Cryptographic Failures (inadvertent use of weak key)"],
+      "status": "advisory"
+    },
+    {
+      "id": "T2-SEC-02",
+      "severity": "Low",
+      "category": "Supply Chain",
+      "title": "forge-std submodule has no branch pin in .gitmodules",
+      "location": ".gitmodules:5-7",
+      "description": "The openzeppelin-contracts submodule correctly carries `branch = v5.0.2` as a documentation hint. The forge-std submodule has no `branch =` line. The actual pin is the commit SHA in the git index (620536fa..., forge-std v1.16.1 per foundry.lock), so the pin is cryptographically enforced. However, the missing branch annotation makes it harder for a reviewer or dependabot-style tool to know what version is intended without cross-referencing foundry.lock. This is an informational / supply-chain hygiene concern, not an active vulnerability.",
+      "recommendation": "Add `branch = v1.16.1` to the forge-std submodule entry in .gitmodules for parity with the OZ entry and to assist future auditors.",
+      "references": ["task-2 spec: .gitmodules records both submodules", "OWASP A06: Vulnerable and Outdated Components (visibility of pinned versions)"],
+      "status": "advisory"
+    }
+  ],
+  "checks_performed": {
+    "no_secrets_in_committed_files": {
+      "result": "PASS",
+      "detail": "Scanned contracts/foundry.toml, contracts/package.json, contracts/tsconfig.json, contracts/remappings.txt, contracts/slither.config.json for private key patterns (0x[0-9a-fA-F]{64}). No matches. .env.example placeholder is all-zeros (zero key), not an actual secret. contracts/.env is gitignored."
+    },
+    "env_var_naming_discipline": {
+      "result": "PASS",
+      "detail": "Canonical names ARC_RPC_URL, DEPLOYER_KEY, ARC_VERIFY_API_KEY are used throughout. Forbidden names ARC_TESTNET_RPC_URL and ARC_TESTNET_PRIVATE_KEY are absent from all committed files under contracts/ (foundry.toml, .env.example, package.json, tsconfig.json, remappings.txt, slither.config.json, scripts/). The foundry.toml comment reference to `foundry-rs/foundry-toolchain@v1` is a GitHub Actions action name (infrastructure reference), not a forbidden hardhat dependency."
+    },
+    "gitignore_coverage": {
+      "result": "PASS",
+      "detail": "Root .gitignore covers contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/. All forge build artifacts and the real .env are excluded."
+    },
+    "dependency_pins": {
+      "result": "PASS",
+      "detail": "openzeppelin-contracts pinned to tag v5.0.2 / SHA dbb6104ce834628e473d2173bbc9d47f81a9eec3 per foundry.lock. forge-std pinned to tag v1.16.1 / SHA 620536fa5277db4e3fd46772d5cbc1ea0696fb43. Submodule SHAs are the authoritative pin; foundry.lock provides a human-readable corroboration."
+    },
+    "forbidden_hardhat_stack": {
+      "result": "PASS",
+      "detail": "contracts/package.json contains viem, tsx, typescript, @types/node only. Substrings hardhat, @nomicfoundation/hardhat-toolbox, @nomicfoundation/hardhat-verify, chai, mocha, ts-node are absent from all package files under contracts/."
+    },
+    "slither_config": {
+      "result": "PASS",
+      "detail": "slither.config.json correctly sets filter_paths to test/,lib/ (excludes test mocks and OZ library from production severity) and exclude_low=false (low-severity findings in production sources surface to Task 13 audit). This satisfies the defense-in-depth requirement for the D15/D17 security invariant checks."
+    },
+    "rpc_endpoint_configuration": {
+      "result": "PASS",
+      "detail": "foundry.toml [rpc_endpoints] uses env-var interpolation ${ARC_RPC_URL}. The RPC URL is not hardcoded. This is correct per D14 (startup chainId pin) and prevents accidental use of wrong-chain RPCs in CI (the env var must be explicitly set)."
+    },
+    "export_abi_path_traversal": {
+      "result": "PASS",
+      "detail": "export-abi.ts uses resolve() with fixed segments derived from import.meta.url (not user input). The CONTRACTS list is a hardcoded const. Source and destination paths are deterministic. No injection surface or path traversal risk. The script reads only from contracts/out/<Contract>.sol/<Contract>.json and writes only to packages/middleware/src/abi/<Contract>.json."
+    },
+    "export_abi_json_parse": {
+      "result": "PASS",
+      "detail": "export-abi.ts reads forge-generated JSON (trusted build artifacts, not external input). JSON.parse is used without try/catch but the input is not user-controlled — it is produced by forge itself. A malformed forge artifact would be a toolchain issue, not a security issue. The absence of error handling here is acceptable for a build-time hook."
+    },
+    "owasp_a09_logging": {
+      "result": "N/A",
+      "detail": "This is a tooling scaffold task with no runtime components. Security logging (D18) is a concern for Tasks 6-8 (middleware implementation). Not applicable here."
+    }
+  },
+  "verdict": {
+    "block_merge": false,
+    "required_changes": [],
+    "advisory_changes": ["T2-SEC-01: Change DEPLOYER_KEY placeholder to a non-parseable sentinel value", "T2-SEC-02: Add branch = v1.16.1 to forge-std submodule entry in .gitmodules"]
+  }
+}

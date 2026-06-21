@@ -1,0 +1,83 @@
+{
+  "reviewer": "code-auditor",
+  "task": 12,
+  "phase": "audit-fix",
+  "round": 1,
+  "commit": "58a1aae",
+  "previous_audit": "logs/working/audit/code-auditor.json",
+  "scope": "Re-audit of T12-01..T12-05 fixes in commit 58a1aae against the original T12 audit (commit 61225621). T13 / T14 changes are out of scope for code-auditor; they are owned by security-auditor and test-auditor respectively. T12-06..T12-09 (Nits) were intentionally NOT addressed in this round per the audit-fixer's scoping decision — see `out_of_round` below.",
+  "verdict": "approved",
+  "verdict_rationale": "All five Minor findings (T12-01 through T12-05) are cleanly resolved. The fixes are surgical, semantically correct, and the chosen approaches (delete dead module rather than refactor; use the existing D18 event name `chain_id_mismatch` as the wire reason; rename rather than restructure) match the recommendations in my T12 report. Zero collateral damage: the deleted `errors.ts` re-exports were verified unused, the renamed Solidity locals don't change the ABI, the docstring rewrite is technically accurate, and the new wire reason is now consistent across event catalog (D18), classifier (settle.ts), and wire body (core.ts).",
+  "findings_revalidation": [
+    {
+      "id": "T12-01",
+      "original_severity": "minor",
+      "title": "errors.ts is structurally dead and emits a divergent body shape",
+      "fix_status": "resolved",
+      "fix_evidence": "`packages/middleware/src/errors.ts` and `packages/middleware/src/__tests__/errors.test.ts` are both deleted (`test -f` returns absent). Production callers of the two error classes (`MalformedPaymentHeaderError`, `NetworkMismatchError`) now import directly from their canonical sources: `core.ts:51` `import { ..., MalformedPaymentHeaderError, ... } from './x402.js'` and `core.ts:60` `import { settleOnChain, NetworkMismatchError } from './settle.js'`. The errors.ts re-exports were never consumed by `index.ts` (verified: index.ts exports `withPaywall`, `fastifyPaywall`, `NETWORKS`, `OpaqueRelayerKey` plus types — never re-exported anything from errors.ts), so deletion has zero public-API impact. The `settlementReason` body field is gone from the codebase: `grep -rn 'settlementReason' packages/middleware/src` → zero hits (only stale coverage HTML in `packages/middleware/coverage/`, which is gitignored). Wire body shape is now uniformly `{ x402Version, accepts, error, reason?, txHash?, required?, received? }` per core.ts:build402.",
+      "residual_observations": "Schema validation: the vendored x402 v1 JSON Schema at `__tests__/fixtures/x402-v1.schema.json` still permits both `reason` and `settlementReason` in the ChallengeBody (lines 109-110). The schema doesn't need to be tightened — `additionalProperties: false` would force breakage if a third party emits `settlementReason`, which is fine to keep permissive. The audit-fixer's claim that schema validation is still covered by `x402.test.ts:91` and the integration suites was verified by inspection (x402.test.ts and forked-e2e.test.ts both ajv-validate the 402 body against the schema)."
+    },
+    {
+      "id": "T12-02",
+      "original_severity": "minor",
+      "title": "Settlement sub-reason taxonomy declared twice (SettlementSubReason vs SettleReason)",
+      "fix_status": "resolved",
+      "fix_evidence": "`SettlementSubReason` is gone (`grep -rn 'SettlementSubReason' packages/middleware/src` → zero hits). `SettleReason` is the only classifier-output union, declared once at `settle.ts:75`. The audit-fixer added `SettlementFailedReason = SettleReason | 'chain_id_mismatch'` at `settle.ts:88` with a docblock explaining the relationship between classifier output and wire-observable reasons. This is a cleaner solution than my original recommendation to widen `SettleReason` to eight members — keeping the classifier's 7-reason output type narrow protects the seven-way switch in `classifyWriteError`, while the superset name documents the wire contract.",
+      "residual_observations": "Minor follow-up worth considering for a future pass (NOT a finding): the `reason` field at the four `build402(..., { reason: '...' })` sites in `core.ts` is typed as plain `string`, not `SettlementFailedReason`. A future maintainer could write `{ reason: 'whoops' }` without compile-time pushback. Tightening `build402`'s `extra?: Record<string, unknown>` parameter to a discriminated union that types `reason` as `SettlementFailedReason` when `error === 'settlement_failed'` would close the loop. Out of scope for this audit-fix pass; queue for the follow-up cleanup the lead mentioned."
+    },
+    {
+      "id": "T12-03",
+      "original_severity": "minor",
+      "title": "reason: 'internal_error' literal is not in any settlement-reason taxonomy",
+      "fix_status": "resolved",
+      "fix_evidence": "Both emit sites in core.ts are updated (lines 430, 599) to `reason: 'chain_id_mismatch'`. `grep -n 'internal_error' packages/middleware/src/**/*.ts` → zero hits across all production source. The chosen reason matches the D18 event name (`types.ts:118 chain_id_mismatch`) that is ALREADY emitted alongside the 402 response at both sites, so an integrator's typed logger and the wire body now agree. The fix is semantically clean — when `opts.network` is missing from NETWORKS, the misconfiguration is conceptually a chain ID mismatch (the operator specified a chain the middleware doesn't know about). The test at `core.test.ts:570` was updated to assert the new wire reason; the test name still mentions the old reason in the audit-fixer's diff, but only because the audit-fixer renamed the it() description on line 570 to '...reason chain_id_mismatch' (verified by grep).",
+      "residual_observations": "None."
+    },
+    {
+      "id": "T12-04",
+      "original_severity": "minor",
+      "title": "relayer-key.ts docstring describes the abandoned #key private-field design",
+      "fix_status": "resolved",
+      "fix_evidence": "The header docstring (lines 1-34) is rewritten to describe the actual `WeakMap<OpaqueRelayerKey, string>` design declared at line 56 (formerly line 39, shifted by the docstring expansion). The new docstring (a) accurately describes the WeakMap pattern, (b) explains WHY it's stronger than `#key` (no leaked-this reachability), (c) updates the scrubSecrets description to reflect the new `>=64`-char bare-hex pattern (lines 24-26), and (d) cross-references the `txHash` carve-out in core.ts (SEC-T8-02) as the answer to the 'tx hash false positive' concern. This is a more thorough rewrite than I prescribed — the audit-fixer went beyond the minimum fix to capture additional accurate context. Worth keeping.",
+      "residual_observations": "None — and the audit-fixer's added cross-reference to SEC-T8-02 makes the docstring more useful than the original prescription required."
+    },
+    {
+      "id": "T12-05",
+      "original_severity": "minor",
+      "title": "Local variables usdc and feeBps shadow interface method names in PaymentVaultImpl.withdraw()",
+      "fix_status": "resolved",
+      "fix_evidence": "`PaymentVaultImpl.sol:84` now declares `IERC20 usdcToken = IERC20(f.usdc());` and line 89 `uint256 currentFeeBps = f.feeBps();`. All downstream uses are renamed consistently (lines 86, 93, 95 use `usdcToken`; line 90 uses `currentFeeBps`). No ABI change (event signatures, function selectors, storage layout all unchanged). No semantic change — the rename is purely local-variable nomenclature. Forge tests pass (52/52 per the audit-fixer's verification).",
+      "residual_observations": "None."
+    }
+  ],
+  "fix_quality_dimensions": {
+    "architectural_correctness": "All five fixes preserve the intended architecture per Decisions D1, D5, D13, D17, D18. T12-01 removes a parallel implementation (improves SOC); T12-02/03 collapse the divergent reason taxonomies into a coherent union; T12-04 updates a stale comment; T12-05 is a local rename. None of the fixes alter shared-resource ownership, adapter consistency, or the event catalog shape.",
+    "test_coverage_for_fixes": "T12-01 deletion: errors.test.ts is removed (188 lines); production behavior is covered by core.test.ts's body-shape assertions and the integration suites' wire validation. T12-03 test update at core.test.ts:570 confirms the new wire reason flows through the NetworkMismatchError path. T12-05 is covered by the existing forge fee-math + withdrawal-event tests. T12-02 and T12-04 are type/docstring changes with no behavioral test surface. Out-of-scope check: scrubSecrets has 4 new fuzz tests (T13-M-MW-01) that I confirmed exercise the new regex correctly — the empty-name `'a'.repeat(40) + 'b'.repeat(64)` concat input correctly hits the maximal-run path.",
+    "regression_risk": "Low. (a) Public npm surface unchanged: `index.ts` exports identical set before and after. (b) Wire body shape change: `settlement_failed` reason is now `'chain_id_mismatch'` instead of `'internal_error'` on the two configuration-error paths. Any integrator that pattern-matched on `'internal_error'` will silently drop the event — but the task spec mandated retiring this literal, so this is the intended behavior. (c) Solidity ABI unchanged; storage layout unchanged; event signatures unchanged. (d) `scrubSecrets` over-redaction has slightly widened: any maximal bare-hex run of >=64 chars now collapses to one redaction marker. Previously, two 64-char keys spliced without a separator would have passed through unredacted on the bare regex. The fix correctly tightens the secret-leak surface; the only behavioral change for benign callers is that two concatenated 64-char hex strings (e.g., 'aaa...aaabbb...bbb') now emit one `<redacted:relayer-key>` instead of one or zero redactions. Acceptable.",
+    "documentation_quality": "T12-04 rewrite is the clearest improvement — the new docstring captures both WHAT (WeakMap) and WHY (no `Object.getOwnPropertyNames` leak path). T12-02 added a docblock on `SettleReason` explaining its relationship to the wire superset. T12-03 added explanatory context in the configuration-error branch comment in core.ts (lines 419-424). All three are net-positive documentation additions."
+  },
+  "out_of_round": {
+    "audit_fixer_question": "Should T12-06..T12-09 (the four Nits) be folded into this pass?",
+    "code_auditor_response": "No, the audit-fixer's scoping decision is correct. My T12 verdict was `advisory` precisely because every finding sat at Minor or Nit severity; the task spec's severity ladder treats Nits as style polish that the lead may choose to defer indefinitely. The five Minors addressed here represent the entire prescriptive load from T12. T12-06 (verify-reason switch exhaustiveness guard), T12-07 (Content-Type capitalization/charset), T12-08 (parseUsdPrice cached at construction), and T12-09 (canonical address duplication) can stay queued for a future cleanup task or be folded into pre-MVP polish — they are documented in the decisions.md open-items section. None are required for T16 deploy.",
+    "follow_up_for_lead": "If the lead wants the Nits resolved before T16, spawn a second fixer task scoped to T12-06..09; the diff would be ~30 lines and would not touch any architectural surface. Otherwise, my recommendation is to ship and queue them post-MVP. Acknowledged either way — neither is a blocker."
+  },
+  "spillover_observations": {
+    "t13_fix_t13_m_mw_01": "Out of code-auditor scope (security-auditor owns), but I inspected the regex change as part of T12-04 docstring verification. The negative-lookaround pattern `(?<![0-9a-fA-F])[0-9a-fA-F]{64,}(?![0-9a-fA-F])` is correctly anchored: the lookarounds prevent the run from extending into neighboring hex characters, and the `{64,}` floor ensures any embedded 64-/130-char window is matched. The 4 new fuzz tests (`relayer-key.test.ts:215-258`) exercise (a) embedded 64-hex in a longer run, (b) bare 130-hex, (c) mixed-case 130-hex, (d) two concatenated 64-hex keys. The mixed-case test correctly preserves case sensitivity because the pattern uses `[0-9a-fA-F]` not `i` flag (the previous bare regex did use `gi` — the new one drops the `i` and relies on the explicit character class). This is correct: case-insensitivity at the regex level is equivalent to enumerating both cases in the class. No code-auditor finding.",
+    "t14_test_changes": "Out of code-auditor scope (test-auditor owns). The `MOCK_USDC_NAME` constant extraction in `forked-e2e.test.ts` and the LCOV-quirk comment on `pause()` / `unpause()` are both reasonable test-quality improvements; neither introduces a source defect."
+  },
+  "files_re_audited": [
+    "packages/middleware/src/core.ts (chain_id_mismatch wire reason + docstring)",
+    "packages/middleware/src/settle.ts (SettlementFailedReason addition + docblocks)",
+    "packages/middleware/src/relayer-key.ts (docstring rewrite + regex change)",
+    "packages/middleware/src/index.ts (verified unchanged — public surface intact)",
+    "packages/middleware/src/__tests__/core.test.ts (test rename for chain_id_mismatch)",
+    "packages/middleware/src/__tests__/relayer-key.test.ts (4 new fuzz tests — inspected for T12-04 cross-reference accuracy)",
+    "contracts/src/PaymentVaultImpl.sol (usdcToken / currentFeeBps renames)",
+    "contracts/src/PaymentSplitterFactory.sol (LCOV comment — verified no semantic change)"
+  ],
+  "deleted_files_verified": [
+    "packages/middleware/src/errors.ts",
+    "packages/middleware/src/__tests__/errors.test.ts"
+  ],
+  "decision": "Round 1 approved. No further code-auditor rounds needed. The lead may close the T12 portion of the audit-fix loop; T13 and T14 are tracked by their respective auditors."
+}

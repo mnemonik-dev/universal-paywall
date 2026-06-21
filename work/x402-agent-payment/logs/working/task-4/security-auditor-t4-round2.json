@@ -1,0 +1,55 @@
+{
+  "reviewer": "security-auditor-t4",
+  "round": 2,
+  "task": "4",
+  "timestamp": "2026-06-17",
+  "verdict": "PASS",
+  "summary": "All actionable round-1 findings have been correctly resolved. SA-T4-03 (redundant Ownable import) is confirmed as a false positive — the import is required by Solidity name resolution rules for the base-constructor call syntax. No new issues introduced. All mandatory security invariants remain intact. Contracts are approved.",
+  "round1_finding_dispositions": [
+    {
+      "id": "SA-T4-01",
+      "severity": "MEDIUM",
+      "status": "RESOLVED",
+      "verification": "NatSpec operator note added to withdraw() at lines 70-75 of PaymentVaultImpl.sol. Note correctly documents: the DoS vector (reverting treasury on safeTransfer), that funds are frozen not lost, the recovery path (setPlatformTreasury), and the operational guidance (treasury must be plain EOA or audited multisig). Wording is accurate and complete."
+    },
+    {
+      "id": "SA-T4-02",
+      "severity": "LOW",
+      "status": "RESOLVED",
+      "verification": "Inline comment added in initialize() at lines 57-60 of PaymentVaultImpl.sol. Comment accurately explains: (1) EIP-1167 clones skip the constructor leaving slot 0 at zero, (2) OZ 5.x checks `_status == ENTERED (2)` not `!= NOT_ENTERED`, (3) zero-default is therefore safe for the first withdraw call. Technically correct."
+    },
+    {
+      "id": "SA-T4-03",
+      "severity": "LOW",
+      "status": "REJECTED — FALSE POSITIVE",
+      "verification": "Author's pushback is correct. Solidity requires the identifier 'Ownable' to be in scope for the base-constructor invocation `Ownable(msg.sender)`. Inheriting Ownable2Step does NOT export the name 'Ownable' into the importing file's top-level namespace. The explicit `import {Ownable}` is functionally necessary. The forge compile error the author observed ('Identifier not found or not unique') is the expected behavior. SA-T4-03 was a false positive and is retracted."
+    },
+    {
+      "id": "SA-T4-04",
+      "severity": "INFORMATIONAL",
+      "status": "RESOLVED",
+      "verification": "VaultDeployed event corrected: `address indexed vault` → `address vault`. Now matches tech-spec Data Models exactly. ABI topic hash will match off-chain SDKs generated from spec."
+    },
+    {
+      "id": "SA-T4-05",
+      "severity": "INFORMATIONAL",
+      "status": "RESOLVED",
+      "verification": "PlatformTreasuryUpdated event corrected: both args have `indexed` removed. Now matches tech-spec Data Models. Note: parameter names changed from `(oldTo, newTo)` in spec to `(oldTreasury, newTreasury)` in implementation — parameter names do not affect ABI encoding or topic hash, so this is ABI-compatible and actually more descriptive."
+    }
+  ],
+  "new_issues_round2": [],
+  "invariant_recheck": {
+    "D15_impl_lock": "PASS — _disableInitializers() in constructor unchanged; no selfdestruct/delegatecall in executable code",
+    "D16_no_receive_fallback": "PASS — no receive() or fallback() added",
+    "D17_no_setters": "PASS — no setter functions added; developer and factory written only in initialize()",
+    "D8_storage_reentrancy_guard": "PASS — storage-based ReentrancyGuard unchanged",
+    "D3_create2_salt": "PASS — salt formula unchanged in both register() and computeVaultAddress()",
+    "D4_withdraw_split_order": "PASS — developer-first, platform-second transfer order unchanged",
+    "D12_withdraw_not_pausable": "PASS — withdraw() still has no whenNotPaused modifier",
+    "event_abi_alignment": "PASS — VaultDeployed and PlatformTreasuryUpdated now match tech-spec ABI exactly",
+    "no_payable": "PASS — no payable functions in either contract"
+  },
+  "blocking": false,
+  "approved": true,
+  "notes": "All four required actions from round 1 are addressed (RA-1 through RA-4). RA-3 correctly identified as inapplicable. No further security review rounds are required for Task 4. Contracts are cleared for Task 5 (contract tests) and the deploy wave."
+}

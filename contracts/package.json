@@ -1,0 +1,19 @@
+{
+  "name": "@universal-paywall/contracts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "forge build && tsx scripts/export-abi.ts",
+    "test": "forge test",
+    "coverage": "forge coverage --report lcov",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "clean": "forge clean"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "viem": "^2.7.0"
+  }
+}

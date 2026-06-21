@@ -1,0 +1,110 @@
+{
+  "reviewer": "security-auditor-t5",
+  "task": 5,
+  "round": 1,
+  "commit": "3cf5f71",
+  "verdict": "APPROVE_WITH_NOTES",
+  "summary": "The Foundry test suite correctly covers all critical security invariants (D15/D16/D17), access control, fee math, reentrancy, and replay protection. 51 tests pass. Three low-severity observations noted — none block approval.",
+  "focus_area_verdicts": {
+    "reentrancy_test_correctness": {
+      "verdict": "PASS",
+      "detail": "test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury correctly exercises the nonReentrant guard. The attack vector is sound: MockUsdcWithHook._update fires onUsdcReceived() AFTER super._update (state already updated) on the fee safeTransfer to malicious treasury. Developer is a plain EOA (makeAddr produces no-code address), so the hook does NOT fire on the first (developer) transfer — only on the second (fee) transfer. malicious.onUsdcReceived() re-enters vault.withdraw(), nonReentrant reverts with ReentrancyGuardReentrantCall, the revert propagates back through the hook, rolling back all state. Assertions correctly verify vault balance unchanged and dev balance = 0 after the outer revert. The sequencing of mint-before-setHooksEnabled prevents a spurious hook trigger on vault initialization. Dynamic reentrancy is genuinely exercised, not just a source-pattern check."
+    },
+    "d15_d16_d17_invariants": {
+      "verdict": "PASS",
+      "detail": "D15 (impl hijack guard): test_D15_DirectInitializeOnImplReverts calls initialize on factory.vaultImpl() directly and expects InvalidInitialization — correct canonical hijack vector. D16 (no native receive): test_D16_NativeTransferReverts uses low-level call{value:1} and asserts false — correct. D17 (no setters): test_D17_NoSetDeveloperSelector and test_D17_NoSetFactorySelector use low-level call with keccak256 selector encoding and assertFalse — correct ABI surface test. Additional positive-state D17 assertion in test_D17_DeveloperNonZeroAfterInit. All three security decisions from the NatSpec @custom:security-invariant are directly tested."
+    },
+    "money_handling_coverage": {
+      "verdict": "PASS",
+      "detail": "Fee math is covered exhaustively: feeBps=0 (no second transfer branch), feeBps=1000 (90/10 split), gross=1 (dust truncation, fee=0), gross=199 at 50bps (truncation boundary), gross=200 at 50bps (fee=1 boundary), fee-snapshot semantics (fee changes between payments), and the full happy path. The testFuzz_FeeMath fuzz test (1000 runs in CI profile) with gross in [1, 1e18] and feeBps in [0, 1000] asserts fee+net==gross, fee<=gross, and vault drained to 0. Zero-balance revert and non-developer revert are both covered. Claimed 100% branch coverage is consistent with this breadth."
+    },
+    "create2_invariant": {
+      "verdict": "PASS",
+      "detail": "test_Register_PredictedAddressMatchesClonesPredict iterates 3 distinct dev EOAs and compares OZ Clones.predictDeterministicAddress(vaultImpl, salt, factory) directly against factory.computeVaultAddress(dev). Salt formula bytes32(uint256(uint160(dev))) matches the implementation. This is a Solidity-native check — no off-chain TS compute involved, which eliminates the divergence risk class. 3 EOAs satisfies the spec minimum. The middleware off-chain routing integrity is adequately pinned."
+    },
+    "constructor_revert_paths": {
+      "verdict": "PASS",
+      "detail": "All three constructor revert paths are covered: ZeroAddress on zero usdc, ZeroAddress on zero treasury, InvalidFeeBps on feeBps=1001. Happy-path reads all immutable state. vaultImpl code.length>0 check verifies internal deployment. 3-arg constructor signature used consistently throughout — no 4-arg variants found (grep confirmed)."
+    }
+  },
+  "findings": [
+    {
+      "id": "SA-T5-01",
+      "severity": "LOW",
+      "category": "Test Assertion Completeness",
+      "title": "Transfer-order (developer-first) not directly asserted — reentrancy test proves guard fires but not ordering",
+      "location": "contracts/test/PaymentVaultImpl.t.sol:test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury",
+      "detail": "The spec states 'Transfer order pinned through MockMaliciousTreasury: developer FIRST = treasury gets callback during second transfer.' This reasoning is correct in intent but the test cannot directly observe ordering: the outer tx reverts, rolling back all state, so both dev balance and vault balance are 0 either way. The test proves reentrancy is blocked (correct selector), but does not prove developer receives funds BEFORE treasury in the non-reverting path. test_Withdraw_HappyPathDeveloperFirst comments on this limitation but accepts it. A future strengthening would use a recording mock that logs call order, then assert [developer, treasury] ordering from the recording.",
+      "risk": "The ordering invariant is code-reviewed and NatSpec-documented in PaymentVaultImpl.withdraw() (systemic-fix §7). The implementation is correct. This is a test-completeness gap, not a security flaw.",
+      "recommendation": "LOW priority: add a TransferOrderRecorder mock that records recipient addresses on each transfer; assert the recorded sequence is [developer, treasury] in the happy-path test. This makes the ordering invariant directly verifiable rather than inferred.",
+      "blocks_approval": false
+    },
+    {
+      "id": "SA-T5-02",
+      "severity": "LOW",
+      "category": "Missing Access Control Test",
+      "title": "unpause() owner-only gating not explicitly tested",
+      "location": "contracts/test/PaymentSplitterFactory.t.sol",
+      "detail": "test_Pause_OwnerOnly verifies that non-owners cannot call pause(). test_Unpause_RestoresRegister verifies unpause() works for the owner. However, there is no test_Unpause_OwnerOnly that verifies a non-owner call to unpause() reverts. The spec does not explicitly require this test (only 'test_Pause_OwnerOnly' and 'test_Unpause_RestoresRegister' are listed), but symmetry and completeness suggest it. The OZ Pausable+Ownable combination guarantees the gating at the library level, so this is not a security defect in the contracts.",
+      "risk": "Extremely low — OZ Pausable inherits onlyOwner gating on unpause. The risk is purely test-suite regression coverage.",
+      "recommendation": "Add test_Unpause_OwnerOnly mirroring test_Pause_OwnerOnly to achieve symmetric access control test coverage.",
+      "blocks_approval": false
+    },
+    {
+      "id": "SA-T5-03",
+      "severity": "INFO",
+      "category": "Fuzz Bound Precision",
+      "title": "testFuzz_RegisterIdempotent filters precompile addresses (uint160 > 0xff) — correctly tighter than spec minimum",
+      "location": "contracts/test/PaymentSplitterFactory.t.sol:testFuzz_RegisterIdempotent",
+      "detail": "The spec requires only vm.assume(dev != address(0)). The implementation adds vm.assume(uint160(dev) > 0xff) to exclude Ethereum precompile addresses (0x01..0xff). This is strictly better — precompile addresses can produce unexpected behavior in Foundry's cheat code context and some precompile addresses may not accept initialize(). The additional bound avoids false-positive test failures and is not a false-positive timeout risk.",
+      "risk": "None — this is a valid improvement over the spec minimum. Documenting for audit trail transparency.",
+      "recommendation": "No change needed. The bound is correct and intentional.",
+      "blocks_approval": false
+    }
+  ],
+  "security_invariants_coverage": {
+    "D15_disable_initializers": "COVERED — test_D15_DirectInitializeOnImplReverts",
+    "D16_no_native_receive": "COVERED — test_D16_NativeTransferReverts",
+    "D17_no_setters": "COVERED — test_D17_NoSetDeveloperSelector, test_D17_NoSetFactorySelector, test_D17_DeveloperNonZeroAfterInit",
+    "fee_accounting": "COVERED — 5 boundary tests + testFuzz_FeeMath (1000 runs)",
+    "replay_protection": "COVERED via on-chain USDC authorizationState (not in scope for Task 5 Foundry tests — this is middleware territory covered in Task 9)",
+    "reentrancy_guard": "COVERED — test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury (dynamic)",
+    "access_control": "COVERED — all owner-gated functions tested with non-owner callers; developer-only withdraw tested",
+    "create2_cross_component": "COVERED — 3 EOAs, OZ Clones.predictDeterministicAddress vs computeVaultAddress",
+    "initializer_single_call": "COVERED — test_Initialize_RevertsOnSecondCall + test_Initialize_RevertsOnZeroDeveloper",
+    "withdraw_while_paused": "COVERED — test_Withdraw_WorksWhenFactoryPaused (D12)",
+    "fee_snapshot_semantics": "COVERED — test_Withdraw_UsesCurrentFeeBpsAtWithdrawTime",
+    "ownable2step": "COVERED — TransferRequiresAccept, AcceptCompletesTransfer, CancelByNewTransfer",
+    "invariant_balance_integrity": "COVERED — invariant_VaultBalanceIntegrity (handler-based stateful fuzzing)",
+    "invariant_feebps_cap": "COVERED — invariant_FeeBpsBounded",
+    "invariant_developer_nonzero": "COVERED — invariant_DeveloperNonZero"
+  },
+  "negative_path_coverage": {
+    "NotDeveloper": "COVERED",
+    "NoBalance": "COVERED",
+    "AlreadyRegistered": "COVERED",
+    "InvalidFeeBps": "COVERED (1001 + type(uint16).max)",
+    "ZeroAddress_usdc": "COVERED",
+    "ZeroAddress_treasury": "COVERED",
+    "ZeroAddress_developer_in_initialize": "COVERED",
+    "InvalidInitialization_on_clone": "COVERED",
+    "InvalidInitialization_on_impl": "COVERED",
+    "EnforcedPause": "COVERED",
+    "OwnableUnauthorizedAccount": "COVERED (multiple functions)",
+    "ReentrancyGuardReentrantCall": "COVERED"
+  },
+  "mock_security_assessment": {
+    "MockUsdcWithHook": "Sound design. Hook fires post-super._update (correct ordering for reentrancy). hooksEnabled gate prevents spurious callbacks during test setup mints. No production risk (test-only, slither filtered).",
+    "MockMaliciousTreasury": "Correctly models the attack: re-enters vault.withdraw() from onUsdcReceived(). reentryCount field tracks attempts but is not asserted in the test (low-value omission, not a defect). No production risk.",
+    "MockUsdcEip3009": "Existing mock, not modified in this commit. EIP-3009 domain matches real USDC (name='USD Coin', version='2'). Used correctly in all non-reentrancy tests."
+  },
+  "invariant_test_assessment": {
+    "handler_design": "Correct. targetSelector restricts fuzzer to [depositToVault, withdrawFromVault, setFeeBps] — prevents the fuzzer from calling factory.setPlatformTreasury or vault.initialize with random inputs, which would produce trivially-reverting calls and waste fuzzer budget.",
+    "totalWithdrawn_accounting": "Correct. handler.withdrawFromVault() reads vault balance BEFORE withdraw and adds it to totalWithdrawn. Since withdraw() always drains the full balance, totalMinted - totalWithdrawn == 0 == vault balance after each withdraw cycle. The invariant holds through arbitrary deposit/withdraw/setFeeBps sequences.",
+    "factory_owner_in_handler": "Correct. VaultInvariantsTest deploys factory (so address(this) = test contract = owner). handler stores factoryOwner = address(this). vm.prank(factoryOwner) in setFeeBps correctly impersonates the owner.",
+    "false_positive_timeout_risk": "Low. Bounds are sensible (1..1e18 for deposits, 0..1000 for feeBps). withdrawFromVault early-returns on zero balance instead of reverting, keeping the fuzzer productive."
+  },
+  "approved": true,
+  "requires_changes_before_merge": false,
+  "notes_for_contract_tester": "Suite is sound and complete per spec. Two optional improvements (transfer-order recording mock for direct ordering assertion, and test_Unpause_OwnerOnly) are low-priority and do not block merge. All critical invariants from D15/D16/D17, fee math, reentrancy, and access control are correctly covered. The reentrancy test design (MockUsdcWithHook + MockMaliciousTreasury) is the correct approach given that real ERC20 has no receive hooks."
+}

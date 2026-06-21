@@ -1,0 +1,82 @@
+{
+  "reviewer": "security-auditor-t3",
+  "task": "3",
+  "round": 1,
+  "commit": "bba2942",
+  "files_audited": [
+    "contracts/scripts/verify-usdc-eip3009.ts",
+    "contracts/scripts/arc-testnet-usdc-domain.json"
+  ],
+  "summary": "Read-only spike script. No secrets handling, no signing, no auth. Security surface is narrow: secrets to stdout, RPC trust, error message leakage, and artifact integrity. Overall posture is sound with two low-severity findings and one informational note.",
+  "findings": [
+    {
+      "id": "SEC-T3-01",
+      "severity": "Low",
+      "category": "Information Disclosure / Error Handling",
+      "title": "probeAuthorizationState and probeTransferWithAuthorization append raw error messages to notes[]",
+      "file": "contracts/scripts/verify-usdc-eip3009.ts",
+      "lines": [184, 231],
+      "description": "On ambiguous probe outcomes the notes[] array receives the full error.message from the caught exception (lines 184–186, 230–232). These notes are then written verbatim to arc-testnet-usdc-domain.json and surfaced at module load by Task 6. In practice an RPC error message can include the RPC URL with auth token if the operator uses an authenticated endpoint (e.g. `https://mainnet.infura.io/v3/<API_KEY>`). The ARC_RPC_URL env var value may therefore leak into the committed artifact under ambiguous failure conditions.",
+      "impact": "Low: the default RPC URL contains no credentials; only operators using authenticated RPC URLs are at risk. Arc Testnet at this stage is unlikely to use key-authenticated endpoints. However the pattern is dangerous for future reuse (Base Sepolia fallback, mainnet paths) or if an operator supplies a key-bearing URL.",
+      "recommendation": "Before pushing error.message into notes[], scrub URLs with a simple regex: replace /https?:\\/\\/[^\\s]*/g with '<rpc-url>' (or just '<rpc>' if even the host is sensitive). Alternatively redact only the path component to preserve the host for diagnostics. Pattern:\n  const safeMessage = message.replace(/https?:\\/\\/\\S+/g, '<rpc-url>');\n  notes.push(`authorizationState: ambiguous probe outcome — ${safeMessage}`);",
+      "false_positive_risk": "Low — confirmed the ambiguous-path message template includes the raw err.message string at both call sites."
+    },
+    {
+      "id": "SEC-T3-02",
+      "severity": "Low",
+      "category": "Information Disclosure / Error Handling",
+      "title": "RPC URL echoed in operator-facing console.error messages (main() domain read failure)",
+      "file": "contracts/scripts/verify-usdc-eip3009.ts",
+      "lines": [288, 289],
+      "description": "The catch block in main() that handles readUsdcDomain failure logs err.shortMessage or err.message directly to console.error. For viem HttpRequestError, shortMessage typically includes the target URL in the form 'HTTP request failed ... URL: <url>'. If the operator configures ARC_RPC_URL with embedded credentials (e.g. username:password@host or /v3/<API_KEY>), those credentials appear on stderr. This is not written to the artifact but may be captured by CI log aggregators.",
+      "impact": "Low: same conditions as SEC-T3-01 — no credentials in the default URL; risk is operational hygiene for future authenticated RPC configurations.",
+      "recommendation": "Apply the same URL-scrub regex to the error message before printing:\n  const safeMsg = message.replace(/https?:\\/\\/\\S+/g, '<rpc-url>');\n  console.error(`[verify-usdc-eip3009] RPC unavailable or USDC reverted view call: ${safeMsg}`);",
+      "false_positive_risk": "Low."
+    },
+    {
+      "id": "SEC-T3-INFO-01",
+      "severity": "Informational",
+      "category": "Defense in Depth",
+      "title": "No validation that ARC_RPC_URL is an http/https URL before passing to viem transport",
+      "file": "contracts/scripts/verify-usdc-eip3009.ts",
+      "lines": [92, 94],
+      "description": "process.env.ARC_RPC_URL is accepted as-is. viem's http() transport would reject non-HTTP schemes at the transport level with a runtime error, but no explicit pre-validation is done. This is not a meaningful attack surface for a developer-run spike script (the operator controls their own environment), but is worth noting for the pattern as it carries over to the middleware's facilitator.rpcUrl (D14 covers this with chainId pin, but URL shape validation is not mentioned).",
+      "impact": "Informational for this script. The middleware tech-spec (D14) addresses the trust boundary for facilitator.rpcUrl separately.",
+      "recommendation": "Optional for this spike: add a simple URL pre-check before createPublicClient:\n  const rpcUrl = process.env.ARC_RPC_URL ?? DEFAULT_RPC_URL;\n  if (!/^https?:\\/\\//i.test(rpcUrl)) {\n    console.error('[verify-usdc-eip3009] ARC_RPC_URL must be an http/https URL');\n    process.exit(1);\n  }\nThis is a low-friction guard and makes the failure mode explicit.",
+      "false_positive_risk": "N/A — informational."
+    }
+  ],
+  "checks_passed": [
+    "No private keys, mnemonics, or 0x-hex 64-char secrets written to stdout or artifact. ZERO_BYTES32 (32 zero bytes = 64 hex chars) is written to notes[] only as a dummy arg description; it carries no secret material.",
+    "USDC_ADDRESS (0x3600...0000) is the only non-zero address literal in the output. gitleaks reported 0 leaks.",
+    "ARC_RPC_URL value is NOT echoed on the normal success path (stdout JSON and artifact contain only domain data).",
+    "Selector self-check (EXPECTED_TWA_SELECTOR == 0xe3ee160e) correctly guards against the 0xef55bec6 (receiveWithAuthorization) false-positive per task spec.",
+    "Retry logic (withRetry) correctly distinguishes transport-level errors (HttpRequestError, TimeoutError) from logic errors. Logic errors surface immediately; transport errors retry with exponential backoff.",
+    "Ambiguous probe outcomes conservatively set exists=false (avoids false-positive supportsEip3009=true). Spec requirement met.",
+    "Hard-blocker exits (supportsEip3009===false, decimals!==6) are present and correct.",
+    "Gas sanity check [1, 10^12] micro-USDC band is present and exits non-zero on out-of-band values — prevents publishing a misleading number.",
+    "Dual-decimal note is pushed to notes[] whenever gas conversion is performed, satisfying the Task 6 consumer contract.",
+    "notes key is omitted when the array is empty (computed once, serialized to both stdout and artifact via the same `out` object). stdout/artifact parity is guaranteed by construction.",
+    "main().catch() handler redacts stack traces — only err.message (not err.stack) reaches console.error on unhandled path.",
+    "No network writes. Script is read-only. No DEPLOYER_KEY or signing operations.",
+    "process.env is not logged in any code path.",
+    "writeFileSync uses __dirname-equivalent (dirname(fileURLToPath(import.meta.url))) — no path traversal risk from env input.",
+    "UsdcEip3009Probe interface is fully typed; no `any` in the result type.",
+    "Dependency viem ^2.7.0 is pinned in contracts/package.json devDependencies. No dynamic require() or eval()."
+  ],
+  "dependency_notes": [
+    "viem ^2.7.0: no known critical CVEs as of 2026-06. Range allows minor updates; recommend pinning to an exact version pre-production if this script graduates to CI.",
+    "tsx ^4.7.0: used only for local execution, not in any production bundle. Low risk.",
+    "No new dependencies introduced beyond what Task 2 already declared."
+  ],
+  "owasp_mapping": {
+    "A01_Broken_Access_Control": "N/A — read-only script, no auth or authorization logic.",
+    "A02_Cryptographic_Failures": "N/A — no cryptographic operations performed by the script; EIP-712 signing is done by the live USDC contract.",
+    "A03_Injection": "N/A — no SQL, no shell exec, no eval. RPC URL from env is passed to viem transport (no shell interpolation).",
+    "A05_Security_Misconfiguration": "SEC-T3-INFO-01 (informational) — no explicit URL scheme validation.",
+    "A06_Vulnerable_and_Outdated_Components": "viem ^2.7.0 checked — no known critical CVEs.",
+    "A09_Security_Logging_and_Monitoring": "SEC-T3-01, SEC-T3-02 — potential RPC credential leakage into notes[] and stderr under authenticated RPC URL configurations."
+  },
+  "verdict": "APPROVE_WITH_NOTES",
+  "verdict_rationale": "The script is a read-only diagnostic spike. The two Low findings (SEC-T3-01, SEC-T3-02) only matter if an operator uses an authenticated RPC URL with embedded credentials, which is unlikely for Arc Testnet. The informational finding is a recommended defence-in-depth improvement. None of the findings block wave progress. The primary security requirements (no secrets to stdout, no 0x64-hex private key shapes, no network writes, selector self-check, gitleaks clean) are all satisfied. Recommend the URL scrub pattern be applied before this script is reused on mainnet or Base Sepolia paths."
+}

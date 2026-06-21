@@ -12,7 +12,19 @@ secrets/
 *.sqlite
 *.db
 /data/
+coverage/
 target/
 artifacts/
 cache/
 typechain-types/
+.fastembed_cache/
+.husky/_/
+.npmrc
+
+# Foundry contracts workspace artifacts
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/.env
+contracts/node_modules/
+contracts/lcov.info

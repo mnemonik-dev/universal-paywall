@@ -1,0 +1,163 @@
+{
+  "reviewer": "test-reviewer-t11",
+  "task": 11,
+  "round": 1,
+  "status": "needs_improvement",
+  "summary": "All 7 TDD anchor tests are present and test real behavior. Three medium-severity issues require fixes before passing: (1) the 'already_registered' test has an implicit ordering dependency on 'register_calls_factory' that vitest's test runner may not guarantee; (2) the `waitForPort` function creates a dangling `createServer()` and immediately closes it — a spurious socket that in theory could grab the port between allocation and use; (3) the `register_never_prints_key` test uses DEVELOPER_KEY directly (which is a known-public anvil key matching 0x[0-9a-fA-F]{64}), so `scrubSecrets` in the CLI would strip it even if the key were accidentally printed, making the test a weak assertion of the redaction logic. No critical issues.",
+  "counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 3,
+    "low": 3
+  },
+  "taskRequired": {
+    "needed": false,
+    "reason": "No critical or high issues; all medium findings can be fixed in the current pass without a separate task."
+  },
+  "findings": [
+    {
+      "id": "M1",
+      "severity": "medium",
+      "category": "shared_state / test_ordering",
+      "location": "packages/middleware/src/__tests__/register-cli.test.ts:325-336",
+      "title": "register_handles_already_registered relies on register_calls_factory having run first",
+      "description": "The 'register_handles_already_registered' test calls `runRegister` with DEVELOPER_KEY and expects the output 'Already registered. Vault: 0x...'. This only works if DEVELOPER_KEY's EOA was already registered by the 'register_calls_factory' test that runs earlier in the file. vitest runs tests sequentially within a describe block by default, so in practice this is stable — but the dependency is implicit and undocumented. If test files are ever run in isolation, or if '--run' is combined with '--reporter=verbose' test reordering, this test will fail with exit code 0 (fresh register) instead of the expected 'Already registered' message. The comment in the test acknowledges this (lines 328-330) but does not guard against it.",
+      "litmusTestFailed": false,
+      "fix": {
+        "approach": "Make the test self-contained: at the start of 'register_handles_already_registered', call runRegister once to ensure the EOA is registered (ignoring the result if already done), then call it again and assert on the second result. Alternatively, use a different anvil-pre-funded account for this test that is pre-registered in a separate beforeAll step scoped to just this test. The simplest fix is to explicitly call runRegister once without asserting in the body of the test, then assert on the second call.",
+        "code": "// Before the assertion in register_handles_already_registered:\nawait runRegister({ registerKey: DEVELOPER_KEY, factoryAddress: fixture.factoryAddress, rpcUrl: fixture.rpcUrl });\n// Then run again and assert:\nconst result = await runRegister(...);\nexpect(result.code).toBe(0);\nexpect(result.stdout).toMatch(/Already registered/);"
+      }
+    },
+    {
+      "id": "M2",
+      "severity": "medium",
+      "category": "test_infrastructure / flakiness",
+      "location": "packages/middleware/src/__tests__/register-cli.test.ts:99-128 (waitForPort)",
+      "title": "waitForPort creates and immediately discards a createServer() instance (dead code + potential port interference)",
+      "description": "Inside the `while` loop, `waitForPort` does `const socket = createServer(); socket.unref(); socket.close();` and then immediately calls `fetch(...)` — the `createServer()` and `socket.close()` do nothing useful and are not part of the actual readiness probe. The comment even acknowledges this: 'Use a TCP connect via net.connect would be ideal but createServer suffices for this poll: we try an HTTP fetch instead.' The real probe is the `fetch` call. The dead code is confusing and there is a micro-race on slow CI: between `socket.close()` completing and `fetch` resolving, the OS could reuse the now-released local port for something else (extremely unlikely but nonzero). More practically, the dead code signals to future readers that this is a TCP probe when it is actually an HTTP probe, which may mislead debugging efforts.",
+      "litmusTestFailed": false,
+      "fix": {
+        "approach": "Remove the `createServer()` / `socket.close()` dead code entirely. The readiness probe is already correct via the `fetch` call — no TCP socket scaffolding is needed.",
+        "code": "// Replace the try{} body with just the fetch call:\nawait fetch(`http://${host}:${port}`, {\n  method: 'POST',\n  headers: { 'content-type': 'application/json' },\n  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId' }),\n}).then((r) => { if (!r.ok) throw new Error(`status ${r.status}`); });"
+      }
+    },
+    {
+      "id": "M3",
+      "severity": "medium",
+      "category": "assertion_quality",
+      "location": "packages/middleware/src/__tests__/register-cli.test.ts:313-323 (register_never_prints_key)",
+      "title": "Key-leak test uses a public anvil key — the scrubber would redact it even on a real leak, so the test does not prove redaction is working",
+      "description": "DEVELOPER_KEY is `0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d`. The test checks: `expect(combined).not.toMatch(/0x[0-9a-fA-F]{64}/)`. The register CLI wraps the key in OpaqueRelayerKey and never prints it — that is correct. However, the test's regex `0x[0-9a-fA-F]{64}` would also match any transaction hash in stdout (e.g., `Tx: 0x<64-hex-hash>`). On the happy path in register_calls_factory, the CLI prints `Tx: 0x<txhash>` which is 66 hex chars — just 2 chars over 64. The current regex anchors on exactly 64 hex chars after 0x, so a 66-char tx hash does NOT match (0x + 66 chars fails `/0x[0-9a-fA-F]{64}/` which matches exactly 64 after 0x). This means the regex is correct by accident — tx hashes are 32 bytes = 64 hex = 0x+64 chars, so they WOULD match the pattern if printed. Checking the CLI: `Tx: ${txHash}\\n` — txHash from viem is `0x` + 64 hex chars (32-byte tx hash) which DOES match the regex. The test therefore asserts `combined.not.toMatch(/0x[0-9a-fA-F]{64}/)` but the CLI's own happy-path output includes `Tx: 0x<32-byte-hash>` which matches that pattern. This means: if the 'register_never_prints_key' test calls runRegister when DEVELOPER_KEY is NOT yet registered (i.e., the tx goes through), it will fail because the tx hash itself matches the regex. Looking at the test: it calls runRegister with DEVELOPER_KEY after register_calls_factory already registered it, so this test actually runs against an already-registered EOA and the CLI prints 'Already registered. Vault: 0x...' only — no Tx line. The test is green by accident because it depends on test ordering (M1 above). If the ordering dependency is fixed (making the test self-sufficient), register_never_prints_key could start running against a fresh EOA and the tx hash output would trip its own regex.",
+      "litmusTestFailed": true,
+      "fix": {
+        "approach": "Two changes: (1) Use a dedicated third anvil account (not DEVELOPER_KEY / DEPLOYER_KEY) for the key-leak test so it does not interfere with state from other tests. Pre-register this account in beforeAll. Then in register_never_prints_key, run it again (already-registered path) so no tx hash is emitted. OR (2) Narrow the regex to exactly the 64-hex private key value: `expect(combined).not.toContain(DEVELOPER_KEY)` (already done) AND `expect(combined).not.toMatch(/0x[0-9a-fA-F]{64}(?![0-9a-fA-F])/)` — but this still matches a 32-byte tx hash. The cleanest fix is to assert on the already-registered path only (no tx output), or to check the tx hash is NOT the same as the key (trivially true but reads clearly): assert `combined` does not contain `DEVELOPER_KEY` and does not contain `DEVELOPER_KEY.slice(2)` (both already present), and remove the broad regex entirely — the two literal-substring checks are the authoritative redaction test.",
+        "code": "// Replace:\nexpect(combined).not.toMatch(/0x[0-9a-fA-F]{64}/);\n// With: run on already-registered path to avoid tx hash, and assert:\nexpect(combined).not.toContain(DEVELOPER_KEY);\nexpect(combined).not.toContain(DEVELOPER_KEY.slice(2));\n// (remove the regex assertion entirely, or scope it after confirming no tx is emitted)"
+      }
+    },
+    {
+      "id": "L1",
+      "severity": "low",
+      "category": "assertion_quality",
+      "location": "packages/middleware/src/__tests__/register-cli.test.ts:338-348 (register_rejects_malformed_key)",
+      "title": "Malformed-key input does not test the 0x-prefix-with-wrong-length path",
+      "description": "The spec note in tasks/11.md asks: 'would a different malformed input (e.g. 0x prefix with wrong length) reveal a path where the check leaks?' The only malformed input tested is 'not-a-key-totally-garbage'. A value like '0xabc123' (0x prefix, too short) also exercises the PRIVATE_KEY_RE validation path but the display difference is: for the 'not-a-key-totally-garbage' input, it contains no hex-looking prefix so the 'does not contain input substring' check is trivially satisfied. The '0xabc123' input shares the '0x' prefix pattern — verifying stderr doesn't echo '0xabc123' is the more meaningful check. This is low severity because the production code clearly does NOT echo the input (the stderr write is a fixed string), but an additional test case would add coverage.",
+      "litmusTestFailed": false,
+      "fix": {
+        "approach": "Add a second malformed-key parametrize in the same test (or a separate it block): use `'0x' + 'a'.repeat(30)` (0x + 30 hex chars — clearly short) and assert exit code 2 and that stderr does not contain that literal."
+      }
+    },
+    {
+      "id": "L2",
+      "severity": "low",
+      "category": "assertion_quality",
+      "location": "packages/middleware/src/__tests__/register-cli.test.ts:360-391 (register_rejects_disabled_network)",
+      "title": "arc-mainnet test does not assert on a canonical error message substring",
+      "description": "The test asserts `expect(result.stderr).toMatch(/disabled|unknown/i)`. The register.ts source always emits `network is disabled: arc-mainnet` for a network with `enabled: false`. The regex is loose — 'disabled' covers it. However, the task spec requires exit code 3 for 'unknown or disabled network'. There is no assertion that the stderr message does NOT include the key (DEVELOPER_KEY is set in the env for this test). Since DEVELOPER_KEY is set and the CLI exits at the network-lookup step before ever reading REGISTER_KEY, this is not an active leak risk — but the test does not explicitly assert it, which means the network-mismatch code path is not covered for the no-key-echo invariant.",
+      "litmusTestFailed": false,
+      "fix": {
+        "approach": "Add `expect(result.stderr).not.toContain(DEVELOPER_KEY)` and `expect(result.stderr).not.toMatch(/0x[0-9a-fA-F]{64}/)` to register_rejects_disabled_network. Also tighten the message assertion: `expect(result.stderr).toContain('disabled')` (exact word, not regex) to match the known emit in register.ts."
+      }
+    },
+    {
+      "id": "L3",
+      "severity": "low",
+      "category": "readme_correctness",
+      "location": "README.md:121-129",
+      "title": "README 402 body snippet shows 'name':'USDC' but the EIP-712 domain name from T3's arc-testnet-usdc-domain.json is 'USD Coin'",
+      "description": "The README's example 402 body shows `\"extra\":{\"assetTransferMethod\":\"eip3009\",\"name\":\"USDC\",\"version\":\"2\"}`. But per networks.ts (line 87), `usdcEip712Name` comes from the T3 artefact `arc-testnet-usdc-domain.json`. The user-spec says `extra.name = 'USD Coin'` (user-spec line 59). An agent following the README and hardcoding `\"name\":\"USDC\"` would construct a broken EIP-712 domain. The README snippet is illustrative but close enough to a real example that a developer could copy it into an EIP-3009 signer and get signature recovery failures. This should be noted so the README is updated to use 'USD Coin'.",
+      "litmusTestFailed": false,
+      "fix": {
+        "approach": "In README.md change the example body's `\"name\":\"USDC\"` to `\"name\":\"USD Coin\"` to match the user-spec and the value actually returned by the deployed middleware."
+      }
+    }
+  ],
+  "tdd_anchor_coverage": {
+    "register_calls_factory": {
+      "present": true,
+      "ac_satisfied": true,
+      "notes": "Asserts exit code 0, stdout contains 'Registered. Vault: 0x', and on-chain factory.vaults(developerEoa) is non-zero. Solid."
+    },
+    "register_never_prints_key": {
+      "present": true,
+      "ac_satisfied": "partial",
+      "notes": "See M3 — the broad regex would fire on tx hashes; test is green by accident due to ordering dependency with M1."
+    },
+    "register_handles_already_registered": {
+      "present": true,
+      "ac_satisfied": "partial",
+      "notes": "See M1 — implicit ordering dependency on register_calls_factory. Fix required."
+    },
+    "register_rejects_malformed_key": {
+      "present": true,
+      "ac_satisfied": true,
+      "notes": "Exit code 2 asserted; stderr does not contain the malformed input. Covers the main path. L1 suggests a second variant."
+    },
+    "register_handles_missing_key": {
+      "present": true,
+      "ac_satisfied": true,
+      "notes": "Exit code 2 and canonical message 'REGISTER_KEY env var missing or malformed' asserted. Solid."
+    },
+    "register_rejects_disabled_network": {
+      "present": true,
+      "ac_satisfied": true,
+      "notes": "Exit code 3 asserted; stderr matches /disabled|unknown/i. L2 suggests tightening. Core behavior covered."
+    },
+    "register_help_flag": {
+      "present": true,
+      "ac_satisfied": true,
+      "notes": "Exit code 0, stdout contains 'Usage:', 'REGISTER_KEY', 'ARC_RPC_URL'. Solid."
+    }
+  },
+  "infrastructure_checks": {
+    "anvil_spawn": "Correct — spawned per beforeAll with dynamic free port, polled for readiness, killed in afterAll with SIGTERM + 5s SIGKILL escalation.",
+    "factory_deploy": "Correct — reads forge artifact, deploys mock ERC20 then factory via viem walletClient.deployContract. 3-arg constructor matches T4's canonical signature.",
+    "port_leak": "Low risk — afterAll SIGKILL escalation covers hung anvil. Port allocation via getFreePort() uses OS-assigned port (listen(0)) so no fixed-port collision.",
+    "describe_skip": "Correct — ANVIL_AVAILABLE + FACTORY_ARTIFACT_AVAILABLE pre-check gates the suite; CI without foundry skips with a clear message rather than failing.",
+    "esm_dirname": "Correct — fileURLToPath(new URL('.', import.meta.url)) per iter-3 §11.",
+    "internal_import_path": "Correct — getRelayerKeySecret imported from '../relayer-key.js' (relative), not from public entry point."
+  },
+  "readme_checks": {
+    "hardhat_references": "None found. All commands use forge/anvil/tsx.",
+    "canonical_env_vars": "DEPLOYER_KEY, PLATFORM_TREASURY_ADDRESS, ARC_RPC_URL, REGISTER_KEY, PAYWALL_RELAYER_KEY all present. No ARC_TESTNET_RPC_URL or ARC_TESTNET_PRIVATE_KEY variants.",
+    "steps_in_order": "Faucet -> register -> install -> run. Correct.",
+    "register_outputs_documented": "Both 'Registered. Vault: 0x...' and 'Already registered. Vault: 0x...' documented.",
+    "usdc_name_in_example": "Shows 'USDC' but should be 'USD Coin' per user-spec and T3 domain. See L3.",
+    "forge_verify_fallback": "forge verify-contract manual re-run documented in maintainer section. Correct.",
+    "post_deploy_idempotency": "Documented. Correct.",
+    "force_flag_for_overwrite": "Documented. Correct."
+  },
+  "deploy_script_checks": {
+    "env_reads": "DEPLOYER_KEY, PLATFORM_TREASURY_ADDRESS, INITIAL_FEE_BPS (default 50), USDC_ADDRESS (default arc-testnet constant). Correct.",
+    "preconditions": "require(treasury != 0), require(usdc != 0), require(feeBpsRaw <= 1000). Matches task spec.",
+    "broadcast_logging": "console2.log('FACTORY_ADDRESS', ...) and console2.log('VAULT_IMPL_ADDRESS', ...). Correct.",
+    "no_hardhat": "No Hardhat references. Correct.",
+    "verify_flag": "Not included in script body — handled by --verify flag at invocation. Correct per task spec."
+  },
+  "post_deploy_ts_checks": {
+    "sentinel_regex": "Tolerates quote style (single/double) and intra-line whitespace. Correct.",
+    "already_populated_guard": "chainId != 31337 + !force check before overwriting. Exits code 4. Correct.",
+    "additionalContracts_extraction": "Takes additionalContracts[0].address. Correct per task description.",
+    "idempotency": "Re-running produces same output bytes. Correct (regex matches existing non-zero addresses too).",
+    "missing_sentinel_error": "Fails loudly with actionable 'see Task 6' message. Correct."
+  }
+}

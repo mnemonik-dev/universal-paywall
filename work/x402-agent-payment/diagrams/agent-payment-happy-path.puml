@@ -1,0 +1,57 @@
+@startuml agent-payment-happy-path
+title x402 Agent Payment — Happy Path (x402 v1 + EIP-3009 + Self-Hosted Facilitator + Per-Developer Vault)
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FAFAFA
+skinparam participantBackgroundColor #E8F4FD
+skinparam participantBorderColor #2196F3
+
+actor "AI Agent" as Agent
+participant "Developer Service\n(withPaywall middleware\n+ inline facilitator)" as Service
+participant "Developer Vault\n(EIP-1167 minimal proxy,\nat deterministic addr)" as Vault
+participant "USDC\n(0x3600...0000, native)" as USDC
+participant "Arc Testnet RPC" as Arc
+
+== Step 1: Discover ==
+Agent -> Service : GET /api/data\n(no payment)
+
+Service -> Agent : HTTP 402 application/json\nBody: {\n  "x402Version": 1,\n  "accepts": [{\n    "scheme": "exact",\n    "network": "eip155:5042002",\n    "maxAmountRequired": "10000",\n    "resource": "...",\n    "payTo": "0xDevVault...",   // = factory.computeVaultAddress(devEoa)\n    "asset": "0x3600...0000",\n    "extra": {\n      "assetTransferMethod": "eip3009",\n      "name": "USD Coin",\n      "version": "2"\n    }, ...\n  }]\n}
+
+== Step 2: Agent signs (off-chain, no gas) ==
+Agent -> Agent : EIP-712 typed-data:\n  domain  = {name:"USD Coin", version:"2",\n             chainId:5042002,\n             verifyingContract:0x3600...}\n  message = TransferWithAuthorization {\n    from: agent,\n    to: 0xDevVault...,\n    value: 10000,\n    validAfter: 0,\n    validBefore: now+60,\n    nonce: random32bytes\n  }\nSign with agent wallet → 65-byte sig
+
+== Step 3: Retry with X-PAYMENT ==
+Agent -> Service : GET /api/data\nX-PAYMENT: base64(JSON({\n  "x402Version": 1,\n  "scheme": "exact",\n  "network": "eip155:5042002",\n  "payload": {            // strictly {signature, authorization}\n    "signature": "0x...",\n    "authorization": {from,to,value,\n                       validAfter,validBefore,nonce}\n  }\n}))
+
+== Step 4: Off-chain verify (facilitator) ==
+Service -> Service : 1. Header size ≤ 4 KB\n2. Decode X-PAYMENT\n3. EIP-712 ecrecover\n   (recovered == authorization.from)\n4. Check to == computeVaultAddress(devEoa)\n5. Check value >= maxAmountRequired\n6. Check validBefore > now + 5s,\n          validAfter <= now\n7. Check network match (CAIP-2 ↔ alias normalize)\n8. NonceStore: sync has({from,nonce}) == false; insert\n9. Off-chain reads (cached): factory.paused() == false,\n   factory.vaults[devEoa] != 0
+
+== Step 5: On-chain settle (facilitator pays gas in USDC) ==
+Service -> USDC : USDC.transferWithAuthorization(\n  from=agent, to=devVault,\n  value, validAfter,\n  validBefore, nonce, v, r, s\n)\nrelayer signs tx; waitForTransactionReceipt({timeout:30s})
+
+USDC -> USDC : ecrecover with EIP-712 domain;\nrecovered == from\nauthorizationState[from][nonce] == false\nset authorizationState[from][nonce] = true
+USDC -> Vault : transfer(agent → devVault, value)
+
+Service -> Arc : await receipt
+Arc --> Service : status: success
+note over Service
+  On classified failure (rpc_timeout / rpc_5xx /
+  gas_estimate_revert / mine_timeout /
+  receipt_reverted / relayer_no_balance /
+  authorization_already_used_onchain):
+  return 402 settlement_failed + reason.
+  Replay-store entry kept → agent must mint new nonce.
+end note
+
+== Step 6: 200 OK with X-PAYMENT-RESPONSE ==
+Service -> Agent : HTTP 200 OK\nX-PAYMENT-RESPONSE: base64(JSON({\n  "success": true,\n  "transaction": "0x...",\n  "network": "eip155:5042002",\n  "payer": "0xAgent..."\n}))\n\n{ ...resource data... }
+
+== Step 7: Developer withdraws (async) ==
+note over Vault : USDC accumulates over many payments
+"Developer" -> Vault : withdraw()        (msg.sender == developer)
+Vault -> Vault : gross = USDC.balanceOf(this)\nfee = gross * factory.feeBps() / 10000\nnet = gross - fee
+Vault -> USDC : safeTransfer(developer, net)
+Vault -> USDC : safeTransfer(factory.platformTreasury(), fee)\n(skipped if fee == 0)
+Vault --> Vault : emit Withdrawal(developer, gross, fee)
+
+@enduml

@@ -1,0 +1,107 @@
+{
+  "reviewer": "code-reviewer-t2",
+  "task": 2,
+  "round": 1,
+  "commit": "628ff4d",
+  "verdict": "approve_with_minor",
+  "summary": "Task 2 implementation is solid and spec-compliant. All required files are present, correctly structured, and the Foundry toolchain deviation (--no-commit default in forge 1.6) is correctly documented. Two minor issues found: .env.example uses a zero private key as a placeholder (documentation risk), and foundry.lock is a new auto-generated file not mentioned in spec that should be gitignored to avoid stale lock conflicts.",
+  "dimensions": {
+    "architectural_patterns": {
+      "score": "pass",
+      "notes": "Clean separation: forge for Solidity compile, tsx for TS post-build, viem+tsx for off-chain scripts. ESM-only throughout, consistent with D9 mandate."
+    },
+    "separation_of_concerns": {
+      "score": "pass",
+      "notes": "export-abi.ts is a single-responsibility build hook under 60 lines. Config files are independent. No cross-concerns found."
+    },
+    "code_readability": {
+      "score": "pass",
+      "notes": "foundry.toml header comment is thorough and informative (bootstrap command, env-var naming, submodule materialization instruction). export-abi.ts JSDoc covers source/dest paths and downstream consumers. No magic values."
+    },
+    "error_handling": {
+      "score": "pass",
+      "notes": "export-abi.ts correctly guards on missing outDir and missing per-contract artifacts with console.warn + continue. process.exit(0) on missing outDir is correct no-op behavior for pre-source state."
+    },
+    "type_safety": {
+      "score": "pass",
+      "notes": "tsconfig.json has strict:true, noEmit:true, resolveJsonModule:true. export-abi.ts casts artifact as {abi?: unknown} which is appropriately defensive."
+    },
+    "testing_coverage": {
+      "score": "n/a",
+      "notes": "Task 2 is tooling setup only; no tests are expected. smoke checks validated by foundry-setup."
+    },
+    "dependencies_management": {
+      "score": "pass",
+      "notes": "package.json devDependencies contain only viem, tsx, typescript, @types/node. No hardhat, @nomicfoundation/*, chai, mocha, ts-node. OZ pinned to v5.0.2 via git submodule SHA. forge-std installed without version pin (acceptable per spec note in task 2 Details §Dependencies)."
+    },
+    "security": {
+      "score": "minor_issue",
+      "notes": "See findings: DEPLOYER_KEY placeholder is a zero hex private key (0x000...000). This is a well-known key in the Ethereum community and could mislead a developer into thinking an all-zeros key is a safe placeholder. Better to use a clearly non-functional sentinel."
+    },
+    "performance": {
+      "score": "pass",
+      "notes": "Build hook reads only necessary files synchronously; no performance concerns for a build-time script."
+    },
+    "cross_file_consistency": {
+      "score": "pass",
+      "notes": "foundry.toml arc_testnet RPC uses ${ARC_RPC_URL} matching .env.example key exactly. package.json build script matches spec. tsconfig.json include matches scripts/ layout. root package.json workspaces includes 'contracts'. .gitignore covers contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/ — all required entries present."
+    },
+    "resource_management": {
+      "score": "pass",
+      "notes": "No heavy resources. Synchronous fs operations are correct for a build-time hook."
+    }
+  },
+  "findings": [
+    {
+      "id": "T2-C1",
+      "severity": "minor",
+      "file": "contracts/.env.example",
+      "line": 8,
+      "dimension": "security",
+      "title": "DEPLOYER_KEY placeholder is the well-known all-zeros private key",
+      "description": "The placeholder value 0x0000000000000000000000000000000000000000000000000000000000000000 is a real Ethereum private key (the zero key), well-known and monitored on-chain. While this is an .env.example file that is gitignored for real values, using a valid-but-dangerous key as a placeholder could mislead a new developer who copies it without replacing. Using a clearly non-functional sentinel like 0xYOUR_DEPLOYER_PRIVATE_KEY_HERE or simply DEPLOYER_KEY=<your-0x-prefixed-private-key> would eliminate all ambiguity.",
+      "recommendation": "Replace the zero-key placeholder with a non-functional string: DEPLOYER_KEY=0x<your-0x-prefixed-64-hex-char-private-key>",
+      "spec_reference": "task 2 AC: 'No private keys, RPC tokens, or verify API keys appear in committed files'"
+    },
+    {
+      "id": "T2-C2",
+      "severity": "minor",
+      "file": "contracts/foundry.lock",
+      "line": null,
+      "dimension": "dependencies_management",
+      "title": "foundry.lock is auto-generated and should be gitignored",
+      "description": "forge 1.6 introduced foundry.lock as an auto-generated lockfile (analogous to package-lock.json). Committing it is technically valid but creates friction: the lock captures exact SHAs at install time, and any developer who runs 'forge install' on a different day or with a different forge version could get a different lock without a clear merge strategy. More importantly, it was not mentioned in task 2 spec, which means its presence was not intentional by design. The task spec describes the OZ pin as being enforced by the git submodule commit SHA in .gitmodules (not by a lock file). If foundry.lock is intended to coexist with the submodule approach, it should be explicitly documented. If not, it should be added to .gitignore.",
+      "recommendation": "Either: (a) add 'contracts/foundry.lock' to root .gitignore if it's treated as a local artifact, or (b) explicitly document in foundry.toml header comment that foundry.lock is the secondary pin mechanism alongside the submodule SHA. The spec's pin strategy relies on submodule SHA — the lock file is redundant but harmless if kept.",
+      "spec_reference": "task 2 Details: 'forge install --no-commit ... The submodule commit SHA (not the .gitmodules branch line) is what pins the dep'"
+    }
+  ],
+  "spec_compliance": {
+    "foundry_toml_exact_match": true,
+    "profile_ci_present": true,
+    "rpc_endpoint_uses_canonical_env_var": true,
+    "oz_pinned_to_v5_0_2": true,
+    "forge_std_installed": true,
+    "remappings_single_line": true,
+    "slither_config_exact_match": true,
+    "export_abi_esm_correct": true,
+    "export_abi_no_op_when_out_missing": true,
+    "package_json_no_hardhat": true,
+    "package_json_scripts_all_present": true,
+    "tsconfig_strict_noEmit": true,
+    "env_example_canonical_keys_only": true,
+    "forbidden_legacy_env_vars_absent": true,
+    "root_workspaces_includes_contracts": true,
+    "gitignore_covers_all_required_paths": true,
+    "gitkeep_files_present": true,
+    "no_cjs_require_in_scripts": true,
+    "forge_no_commit_deviation_documented": true
+  },
+  "positive_observations": [
+    "foundry.toml header comment is exemplary: covers bootstrap steps, canonical env-var names, submodule materialization, and mock isolation rationale — all exactly per spec.",
+    "export-abi.ts is clean, concise (58 lines), ESM-correct with fileURLToPath, and handles all edge cases specified: missing outDir, missing artifact, missing abi field.",
+    "package.json is strictly minimal — no legacy Hardhat stack, correct ESM type, all 5 required scripts present.",
+    "forge-std submodule install is a welcome addition: task spec explicitly calls for 'forge install foundry-rs/forge-std --no-commit' in task 2 to make T5 zero-friction.",
+    ".gitignore correctly covers contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/ — all 5 required entries from spec.",
+    "forge 1.6 --no-commit behavioral deviation is properly documented in commit message and decisions.md — good practice."
+  ]
+}

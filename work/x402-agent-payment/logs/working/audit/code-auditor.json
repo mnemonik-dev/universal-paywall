@@ -1,0 +1,298 @@
+{
+  "reviewer": "code-auditor",
+  "task": 12,
+  "round": 1,
+  "commit": "61225621",
+  "scope": "Holistic code-quality audit across the feature surface — packages/middleware/src/ (12 .ts modules + 1 schema fixture), contracts/src/ (3 .sol), contracts/test/mocks/ (3 .sol, audited only as cross-file references), contracts/script/Deploy.s.sol, contracts/scripts/{post-deploy.ts, verify-usdc-eip3009.ts, export-abi.ts}, scripts/register.ts.",
+  "verdict": "advisory",
+  "verdict_rationale": "No Blocker or Major findings. Production wire format is correct, all D1–D18 invariants that constrain code are honored, ESM-only invariants hold, no ethers imports, no forbidden opcodes in Solidity, OpaqueRelayerKey defense-in-depth is intact. Five Minor findings and four Nits address consistency and dead-code concerns. Lead should bundle these into a single fixer pass before deploy (T16); none are individually blocking.",
+  "summary": "Feature is structurally sound and ready to ship pending Minor cleanup. The two highest-signal observations are (1) `packages/middleware/src/errors.ts` is a dead parallel implementation — exported but not consumed by `core.ts`, with a divergent body shape (`settlementReason` field vs `core.ts`'s `reason` field) that the vendored x402 schema only tolerates because it accommodates both; (2) the seven settlement sub-reasons are typed twice with non-identical names (`SettleReason` in settle.ts, `SettlementSubReason` in errors.ts), inviting drift. Cross-adapter (`node-http`, `fastify`) parity is intact for the documented contract; `paywall()` is a 225-line linear pipeline but the cohesion is intrinsic to the spec and the function is well-commented at every step.",
+  "dimensions_reviewed": [
+    "Architectural Patterns",
+    "Separation of Concerns",
+    "Code Readability & Maintainability",
+    "Error Handling & Logging",
+    "Type Safety",
+    "Testing Coverage (defects in source only — coverage is T14's domain)",
+    "Dependencies Management",
+    "Security Considerations (handed to T13 — only quality-noted observations here)",
+    "Performance Implications",
+    "Cross-File Consistency",
+    "Resource Management"
+  ],
+  "findings": [
+    {
+      "id": "T12-01",
+      "severity": "minor",
+      "dimension": "Separation of Concerns / Cross-File Consistency",
+      "file": "packages/middleware/src/errors.ts",
+      "lines": "1-99",
+      "title": "errors.ts is structurally dead in the production path and emits a body shape (`settlementReason`) that diverges from core.ts's (`reason`)",
+      "description": "`errors.ts` defines `buildErrorResponse(reason, ctx)` returning `{ status, headers, body }` where the body uses the field name `settlementReason`. No production source file imports from `errors.ts` (verified by `grep -rn \"from './errors'\" packages/middleware/src --exclude-dir=__tests__` — zero hits; index.ts does not re-export it either). All 402 responses on the wire are built by `core.ts`'s private `build402(...)` helper, which uses the field name `reason` (e.g. line 423: `build402(402, null, 'settlement_failed', { reason: 'internal_error' })`). The vendored x402 v1 JSON Schema at `__tests__/fixtures/x402-v1.schema.json` (lines 109–110) permits BOTH field names on the ChallengeBody, which is the only reason the divergence is currently invisible. Practical impact: (a) two parallel response-builder implementations to keep in sync; (b) the unit tests for `errors.ts` (errors.test.ts) assert a shape no production response actually emits; (c) a future maintainer reading `buildErrorResponse` will reasonably assume it is the canonical builder. The errors module is also re-exporting `MalformedPaymentHeaderError` from `x402.ts` and `NetworkMismatchError` from `settle.ts` — those re-exports are legitimate but compound the impression that this module is the canonical error surface.",
+      "recommendation": "Pick one path: (a) delete `errors.ts` and move its three constant tables (REASONS_400, ErrorReason, SettlementSubReason) into a tiny shared `error-reasons.ts` consumed by `core.ts`; rewrite `errors.test.ts` against `core.ts`'s response shape — OR — (b) make `errors.ts` the canonical builder, refactor `core.ts` to call `buildErrorResponse(...)` for every 402, and standardize on `settlementReason` as the body field name (note: this is the schema-compliant name; `reason` is also accepted but `settlementReason` is more specific). Option (a) is simpler given that `core.ts` already does the work. Either way, the divergence between `reason` and `settlementReason` in the production wire body must end — pick one.",
+      "spec_ref": "tech-spec D1 (strict x402 v1 wire format); D5 (settlement failure taxonomy)"
+    },
+    {
+      "id": "T12-02",
+      "severity": "minor",
+      "dimension": "Type Safety / Cross-File Consistency",
+      "file": "packages/middleware/src/errors.ts + packages/middleware/src/settle.ts",
+      "lines": "errors.ts:40-47, settle.ts:65-72",
+      "title": "Settlement sub-reason taxonomy declared twice under two names (`SettlementSubReason` vs `SettleReason`)",
+      "description": "Both errors.ts (line 40 `export type SettlementSubReason = ...`) and settle.ts (line 65 `export type SettleReason = ...`) declare a string-literal union of the seven settlement reasons. The members are identical (`rpc_timeout`, `rpc_5xx`, `gas_estimate_revert`, `mine_timeout`, `receipt_reverted`, `relayer_no_balance`, `authorization_already_used_onchain`). If a future change adds an eighth reason to one and not the other, the two unions silently diverge — and because `core.ts` builds the response body inline with a `reason: string` literal (line 610) rather than typing it against either union, neither would catch the drift at compile time. settle.ts is the natural owner (it's the module that classifies and emits each reason); errors.ts should import the type rather than redeclare it. The `internal_error` literal that core.ts uses (lines 423, 592) when wrapping a NetworkMismatchError is in NEITHER union — a third drift point, see T12-03.",
+      "recommendation": "Delete `SettlementSubReason` from `errors.ts`. If T12-01 keeps `errors.ts` alive, have it `import type { SettleReason } from './settle.js'` and replace every `SettlementSubReason` with `SettleReason`. If T12-01 deletes `errors.ts`, the `SettleReason` in settle.ts is automatically the single source of truth.",
+      "spec_ref": "tech-spec D5 (seven settlement failure reasons)"
+    },
+    {
+      "id": "T12-03",
+      "severity": "minor",
+      "dimension": "Type Safety / Error Handling",
+      "file": "packages/middleware/src/core.ts",
+      "lines": "423, 592",
+      "title": "`reason: 'internal_error'` literal in core.ts is not present in any settlement-reason taxonomy",
+      "description": "core.ts emits `build402(402, ..., 'settlement_failed', { reason: 'internal_error' })` on two paths: (1) when `opts.network` is not in NETWORKS (line 423), and (2) when settleOnChain throws `NetworkMismatchError` (line 592). `internal_error` is NOT a member of `SettleReason` (settle.ts:65–72) nor `SettlementSubReason` (errors.ts:40–47) nor the documented D5 taxonomy. Any downstream consumer that pattern-matches on the settlementReason set will silently fail to handle these two cases — including, presumably, the integrator's own logger that consumes the 7 documented reasons. The behavior is intentional (it's how core.ts surfaces a D14 chain ID mismatch to the integrator), but the wire token has no place in the contract.",
+      "recommendation": "Either add `'internal_error'` to `SettleReason` (and re-document the taxonomy as eight reasons in D5) or change the two emit sites to use a documented reason — `gas_estimate_revert` is the closest pre-broadcast bucket but obscures the chain-mismatch intent; a cleaner fix is to introduce `chain_id_mismatch` as the settlement sub-reason (which is already its own D18 event name, so the rename is local). Either way the literal `internal_error` should not appear on the wire.",
+      "spec_ref": "tech-spec D5 (failure taxonomy); D14 (chain ID pin); D18 (chain_id_mismatch event)"
+    },
+    {
+      "id": "T12-04",
+      "severity": "minor",
+      "dimension": "Code Readability & Maintainability",
+      "file": "packages/middleware/src/relayer-key.ts",
+      "lines": "2-22",
+      "title": "Module docstring still describes the abandoned `#key` private-field design",
+      "description": "The header docstring (lines 5, 14) says \"Secret lives in a class-private `#key` field (not in `Object.keys`...)\". The actual implementation (after T6 round 1 hardening — recorded in decisions.md Task 6 deviations) is stronger: the secret lives in a module-private `WeakMap<OpaqueRelayerKey, string>` defined at line 39, and the class carries only a brand marker. The class has NO `#key` field at all. A reader following the docstring expects to find a `#key` in the class body and finds none — confusing. The deviation rationale is captured in `decisions.md Task 6` but not in the source-level comment that should describe the current code.",
+      "recommendation": "Rewrite lines 5–6 of the docstring to: `- Secret lives in a module-private WeakMap<OpaqueRelayerKey, string> (line 39), reachable only via getRelayerKeySecret(key) — strictly stronger than a class-private #key because no class member, public or otherwise, can extract the secret.` Drop the `Object.keys` / `JSON.stringify` / `Object.getOwnPropertyNames` claims about a non-existent class field.",
+      "spec_ref": "tech-spec D13 (OpaqueRelayerKey)"
+    },
+    {
+      "id": "T12-05",
+      "severity": "minor",
+      "dimension": "Code Readability",
+      "file": "contracts/src/PaymentVaultImpl.sol",
+      "lines": "84, 89",
+      "title": "Local variables `usdc` and `feeBps` in `withdraw()` shadow interface method names",
+      "description": "Inside `withdraw()`, two local variables shadow names from the inlined `IPaymentSplitterFactory` interface declared above the contract: line 84 `IERC20 usdc = IERC20(f.usdc());` shadows `IPaymentSplitterFactory.usdc()` (line 14), and line 89 `uint256 feeBps = f.feeBps();` shadows `IPaymentSplitterFactory.feeBps()` (line 15). Solidity 0.8.20 does not warn about this because the scopes do not collide (the interface symbols live in the interface namespace, the locals in the function namespace), but a reader scanning the function sees `f.feeBps()` returning a value into a variable called `feeBps` and may wonder which is being read on subsequent lines. The local-variable shadow is intentionally identical-named to suggest \"this IS the feeBps,\" but inside a 19-line function that already juggles `f.usdc()`, `gross`, `fee`, `net`, the readability cost is non-zero.",
+      "recommendation": "Rename the locals to `usdcToken` and `currentFeeBps` (or `bps`). The diff is two lines and downstream code (`usdcToken.balanceOf(...)`, `currentFeeBps`) reads more clearly. No semantic change, no ABI change.",
+      "spec_ref": "tech-spec D4 (fee math in withdraw); project patterns.md (\"Readable > clever\")"
+    },
+    {
+      "id": "T12-06",
+      "severity": "nit",
+      "dimension": "Code Readability",
+      "file": "packages/middleware/src/core.ts",
+      "lines": "534-567",
+      "title": "Verify-result switch in core.ts has no exhaustiveness guard",
+      "description": "The `switch (reason)` block over `VerifyReason` (lines 534–567) covers all seven current cases (`invalid_signature`, `nonce_already_used`, `authorization_expired`, `authorization_not_yet_valid`, `network_mismatch`, `to_mismatch`, `insufficient_amount`) but has no `default:` clause and no `const _exhaust: never = reason` guard. If a future change adds an eighth VerifyReason without updating this switch, the function falls through to the `settle` code path on line 570; the destructure `const { recoveredFrom } = verifyResult;` at line 576 is typed against `ok: true` so TypeScript catches the narrowing failure — but the error surfaces at line 576 (\"Property 'recoveredFrom' does not exist on type ...\") rather than at the obviously-incomplete switch. A `default: { const _: never = reason; throw new Error('unreachable'); }` clause surfaces the missing case at exactly the switch.",
+      "recommendation": "Add a `default:` arm with a `never` assertion at line 568 to anchor the exhaustiveness check at the point of definition.",
+      "spec_ref": "tech-spec D5 (verify reason taxonomy)"
+    },
+    {
+      "id": "T12-07",
+      "severity": "nit",
+      "dimension": "Code Readability / Cross-File Consistency",
+      "file": "packages/middleware/src/core.ts:333 + packages/middleware/src/adapters/node-http.ts:30 + packages/middleware/src/errors.ts:95",
+      "lines": "core.ts:333, node-http.ts:30, errors.ts:95",
+      "title": "Content-Type header capitalization and charset drift across response builders",
+      "description": "Three response paths emit Content-Type with three different shapes: `core.ts:333` writes `'Content-Type': 'application/json'` (no charset), `adapters/node-http.ts:30` writes `'Content-Type': 'application/json'` and then spreads `result.headers` (the same name and value — redundant but harmless), and `errors.ts:95` writes `'content-type': 'application/json; charset=utf-8'` (lowercase name, with charset). HTTP header names are case-insensitive so this is wire-equivalent; the production path emits `Content-Type: application/json` without charset (since `errors.ts` is structurally dead per T12-01). RFC 7231 recommends including `charset=utf-8` for JSON. The drift is invisible to clients today but is the kind of thing a future maintainer fights when grepping.",
+      "recommendation": "Standardize on `'Content-Type': 'application/json; charset=utf-8'` (mixed case for source-reading consistency; charset for spec-compliance). Apply at core.ts:333; remove the redundant header in node-http.ts:30 (let `result.headers` carry it). If T12-01 deletes errors.ts, the third site goes away automatically.",
+      "spec_ref": "tech-spec D1 (`application/json`); RFC 7231 §3.1.1.5"
+    },
+    {
+      "id": "T12-08",
+      "severity": "nit",
+      "dimension": "Code Organization / Resource Management",
+      "file": "packages/middleware/src/core.ts",
+      "lines": "451",
+      "title": "`parseUsdPrice(opts.price)` runs on every request rather than once per `withPaywall(...)` call",
+      "description": "`parseUsdPrice(opts.price)` (line 451) parses the integrator's `price` string on every request, throwing `InvalidPriceError` on malformed input. The integrator configures `opts.price` once at construction time (`withPaywall(handler, { price: '0.01', ... })`) — the parse result is invariant for the lifetime of the wrapped handler. Doing the work per-request adds ~one regex match + BigInt arithmetic per call (microseconds, but multiplied across the request volume), and a misconfigured price (e.g. `'0.01a'`) crashes every request rather than failing fast at construction. The adapter pattern (`withPaywall(handler, opts)` returns a closure) gives a natural one-time-parse hook: validate `opts.price` inside the closure-returning factory and cache the bigint.",
+      "recommendation": "Pre-parse `opts.price` to a bigint inside `withPaywall` / `fastifyPaywall` (or at the top of `paywall()` cached via a module-level Map keyed by the opts object identity). Throw `InvalidPriceError` at adapter construction, not at request time. The change is local to `core.ts` plus the two adapter shims and improves both DX (fast-fail) and request latency (one parse, not N).",
+      "spec_ref": "tech-spec Solution §7 (price as 402 input); D6 (adapter shape)"
+    },
+    {
+      "id": "T12-09",
+      "severity": "nit",
+      "dimension": "Cross-File Consistency",
+      "file": "contracts/src/PaymentSplitterFactory.sol:23 + multiple consumers",
+      "lines": "various",
+      "title": "Canonical Arc Testnet USDC address (`0x36000...0000`) and chain ID `5042002` are duplicated across three files",
+      "description": "The USDC address `0x3600000000000000000000000000000000000000` appears as a hardcoded literal in three production files: `packages/middleware/src/networks.ts:86`, `contracts/script/Deploy.s.sol:36` (as `DEFAULT_ARC_TESTNET_USDC`), and `contracts/scripts/verify-usdc-eip3009.ts:49` (as `USDC_ADDRESS`). The chain ID `5042002` similarly appears in `networks.ts:84`, `Deploy.s.sol` (via env), and `verify-usdc-eip3009.ts:50` (as `ARC_CHAIN_ID`). The Solidity contract cannot import the TS constant, and the TS post-deploy script doesn't depend on networks.ts (so a circular runtime path is avoided), so a single source of truth is intrinsically difficult. The current duplications are correct, but if Circle re-deploys USDC at a new address on Arc Testnet, three places need editing.",
+      "recommendation": "Optional but useful: write a small `contracts/constants/arc-testnet.json` consumed by both the verify-usdc-eip3009 spike AND the post-deploy patcher; have `networks.ts` continue to inline the literal (the T3 artefact already pins the on-chain values for the EIP-712 domain, so adding a json-pin for the address is a low-risk addition). Solidity's `Deploy.s.sol` already accepts `USDC_ADDRESS` env, so the operator can supply the canonical address from outside. Lowest-risk fix: leave the duplication, add a comment on each literal saying \"keep in sync with networks.ts:86 and Deploy.s.sol:36 and verify-usdc-eip3009.ts:49.\"",
+      "spec_ref": "tech-spec D1 (NETWORKS registry); decisions.md Task 3 (T3 spike artefact)"
+    }
+  ],
+  "decision_compliance_matrix": [
+    {
+      "decision": "D1",
+      "title": "Strict x402 v1 wire format",
+      "status": "Compliant with drift",
+      "evidence": "x402.ts implements decodeXPayment with exact-keys validation (lines 104-130), strict hex shapes (HEX_ADDR_RE, HEX_32_RE, HEX_SIG_RE, DECIMAL_INT_RE), 4 KB header cap (line 98, 141). `build402Body` constructs `{x402Version:1, accepts, error?}` per spec. `encodeXPaymentResponse` outputs the documented X-PAYMENT-RESPONSE shape. Network IDs accepted as both alias and CAIP-2 (networks.ts:109-114 + normalizeNetworkId). Canonical form on outbound is CAIP-2 (core.ts:298 `network: network.id`). Drift: `errors.ts` uses `settlementReason` while `core.ts` uses `reason` on the wire — see T12-01. The schema permits both."
+    },
+    {
+      "decision": "D3",
+      "title": "Per-developer vault via EIP-1167 minimal proxy + factory",
+      "status": "Compliant",
+      "evidence": "PaymentSplitterFactory.sol:64 uses `bytes32(uint256(uint160(msg.sender)))` as the salt; line 65 `Clones.cloneDeterministic(vaultImpl, salt)`. `computeVaultAddress(developer)` (lines 74-80) uses the matching `predictDeterministicAddress` so off-chain computation lines up. Vault is initialized exactly once via `factory.initialize(msg.sender)` from inside `register()`."
+    },
+    {
+      "decision": "D4",
+      "title": "Vault holds gross USDC; fee split happens at `withdraw()`",
+      "status": "Compliant",
+      "evidence": "PaymentVaultImpl.sol:80-99 — `withdraw()` reads `usdc.balanceOf(address(this))` as `gross`, computes `fee = (gross * feeBps) / 10000`, transfers `net = gross - fee` to developer first, then `fee` to `factory.platformTreasury()` (line 95) only if `fee > 0` (line 94 — avoids the `safeTransfer(treasury, 0)` no-op). No `withdraw(amount)` variant. Developer-first transfer order matches systemic-fix §7."
+    },
+    {
+      "decision": "D5",
+      "title": "Two-layer replay protection (NonceStore + USDC `authorizationState`)",
+      "status": "Compliant",
+      "evidence": "replay-store.ts implements `NonceStore` with `checkAndInsert` as the documented production primitive (line 106) — synchronous has + insert, no await between, plus a `validBefore <= now` safety net. 100k cap with oldest-`validBefore` eviction (line 156). Lazy per-from TTL eviction (line 136). verify.ts:182 invokes `checkAndInsert` exactly once per request. settle.ts never touches the NonceStore (verified by `grep` — zero references). On-chain replay is enforced by USDC's own `authorizationState[from][nonce]` per EIP-3009."
+    },
+    {
+      "decision": "D6",
+      "title": "Framework-agnostic core + per-framework adapters",
+      "status": "Compliant",
+      "evidence": "core.ts exports `paywall(req: PaywallRequest, opts: PaywallCoreOptions): Promise<PaywallResult>` (line 406) where `PaywallRequest = {headers, method?, url?}` — no framework type. `adapters/node-http.ts` (45 lines) is a thin closure over `paywall`; `adapters/fastify.ts` (50 lines) wraps `paywall` in a Fastify `preHandler` hook. No fastify or node:http types leak into core.ts (verified by `grep -n 'fastify\\|node:http\\|IncomingMessage' core.ts` — zero hits). The discriminated `PaywallResult` union is the contract."
+    },
+    {
+      "decision": "D7",
+      "title": "viem 2.x for all EVM interaction (no ethers)",
+      "status": "Compliant",
+      "evidence": "`grep -rn 'ethers\\|@ethersproject' packages/middleware/src` → 0 hits in production source. viem is imported in `verify.ts` (recoverTypedDataAddress), `settle.ts` (createWalletClient, parseSignature, error classes), `core.ts` (createPublicClient, keccak256), `contracts/scripts/verify-usdc-eip3009.ts` (parseAbi, createPublicClient), `scripts/register.ts` (createPublicClient, createWalletClient). USDC ABI is statically declared in settle.ts:171."
+    },
+    {
+      "decision": "D8",
+      "title": "Solidity ^0.8.20; OZ 5.x with storage-based ReentrancyGuard",
+      "status": "Compliant",
+      "evidence": "All Solidity files use `pragma solidity ^0.8.20;` (PaymentSplitterFactory.sol:2, PaymentVaultImpl.sol:2, interfaces/IERC3009.sol:2). Imports: `@openzeppelin/contracts/access/Ownable2Step.sol`, `@openzeppelin/contracts/utils/Pausable.sol`, `@openzeppelin/contracts/utils/ReentrancyGuard.sol` (the storage-based one — NOT `utils/ReentrancyGuardTransient.sol`), `@openzeppelin/contracts/proxy/utils/Initializable.sol`, `@openzeppelin/contracts/proxy/Clones.sol`, `@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol`. Factory inherits `is Ownable2Step, Pausable` (line 23); vault inherits `is Initializable, ReentrancyGuard` (line 28)."
+    },
+    {
+      "decision": "D10",
+      "title": "Configurable platform fee — owner-only, 0–1000 bps, default 50 bps",
+      "status": "Compliant",
+      "evidence": "PaymentSplitterFactory.sol:47 — constructor reverts `InvalidFeeBps` on `_initialFeeBps > 1000`. Line 82-87 — `setFeeBps(uint16 newBps) external onlyOwner` with same `> 1000` revert and emits `FeeBpsUpdated(oldBps, newBps)`. Default 50 bps is supplied by `Deploy.s.sol:41` (`vm.envOr('INITIAL_FEE_BPS', uint256(50))`)."
+    },
+    {
+      "decision": "D11",
+      "title": "`platformTreasury` settable, separate from `owner`",
+      "status": "Compliant",
+      "evidence": "Factory stores `platformTreasury` (line 25) settable via `setPlatformTreasury` (line 89-94) — onlyOwner, reverts `ZeroAddress`, emits `PlatformTreasuryUpdated`. `owner` (from Ownable2Step) and `platformTreasury` are independent addresses."
+    },
+    {
+      "decision": "D12",
+      "title": "Pausable is off-chain checked by middleware",
+      "status": "Compliant",
+      "evidence": "Factory has `pause()`/`unpause()` (lines 96-102, owner-only). `register()` uses `whenNotPaused` (line 61). Vault `withdraw()` does NOT check `factory.paused()` (PaymentVaultImpl.sol:80 — no Pausable import, no `whenNotPaused`). Middleware reads `factory.paused()` via the FactoryStateCache in core.ts (lines 211-253) with 5s TTL."
+    },
+    {
+      "decision": "D13",
+      "title": "Relayer key opaque non-enumerable wrapper",
+      "status": "Compliant",
+      "evidence": "relayer-key.ts — `OpaqueRelayerKey` class carries only a non-enumerable brand symbol (line 51-56 `Object.defineProperty(this, BRAND, {enumerable:false, writable:false, configurable:false})`). Secret lives in a module-private `WeakMap` (line 39). `toJSON`, `toString`, and `[Symbol.for('nodejs.util.inspect.custom')]` all return `'<redacted:relayer-key>'`. `getRelayerKeySecret` is NOT re-exported from index.ts (verified — index.ts only exports the class). settle.ts:56 imports `getRelayerKeySecret` from `./relayer-key.js` directly. `scrubSecrets` handles cycles via a Map<original,copy>. See T12-04 for a docstring nit."
+    },
+    {
+      "decision": "D14",
+      "title": "Startup chainId pin + rpcUrl trust",
+      "status": "Compliant",
+      "evidence": "settle.ts:308-314 — on first use of a network, calls `publicClient.getChainId()` and asserts against `network.chainId`; mismatch throws `NetworkMismatchError` carrying both expected and observed chain IDs. The pin is one-shot per WalletCache entry (`chainIdPinned` flag, line 133); subsequent calls on the same network skip the assertion. core.ts:586-595 catches the throw and emits `chain_id_mismatch` event + 402 response."
+    },
+    {
+      "decision": "D15",
+      "title": "Vault impl locked from direct initialization; no destructive primitives",
+      "status": "Compliant",
+      "evidence": "PaymentVaultImpl.sol:50-52 — constructor calls `_disableInitializers()`. `grep -n 'selfdestruct\\|delegatecall\\|assembly' contracts/src` → zero hits except the NatSpec line on line 26. NatSpec `@custom:security-invariant no_selfdestruct no_delegatecall single_initializer no_setters_for_developer_or_factory` present verbatim at line 26."
+    },
+    {
+      "decision": "D16",
+      "title": "Vault has no `receive()` or `fallback()` payable",
+      "status": "Compliant",
+      "evidence": "`grep -n 'receive\\|fallback' contracts/src/PaymentVaultImpl.sol` → matches only in NatSpec comments (lines 24, 74). The contract source has no `receive() external payable` or `fallback() external payable` function definitions. Native asset `call{value:x}` to the vault will revert at the EVM dispatch level per D16 expected behavior."
+    },
+    {
+      "decision": "D17",
+      "title": "No setters for `developer` / `factory`",
+      "status": "Compliant",
+      "evidence": "`grep -n 'setDeveloper\\|setFactory' contracts/src` → no matches. `developer` (line 31) and `factory` (line 32) are `public` storage slots set exactly once inside `initialize(_developer)` (lines 60-64). The Initializable `initializer` modifier ensures single-call. NatSpec invariant on line 26 carries `no_setters_for_developer_or_factory` verbatim."
+    },
+    {
+      "decision": "D18",
+      "title": "Structured security logging surface",
+      "status": "Compliant with one drift",
+      "evidence": "types.ts:105-120 defines the `SecurityEventCatalog` with the documented 14 events (the table in D18 listed 10; the implementation adds `authorization_expired`, `authorization_not_yet_valid`, `to_mismatch`, `insufficient_amount` as separate names per addendum §2 — documented in decisions.md Task 9 review). core.ts is the SINGLE owner of `securityEvent` emission (verified: `grep -rn 'securityEvent' packages/middleware/src --exclude-dir=__tests__` shows hits only in core.ts:394 and types.ts:130). `emit` helper (core.ts:376-398) wraps every call in try/catch — a throwing logger never blocks the request. `scrubSecrets` is applied before emit; `SAFE_HEX_FIELDS = ['txHash']` (line 364) preserves the tx hash from the secret pattern. Drift: T12-03 (`internal_error` reason is not in the documented taxonomy)."
+    }
+  ],
+  "cross_cutting_observations": {
+    "adapter_consistency": {
+      "status": "Consistent",
+      "notes": "Both adapters (`adapters/node-http.ts`, `adapters/fastify.ts`) call `paywall(req, opts)` with the same `PaywallCoreOptions` shape. Both translate the discriminated `PaywallResult`: on 402, write status + headers + JSON body; on passthrough, set `X-PAYMENT-RESPONSE` header before user handler runs. The node-http adapter writes Content-Type explicitly (line 30) then spreads `result.headers` (which carries the same Content-Type) — redundant but harmless. Fastify only iterates `result.headers` and lets Fastify set Content-Type via `reply.send(body)`. Handler-exception semantics differ by framework convention: node-http awaits the user handler (exceptions propagate up to the caller's error handler), fastify lets Fastify's own onError chain handle them. Both behaviors are framework-idiomatic — no drift."
+    },
+    "naming_consistency": {
+      "status": "Consistent",
+      "notes": "TS naming is uniformly camelCase for functions/variables, PascalCase for types/classes (`OpaqueRelayerKey`, `NonceStore`, `PaymentRequirements`), kebab-case for file names (`replay-store.ts`, `relayer-key.ts`, `node-http.ts`). Solidity uses PascalCase for contracts (`PaymentSplitterFactory`, `PaymentVaultImpl`), errors (`AlreadyRegistered`, `InvalidFeeBps`, `ZeroAddress`, `NoBalance`, `NotDeveloper`), events (`VaultDeployed`, `FeeBpsUpdated`, `PlatformTreasuryUpdated`, `Withdrawal`); camelCase for functions and storage. The seven settlement sub-reasons are spelled identically wherever they appear (`rpc_timeout`, `rpc_5xx`, `gas_estimate_revert`, `mine_timeout`, `receipt_reverted`, `relayer_no_balance`, `authorization_already_used_onchain`) — but typed under two distinct names (`SettleReason` vs `SettlementSubReason`); see T12-02. The eighth `internal_error` literal is the drift surfaced by T12-03."
+    },
+    "error_handling": {
+      "status": "Mostly consistent",
+      "notes": "Every async path has a defined failure mode. The `emit(...)` helper in core.ts wraps logger calls in try/catch per D18. Two intentional empty-catch sites: (a) core.ts:446 swallows pre-7a factoryState read errors and defers to the post-7b retry (documented inline); (b) the `emit` helper catches throwing loggers (documented inline). No `console.error` in production paths (the single `console.warn` in networks.ts:76 is the documented T3-notes module-load surface). No raw hex prints through any error path verified by inspection — `classifyError` in scripts/register.ts:142 scrubs the error message before pattern matching (line 154), and settle.ts's `classifyWriteError` returns fixed tokens only (no message echo). post-deploy.ts:264 emits a static parse-error message rather than forwarding the inner JSON error (per SA-T11-03)."
+    },
+    "shared_resource_compliance": {
+      "status": "Compliant",
+      "notes": "Per tech-spec Architecture 'Shared resources' table: (1) `PublicClient` owned by core.ts (lazy-init per network at line 179-198 with PUBLIC_CLIENT_INFLIGHT dedup) — consumers verify.ts (passes through opts.publicClient), settle.ts (uses for getChainId/readContract/waitForTransactionReceipt), core.ts factory-state cache. 1 per network in use. ✓. (2) `WalletClient` owned by settle.ts (WALLET_CACHE at line 136, lazy-init per network in buildWalletClient line 152) — sole consumer is settle.ts. 1 per network. ✓. (3) `NonceStore` is process-singleton — declared at core.ts:102 `const nonceStore: NonceStore = new NonceStore()` (module scope, not per-network). Consumed via verify.ts opts.nonceStore. 1 per process. ✓ — observable across both adapters because both invoke `paywall(...)` which uses the module-scope binding. (4) `factory.paused()` / `factory.vaults` cache — owned by core.ts (FACTORY_STATE_CACHE at line 113, 5s TTL at line 117). 1 per network. ✓. (5) `NETWORKS` — module const in networks.ts. ✓. (6) `OpaqueRelayerKey` — constructed by integrator, held opaque through core.ts and only extracted in settle.ts (one call site at line 156). ✓. No leakage of shared state, no duplicate instances."
+    },
+    "complexity": {
+      "status": "Acceptable with one nit",
+      "notes": "`paywall()` in core.ts is 225 lines (lines 406–630) which violates the patterns.md 'functions < 50 lines' guideline. The cohesion is intrinsic to the spec — a 7-step pipeline (7a–7g) that must run linearly per-request with branching at every step. Breaking it into helpers would scatter the pipeline across multiple files without clarifying it. settleOnChain (settle.ts, ~129 lines) similarly has a natural linear flow (cache lookup → chainId pin → balance check → sig parse → write → receipt). Both are well-commented at every step. verify.ts:99-193 is ~95 lines and reads cleanly. NonceStore methods are short (every method is well under 30 lines). No god-objects, no excessive nesting (the max nesting in core.ts is 3 levels — `paywall → try → if/else`)."
+    },
+    "esm_only_invariant": {
+      "status": "Compliant",
+      "notes": "`packages/middleware/package.json` has `\"type\": \"module\"` (verified line 4). `grep -n 'require(' packages/middleware/src --include='*.ts'` shows only ONE hit — in settle.ts:29 inside a comment string describing Circle's FiatTokenV2 revert behavior. No `module.exports`, no `.cjs` files in `src/`, no `.cts` files. All imports use `.js` extension on relative paths (e.g. `./relayer-key.js`, `./types.js`) per Node ESM rules."
+    },
+    "custom_errors_over_require_strings": {
+      "status": "Compliant",
+      "notes": "`grep -n 'require(' contracts/src` → 0 hits. The five custom errors are all defined and all used: `NotDeveloper`, `AlreadyRegistered`, `InvalidFeeBps`, `ZeroAddress` (declared on both contracts), `NoBalance`. No legacy `require(cond, 'string')`. The `Deploy.s.sol` script uses `require(treasury != address(0), 'treasury_zero')` etc. (lines 44-46), which is acceptable — Deploy.s.sol is a Foundry script, not a deployed contract."
+    },
+    "natspec_invariants_on_vault": {
+      "status": "Compliant",
+      "notes": "PaymentVaultImpl.sol:26 carries the exact verbatim string `@custom:security-invariant no_selfdestruct no_delegatecall single_initializer no_setters_for_developer_or_factory`. This is the anchor T13's security audit will rely on."
+    },
+    "security_observations_for_t13": {
+      "status": "Noted for handoff",
+      "notes": "Per task spec — these are not chased here but flagged for T13: (a) `core.ts:494` re-reads the factory state when pre-7a returned servedStale, but if BOTH reads return servedStale (RPC failing through both), the path correctly surfaces `rpc_5xx` (line 498). No fail-open. (b) `verify.ts:103` defensively returns `network_mismatch` when `opts.expectedNetwork` is unknown — does not panic. (c) `settle.ts:148` `normalizePrivateKey` accepts both with and without `0x`; the raw key never leaves the function scope. (d) `OpaqueRelayerKey` constructor in relayer-key.ts:42-57 does NOT validate hex shape — it accepts any non-empty string; the validation falls to viem's `privateKeyToAccount` in settle.ts (which throws on bad input). Acceptable trade-off: the wrapper is opaque by design; format validation is the consumer's responsibility (register.ts:181 already validates against PRIVATE_KEY_RE). All four items are quality-noted observations; none warrant a code-audit finding."
+    },
+    "test_observations_for_t14": {
+      "status": "Noted for handoff",
+      "notes": "Per task spec — code structure inside `__tests__` directories is in scope only when it points at a defect in the source. The forked-e2e test at `packages/middleware/src/__tests__/integration/forked-e2e.test.ts` injects a custom NetworkConfig with `usdcEip712Name: 'USD Coin'` (matching `MockUsdcEip3009`'s constructor) rather than the production `'USDC'` from networks.ts. This is a test-time substitution and is not a source defect. The mock USDC's domain name does diverge from the live chain — but the production `NETWORKS['arc-testnet']` reads `'USDC'` from the T3 artefact, and an integrator running against real Arc Testnet USDC will sign against `'USDC'`. No source-level bug."
+    }
+  },
+  "files_audited": {
+    "middleware_src": [
+      "packages/middleware/src/index.ts",
+      "packages/middleware/src/core.ts",
+      "packages/middleware/src/types.ts",
+      "packages/middleware/src/networks.ts",
+      "packages/middleware/src/x402.ts",
+      "packages/middleware/src/errors.ts",
+      "packages/middleware/src/relayer-key.ts",
+      "packages/middleware/src/replay-store.ts",
+      "packages/middleware/src/verify.ts",
+      "packages/middleware/src/settle.ts",
+      "packages/middleware/src/adapters/node-http.ts",
+      "packages/middleware/src/adapters/fastify.ts"
+    ],
+    "contracts_src": [
+      "contracts/src/PaymentSplitterFactory.sol",
+      "contracts/src/PaymentVaultImpl.sol",
+      "contracts/src/interfaces/IERC3009.sol"
+    ],
+    "deploy_and_scripts": [
+      "contracts/script/Deploy.s.sol",
+      "contracts/scripts/post-deploy.ts",
+      "contracts/scripts/verify-usdc-eip3009.ts",
+      "contracts/scripts/export-abi.ts (lightly audited — ABI export helper, no production code path)",
+      "scripts/register.ts"
+    ],
+    "test_mocks_referenced_only": [
+      "contracts/test/mocks/MockUsdcEip3009.sol",
+      "contracts/test/mocks/MockMaliciousTreasury.sol",
+      "contracts/test/mocks/MockUsdcWithHook.sol"
+    ]
+  },
+  "layout_note": "Tech-spec Architecture §'What we're building/modifying' (lines 33-65) references `contracts/contracts/`, `contracts/deploy/01_deploy_factory.ts`, and `hardhat.config.ts`. The shipped layout uses Foundry conventions per D9: `contracts/src/`, `contracts/script/Deploy.s.sol`, `contracts/scripts/post-deploy.ts`, with no Hardhat. This is a documented architecture deviation (decisions.md Task 2 / iter-4 §1). The task-12 scope file list at tasks/12.md lines 23-28 was updated to match; tech-spec Architecture §'What we're building/modifying' is now stale relative to the shipped layout. Recommend updating tech-spec to match — observation only, not a finding."
+}

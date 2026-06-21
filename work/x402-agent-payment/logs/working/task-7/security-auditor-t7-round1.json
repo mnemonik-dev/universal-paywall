@@ -1,0 +1,175 @@
+{
+  "reviewer": "security-auditor-t7",
+  "task": 7,
+  "round": 1,
+  "commit": "e98ece8",
+  "verdict": "conditional_pass",
+  "summary": "Both modules implement their security contracts correctly in the common case. Three issues require attention before merge: one HIGH (v-normalization logic has a fallback that silently produces v=27 for an unrecognized signature format, which would cause the on-chain tx to succeed for v=27 signatures but silently mis-classify v=28 ones in some edge shapes), one MEDIUM (verify.ts calls the lower-level NonceStore.has+insert pair rather than the purpose-built checkAndInsert method, meaning the safety-net 'validBefore <= now' guard inside checkAndInsert is bypassed), and one LOW (HttpRequestError with a non-5xx status, e.g. 429 or 400, is silently re-classified as rpc_timeout, which is semantically wrong and may hide rate-limit issues). No secrets leak, no SecurityLogger imports, structural replay-store guarantees hold.",
+  "findings": [
+    {
+      "id": "SEC-T7-01",
+      "severity": "HIGH",
+      "title": "v-normalization fallback produces v=27 for signatures with both sig.yParity undefined and sig.v undefined",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "1009-1011",
+      "description": "The signature is split via viem's parseSignature, then v is computed as:\n\n  const yParity = typeof sig.yParity === 'number' ? sig.yParity : sig.v !== undefined ? Number(sig.v) - 27 : 0;\n  const v = 27 + yParity;\n\nWhen neither `sig.yParity` nor `sig.v` is present (which can happen for an EIP-2098 compact signature whose yParity is encoded inside the s field), the fallback '0' silently produces v=27. A v=28 authorization signed in compact form would be submitted on-chain as v=27, causing an AuthorizationIsUsed or signature-mismatch revert — after the payment was already accepted off-chain by verify.ts. The payer loses the payment window and has to mint a new nonce.\n\nviem's parseSignature on a standard 65-byte ECDSA signature (r[32] + s[32] + v[1]) returns a ParsedSignature with .v set to 27n or 28n and .yParity set to 0 or 1, so for normal usage this branch is not hit. However, the task spec says: 'confirm the v value normalization — some libraries return 0/1, EIP-3009 expects 27/28. Test with both formats from a known signer.' No test exercises the compact-signature path, and the fallback is silent rather than throwing.",
+      "attack_scenario": "An EIP-2098 compact signature submitted by a well-behaved agent client (e.g. a future CDP SDK version that uses compact sigs) would produce a wrong v value. The facilitator would broadcast an invalid tx, burn gas, and return settlement_failed to the agent, even though the authorization itself was valid.",
+      "recommendation": "Replace the multi-branch yParity derivation with an explicit check and a hard throw for unrecognized forms:\n\n  let yParity: 0 | 1;\n  if (typeof sig.yParity === 'number' && (sig.yParity === 0 || sig.yParity === 1)) {\n    yParity = sig.yParity;\n  } else if (sig.v === 27n || sig.v === 28n) {\n    yParity = Number(sig.v - 27n) as 0 | 1;\n  } else {\n    return { ok: false, reason: 'gas_estimate_revert' }; // malformed sig\n  }\n  const v = 27 + yParity;\n\nAlternatively use viem's own recoverAddress utility which handles normalization internally, or call parseSignature and extract via the explicit 65-byte path. Add a test covering a signature where v=28 (yParity=1) round-trips correctly.",
+      "references": ["EIP-2098", "viem parseSignature docs"]
+    },
+    {
+      "id": "SEC-T7-02",
+      "severity": "MEDIUM",
+      "title": "verify.ts uses has+insert primitives instead of checkAndInsert, bypassing the built-in validBefore safety-net",
+      "file": "packages/middleware/src/verify.ts",
+      "lines": "1238-1251",
+      "description": "The NonceStore exposes two surfaces:\n  - checkAndInsert(input: CheckAndInsertInput) — the canonical production path. In addition to the has+insert atomicity, it independently guards 'if (input.validBefore <= input.now) return { accepted: false, reason: authorization_expired }' (replay-store.ts line 114). This is a safety-net that prevents inserting a nonce whose validBefore is already in the past.\n  - has(HasInput) + insert(InsertInput) — lower-level primitives. The replay-store.ts JSDoc on insert() says 'Test-only primitive. Production callers use checkAndInsert'.\n\nverify.ts calls has + insert directly, never checkAndInsert. This means:\n  1. The replay-store's own validBefore <= now guard is skipped.\n  2. An expired authorization (validBefore <= nowMs) would still be inserted into the store, slowly leaking memory and incrementing #count toward the 100k cap. verify.ts does check validBefore itself at line 1217 (validBeforeMs <= nowMs + SAFETY_MARGIN_MS), so a fully-expired authorization is rejected before reaching the nonce-store call. However the store's own check is more conservative (validBefore <= now, no margin) and the two checks use different 'now' reference values (verify.ts uses nowMs from opts; checkAndInsert uses input.now). If in a future refactor the timing check in verify.ts is relaxed or the check order changes, the safety-net in checkAndInsert would catch what slips through. Using the lower-level primitives removes that defense-in-depth layer.\n  3. The task spec says 'Production callers use checkAndInsert' in replay-store.ts. This is a deviation from the documented contract.",
+      "attack_scenario": "Low-severity in isolation because verify.ts does run its own validBefore check first. However, a timing edge case exists: if verify.ts's nowMs and the actual system clock diverge (injectable nowMs in tests vs Date.now() in production), the two checks can produce contradictory results. More concretely, if opts.nowMs is injected as a stale value, an expired authorization could pass verify.ts's own check but be inserted into the store anyway — which is exactly the footgun checkAndInsert's safety-net prevents.",
+      "recommendation": "Replace the manual has+insert pair with checkAndInsert:\n\n  const result = opts.nonceStore.checkAndInsert({\n    from: authorization.from,\n    nonce: authorization.nonce,\n    validBefore: validBeforeMs,\n    now: nowMs,\n  });\n  if (!result.accepted) {\n    const reason = result.reason === 'nonce_already_used' ? 'nonce_already_used' : 'authorization_expired';\n    return { ok: false, reason };\n  }\n\nThis also fixes the TOCTOU test concern automatically — checkAndInsert is already the documented single-synchronous-block path.",
+      "references": ["replay-store.ts lines 82-132", "tech-spec D5"]
+    },
+    {
+      "id": "SEC-T7-03",
+      "severity": "LOW",
+      "title": "HttpRequestError with non-5xx status (e.g. 429 Too Many Requests) misclassified as rpc_timeout",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "919-925",
+      "description": "The classifier handles HttpRequestError as follows:\n\n  if (err instanceof HttpRequestError) {\n    const status = err.status;\n    if (typeof status === 'number' && status >= 500) {\n      return { reason: 'rpc_5xx' };\n    }\n    return { reason: 'rpc_timeout' }; // <-- fallthrough for 4xx\n  }\n\nA 429 (rate limited), 401 (unauthorized), or 400 (bad request) from the RPC endpoint would be classified as rpc_timeout. From the agent's perspective, the 402 body says settlement_failed with reason rpc_timeout, which implies a transient network issue. In practice, a 429 is a rate-limit that may require backoff, and a 401 signals an authentication problem that a retry will not fix.",
+      "attack_scenario": "Not directly exploitable. However, a misconfigured RPC endpoint returning 401 would cause every payment to fail with rpc_timeout, suggesting a transient issue when the real problem is a configuration error. An operator could waste time investigating network stability instead of fixing credentials.",
+      "recommendation": "Add a dedicated branch for 4xx:\n\n  if (err instanceof HttpRequestError) {\n    const status = err.status;\n    if (typeof status === 'number' && status >= 500) return { reason: 'rpc_5xx' };\n    if (typeof status === 'number' && status >= 400) return { reason: 'rpc_5xx' }; // 4xx also not transient\n    return { reason: 'rpc_timeout' };\n  }\n\nOr, if the task spec's 7-reason taxonomy must stay fixed and cannot be extended, at minimum document in a comment that 4xx falls into rpc_timeout as an approximation, so operators checking logs are not misled.",
+      "references": ["tech-spec D5 settlement failure taxonomy"]
+    },
+    {
+      "id": "SEC-T7-04",
+      "severity": "INFO",
+      "title": "Unknown network in settleOnChain throws NetworkMismatchError(0, 0) rather than a descriptive error",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "958-963",
+      "description": "When NETWORKS[opts.network] returns undefined (unknown network string), settleOnChain throws 'new NetworkMismatchError(0, 0)'. This is misleading: the D18 chain_id_mismatch event shape is { expectedChainId, observedChainId }, so core.ts receiving this error would emit a mismatch event with both fields as 0, which looks like a chainId=0 (arc-mainnet placeholder) conflict rather than an unknown network configuration error. The actual problem is a misconfiguration at startup.",
+      "attack_scenario": "Not exploitable. Logging/observability concern.",
+      "recommendation": "Throw a TypeError or a dedicated UnknownNetworkError with the network string, rather than misusing NetworkMismatchError. Alternatively, validate the network at WalletClient construction time (where it's also checked) and let this branch be unreachable in practice."
+    },
+    {
+      "id": "SEC-T7-05",
+      "severity": "INFO",
+      "title": "WalletClient is cached by network.id but built using opts.relayerKey from the first call; subsequent calls with a different relayerKey for the same network silently reuse the first key",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "965-969",
+      "description": "The WALLET_CACHE is keyed by network.id. On first call, buildWalletClient is invoked with opts.relayerKey. On subsequent calls for the same network, the cached entry is returned regardless of whether opts.relayerKey matches the key used to build it. If core.ts ever calls settleOnChain with two different relayer keys for the same network (e.g. hot-key rotation without process restart), the second key is silently ignored and the first relayer continues to be used.",
+      "attack_scenario": "Operational concern rather than a security vulnerability in the MVP scope, because core.ts is documented as constructing a single OpaqueRelayerKey per process. However, if a future Task 8 or 11 ever supports key rotation, this cache design would silently ignore the new key, causing the old (possibly compromised/revoked) relayer to continue signing transactions.",
+      "recommendation": "Document the single-key-per-process assumption explicitly in a code comment and in SettleOptions JSDoc. Optionally add an assertion that the relayer address of the cached entry matches the address derived from the new opts.relayerKey, throwing if they diverge."
+    }
+  ],
+  "confirmed_invariants": [
+    {
+      "id": "INV-01",
+      "description": "EIP-712 domain built from NETWORKS[opts.expectedNetwork], not from payload",
+      "status": "CONFIRMED",
+      "evidence": "verify.ts lines 1177-1182: domain object uses network.usdcEip712Name, network.usdcEip712Version, network.chainId, network.usdcAddress — all sourced from the NETWORKS registry keyed by opts.expectedNetwork. The payload's network field is only used for the normalize-and-compare check at line 1226."
+    },
+    {
+      "id": "INV-02",
+      "description": "Tampered chainId / verifyingContract / name / version all produce invalid_signature",
+      "status": "CONFIRMED",
+      "evidence": "recoverTypedDataAddress is called with a domain fully derived from NETWORKS (not from the payload). A signature made against a different chainId or verifyingContract recovers a different address, which fails the recovered == authorization.from check at line 1204. The four tamper tests in verify.test.ts cover all four domain fields and all expect invalid_signature."
+    },
+    {
+      "id": "INV-03",
+      "description": "Time comparisons in milliseconds; SAFETY_MARGIN_MS=5_000; validBefore at nowSec+4 fails, nowSec+6 passes",
+      "status": "CONFIRMED",
+      "evidence": "verify.ts lines 1216-1218: validBeforeMs = Number(authorization.validBefore) * 1000; check is validBeforeMs <= nowMs + SAFETY_MARGIN_MS (5_000). Boundary tests in verify.test.ts inject opts.nowMs and test +4s (fails) and +6s (passes). validAfter converted at line 1221."
+    },
+    {
+      "id": "INV-04",
+      "description": "NonceStore.has and NonceStore.insert run synchronously with no await between",
+      "status": "CONFIRMED_WITH_CAVEAT",
+      "evidence": "verify.ts lines 1238-1251: has and insert are in the same synchronous block with no await. The microtask-ordering test in verify.test.ts validates this. CAVEAT: see SEC-T7-02 — the wrong method pair is used (has+insert instead of checkAndInsert), meaning the store's internal safety-net is bypassed even though the external atomicity is preserved."
+    },
+    {
+      "id": "INV-05",
+      "description": "settle.ts is sole getRelayerKeySecret() call site; raw key never crosses function boundaries",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts line 824: only call to getRelayerKeySecret in the entire diff. The raw key is immediately passed to privateKeyToAccount (line 825) and never assigned to a local variable that escapes, returned, logged, or included in error fields. Static grep in settle.test.ts confirms no SecurityLogger import (lines 329-337)."
+    },
+    {
+      "id": "INV-06",
+      "description": "Proactive USDC.balanceOf check uses constant MIN_RELAYER_USDC_BALANCE (1_000_000n); strict < threshold",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts line 731: MIN_RELAYER_USDC_BALANCE = 1_000_000n. Line 996: 'if (balance < MIN_RELAYER_USDC_BALANCE)'. Three boundary tests in settle.test.ts cover 0n, MIN-1n, and MIN exactly."
+    },
+    {
+      "id": "INV-07",
+      "description": "WaitForTransactionReceiptTimeoutError checked before TimeoutError",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts lines 913-915: WaitForTransactionReceiptTimeoutError instanceof check is first in classifyWriteError. TimeoutError check follows at line 917. Both are imported from viem as distinct classes."
+    },
+    {
+      "id": "INV-08",
+      "description": "authorization_already_used_onchain via case-insensitive substring match on 'authorization is used'; no 4-byte selector",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts line 868: AUTH_ALREADY_USED_MARKER = 'authorization is used'. matchesAuthorizationAlreadyUsed at line 901 calls extractRevertReasonString (which lowercases all parts) and then includes(AUTH_ALREADY_USED_MARKER). No selector check anywhere in the file. Test at lines 297-314 covers uppercase case variant."
+    },
+    {
+      "id": "INV-09",
+      "description": "No SecurityLogger import or securityEvent call in verify.ts or settle.ts",
+      "status": "CONFIRMED",
+      "evidence": "verify.ts imports: recoverTypedDataAddress from viem, types and NETWORKS from local modules, NonceStore type from replay-store. No SecurityLogger. settle.ts imports: viem error classes, viem account, NETWORKS, OpaqueRelayerKey+getRelayerKeySecret, types. No SecurityLogger. Both test files include static source-text grep checks (verify.test.ts implicitly via opts shape; settle.test.ts explicitly at lines 327-345)."
+    },
+    {
+      "id": "INV-10",
+      "description": "settle.ts never touches NonceStore; replay-store retention on failure is structural",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts has no import from replay-store.ts. Static grep in settle.test.ts at lines 383-388 asserts this. The settle failure test at lines 367-388 also verifies insert is never called on a NonceStore spy passed by the test."
+    },
+    {
+      "id": "INV-11",
+      "description": "ChainId pin on first writeContract per network; mismatch throws NetworkMismatchError",
+      "status": "CONFIRMED",
+      "evidence": "settle.ts lines 973-979: pin runs when !entry.chainIdPinned; throws NetworkMismatchError with expectedChainId and observedChainId; sets chainIdPinned=true on success. Test at lines 126-137 confirms second call does not invoke getChainId again."
+    },
+    {
+      "id": "INV-12",
+      "description": "v/r/s split is performed; v normalized to 27/28",
+      "status": "CONFIRMED_WITH_CAVEAT",
+      "evidence": "settle.ts lines 1006-1011: parseSignature called; v computed from yParity or sig.v. For standard 65-byte ECDSA signatures, viem's parseSignature returns sig.v as 27n or 28n and sig.yParity as 0 or 1, so the primary path (sig.yParity check) works. CAVEAT: see SEC-T7-01 — the fallback to yParity=0 is wrong for compact-format signatures."
+    }
+  ],
+  "signature_malleability_assessment": {
+    "status": "NOT_VULNERABLE",
+    "evidence": "EIP-3009's transferWithAuthorization uses 'from' as an explicit argument, not derived from the signature. The USDC contract independently ecrecovers from the submitted v/r/s and requires the result to equal 'from'. Signature malleability (flipping s) would recover a different address and revert on-chain. viem's recoverTypedDataAddress on the off-chain side also does full EIP-712 domain-hash recovery, so a malleable form of a valid signature for domain A cannot be made to recover as a valid address for domain B.",
+    "note": "The SEC-T7-01 finding is about incorrect v computation in certain signature encodings, which is distinct from classical signature malleability."
+  },
+  "secret_leak_assessment": {
+    "status": "CLEAN",
+    "evidence": "getRelayerKeySecret is called exactly once (settle.ts:824) and the return value is immediately consumed by privateKeyToAccount without assignment to any named variable that could be captured. OpaqueRelayerKey.toJSON returns '<redacted:relayer-key>'. The settle.test.ts WalletClient key test at lines 347-365 snapshots JSON.stringify of the SettleResult and asserts the raw key bytes are absent."
+  },
+  "error_information_disclosure_assessment": {
+    "status": "CLEAN",
+    "evidence": "SettleResult on failure carries { ok, reason, details: { gasEstimate?, balance? } }. The details fields expose balance (a USDC amount, not sensitive) and gasEstimate (a gas number, not sensitive). No relayer address, no raw signature components, no private key fields. The NetworkMismatchError carries expectedChainId and observedChainId — both are public chain identifiers. No stack traces or viem internal error details are forwarded to the caller in the SettleResult shape."
+  },
+  "cross_chain_replay_assessment": {
+    "status": "PROTECTED",
+    "evidence": "EIP-712 domain includes chainId and verifyingContract. Domain is sourced from NETWORKS[opts.expectedNetwork], not from the payload. A signature made for chainId=1 (Ethereum mainnet) fails off-chain recovery against the arc-testnet domain (chainId=5042002). The D14 chainId pin additionally guards against an accidentally mis-configured RPC pointing at a different chain."
+  },
+  "files_reviewed": [
+    "packages/middleware/src/verify.ts",
+    "packages/middleware/src/settle.ts",
+    "packages/middleware/src/__tests__/verify.test.ts",
+    "packages/middleware/src/__tests__/settle.test.ts",
+    "packages/middleware/src/errors.ts",
+    "packages/middleware/src/index.ts",
+    "packages/middleware/src/replay-store.ts",
+    "packages/middleware/src/relayer-key.ts",
+    "packages/middleware/src/networks.ts",
+    "packages/middleware/package.json"
+  ],
+  "required_fixes_before_merge": [
+    "SEC-T7-01 (HIGH): Fix v-normalization fallback in settle.ts so unrecognized signature forms throw or return a classified error rather than silently using yParity=0.",
+    "SEC-T7-02 (MEDIUM): Replace has+insert pair in verify.ts with checkAndInsert to use the purpose-built production path and preserve the replay-store's own safety-net."
+  ],
+  "recommended_fixes": [
+    "SEC-T7-03 (LOW): Classify HttpRequestError 4xx separately from rpc_timeout, or add a comment documenting the intentional approximation.",
+    "SEC-T7-04 (INFO): Replace NetworkMismatchError(0, 0) for unknown network with a more descriptive error type.",
+    "SEC-T7-05 (INFO): Document single-key-per-process assumption in SettleOptions JSDoc and add assertion for key identity in the cache hit path."
+  ]
+}

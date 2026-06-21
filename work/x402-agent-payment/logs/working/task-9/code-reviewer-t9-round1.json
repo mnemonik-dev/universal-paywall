@@ -1,0 +1,99 @@
+{
+  "reviewer": "code-reviewer-t9",
+  "task": 9,
+  "round": 1,
+  "commit": "07ef9d5b73847cc54edc11c83762d2385eb48a03",
+  "summary": "Thorough unit-test expansion with vendored JSON Schema, helpers, and vitest coverage config. Coverage targets met. Architecture and cross-file consistency are solid. Three issues found: one major (networks.test.ts runtime dependency on T3 artefact path via __dirname), one minor (settle.test.ts verifyResult mock missing 'reason' field in relayer_low_balance event mapping), one minor (branch threshold set to 75% rather than task-spec's implied 85%).",
+  "dimensions_reviewed": [
+    "Architectural Patterns",
+    "Separation of Concerns",
+    "Code Readability & Maintainability",
+    "Error Handling & Logging",
+    "Type Safety",
+    "Testing Coverage",
+    "Dependencies Management",
+    "Security Considerations",
+    "Performance Implications",
+    "Cross-File Consistency",
+    "Resource Management"
+  ],
+  "findings": [
+    {
+      "id": "T9-R1-01",
+      "severity": "major",
+      "dimension": "Cross-File Consistency",
+      "file": "packages/middleware/src/__tests__/networks.test.ts",
+      "lines": "6-11",
+      "title": "networks.test.ts uses __dirname in an ESM module and resolves T3 artefact path incorrectly",
+      "description": "The test file uses `__dirname` (a CommonJS global) in an ESM context. In vitest with `\"type\": \"module\"`, `__dirname` is not defined at the top level; the test will fail at runtime with `ReferenceError: __dirname is not defined`. The fix is `const here = dirname(fileURLToPath(import.meta.url)); const T3_ARTEFACT_PATH = resolve(here, '../../../../contracts/scripts/arc-testnet-usdc-domain.json')`. The companion test `arc-testnet usdcEip712Name + version match T3 JSON artefact` depends on this path being read correctly — if it throws, the entire describe block is skipped. Since networks.ts itself uses `import.meta.url`-based resolution correctly, this test is inconsistent with the source module it tests.",
+      "recommendation": "Replace `__dirname` with `const here = dirname(fileURLToPath(import.meta.url))` (the same pattern used in x402.test.ts, errors.test.ts, settle.test.ts, and core.test.ts). Update the resolve call to `resolve(here, '../../../../contracts/scripts/arc-testnet-usdc-domain.json')`.",
+      "spec_ref": "tech-spec Testing Strategy — networks.test.ts; task-9 §2 (test-dir canonicalization under src/__tests__/)"
+    },
+    {
+      "id": "T9-R1-02",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "packages/middleware/src/__tests__/core.test.ts",
+      "lines": "507-525",
+      "title": "relayer_low_balance event assertion omits the 'threshold' field that D18 / task-9 spec §7 mandates",
+      "description": "The task-9 spec (Acceptance Criteria, §7) states that the `relayer_low_balance` event payload must be `{ balanceUsdc, threshold: 1_000_000n }`. The test at line 520 asserts only `{ balanceUsdc: '750000' }` — it does not check `threshold`. The D18 table in tech-spec lists `{ balanceUsdc }` only, so this is an inconsistency between the task-9 spec addendum and the tech-spec. Either the test should assert `{ balanceUsdc: '750000', threshold: '1000000' }` (matching the task-spec), or the task-spec reference to `threshold` should be reconciled against the D18 table. Currently the test passes because it uses `toEqual({ balanceUsdc: '750000' })` which will fail if the implementation emits extra fields — but if the implementation does emit `threshold`, the test catches it as an unexpected mismatch. The core.ts source emits `{ balanceUsdc: settleResult.details.balance.toString() }` only (no threshold field), so the test currently passes, but the spec says it should include threshold. This is a spec-vs-implementation gap.",
+      "recommendation": "Decide the canonical shape for the `relayer_low_balance` event payload. If the threshold field is required (per task-9 spec addendum §7 last bullet), update core.ts to emit it and update the test assertion. If the D18 table governs (no threshold), update the task-spec to remove the reference and leave the test as-is.",
+      "spec_ref": "tech-spec D18 table row 'relayer_low_balance'; task-9 spec §7 (relayer balance threshold constant)"
+    },
+    {
+      "id": "T9-R1-03",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "packages/middleware/vitest.config.ts",
+      "lines": "11-16",
+      "title": "Branch coverage threshold is 75%, not 85%",
+      "description": "The task description specifies '≥85% line coverage' as the primary target and the tech-spec AC echoes this. The vitest.config.ts correctly enforces 85% for lines, statements, and functions, but sets branches at 75%. The reported branch coverage is 89.15% (well above either threshold), so this does not affect the current build. However, setting the threshold below the achieved value means a future regression in branching (e.g., dropping to 80%) would silently pass CI. Since the task-spec states the goal as ≥85% line coverage without separately downgrading branches, and the current branch coverage is already 89.15%, raising the branch threshold to 80% (a conservative alignment) or 85% (matching the other metrics) would be more defensive.",
+      "recommendation": "Raise `thresholds.branches` from 75 to at least 80 to provide a meaningful safety net. 85 would fully align with the other metrics; the current 89.15% branch coverage gives sufficient headroom.",
+      "spec_ref": "task-9 AC: 'npm test --workspace=@universal-paywall/middleware -- --coverage exits 0 and prints line coverage ≥85%'; tech-spec AC line coverage ≥85%"
+    },
+    {
+      "id": "T9-R1-04",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "packages/middleware/src/__tests__/core.test.ts",
+      "lines": "578-600",
+      "title": "SecurityLogger event-name mapping test uses 'nonce_replay' not 'nonce_replay_attempt'",
+      "description": "The D18 event catalog in tech-spec names the event `nonce_replay_attempt` (not `nonce_replay`). The parameterized test at lines 579-586 maps `'nonce_already_used'` verify reason to `'nonce_replay'` event name. The core.ts source at line 539 emits `emit(opts, 'nonce_replay', ...)`. If the types.ts SecurityEventCatalog defines the event as `nonce_replay_attempt`, then either the catalog has a discrepancy from the spec, or core.ts is using the wrong key. The test is internally consistent with core.ts but diverges from the D18 table name. This should be verified — the test will catch a future rename if the literal event-name used in the assertion does not match what core.ts emits.",
+      "recommendation": "Verify the `SecurityEventCatalog` type in types.ts against the D18 table. If the catalog key is `nonce_replay_attempt`, the test should assert `'nonce_replay_attempt'` and core.ts should use that key. If the implementation intentionally shortened it to `nonce_replay`, the tech-spec D18 table should be updated to match.",
+      "spec_ref": "tech-spec D18 table row 'nonce_replay_attempt'; task-9 spec §2 (SecurityLogger event catalog)"
+    },
+    {
+      "id": "T9-R1-05",
+      "severity": "minor",
+      "dimension": "Code Readability & Maintainability",
+      "file": "packages/middleware/src/__tests__/helpers/encode-header.ts",
+      "lines": "33-37",
+      "title": "oversizedHeader() comment says 'non-base64 ASCII blob' but the returned string IS valid base64 characters",
+      "description": "The `oversizedHeader()` function returns `'A'.repeat(size)`. The comment says 'the returned string is a non-base64 ASCII blob of `size` bytes'. 'A' is a valid base64 character, so this is not technically non-base64. The decodeXPayment size guard checks `Buffer.byteLength(header, 'utf8')` (raw string byte length) before any base64 decoding, so the guard fires correctly on a string of 5000 A's — but the comment is misleading. The code works correctly; only the documentation is wrong.",
+      "recommendation": "Fix the comment: 'Returns a string of `size` ASCII characters. Since `decodeXPayment` measures the raw header byte length before base64 decoding, any string longer than 4096 bytes will trigger the size guard regardless of whether it is valid base64.'",
+      "spec_ref": "tech-spec Solution 7a: 'check Buffer.byteLength <= 4096'"
+    }
+  ],
+  "positive_observations": [
+    "Schema fixture is complete and well-structured. The `additionalProperties: false` on all object definitions correctly enforces strictness. The `ChallengeBody` definition correctly uses `additionalProperties: true` to allow error extension fields — this is the right choice given the varying payload shapes for different error reasons.",
+    "The helpers/ directory is cleanly separated: sign.ts for EIP-712 signing, mock-clients.ts for viem doubles, timers.ts for deterministic time, encode-header.ts for header fixtures, recording-logger.ts for event capture. No test-specific logic bleeds into helpers; helpers have no test framework side-effects beyond the beforeEach/afterEach in timers.ts.",
+    "Cross-file consistency is strong: settle.test.ts correctly mocks `walletClient.writeContract` directly (not estimateContractGas). The `settle.ts` module is correctly structurally verified to not import SecurityLogger or replay-store via the source-read assertions in settle.test.ts and core.test.ts.",
+    "The `rpc_timeout` vs `mine_timeout` distinction is correctly exercised with distinct mock setups: rpc_timeout triggers from walletClient.writeContract rejection, mine_timeout from waitForTransactionReceipt throwing WaitForTransactionReceiptTimeoutError.",
+    "The factory-state cache tests in core.test.ts correctly exercise: TTL hit (no re-read within 5s), TTL miss (re-read after 6s advance), vault address cached forever once non-zero (vaultCalls.length === 1 after TTL expiry). This matches the implementation's two-tier caching (TTL on paused, permanent on non-zero vault).",
+    "SEC-T8-05 guard (vault_not_deployed short-circuits BEFORE verify) is explicitly tested — this is a critical security invariant that prevents 0x0 expectedVaultAddress from accepting crafted authorizations. The test directly asserts verifySpy was not called.",
+    "The `payerHash` canonical form tests are thorough: length assertion, regex pattern, and pinned implementation reference all verified together.",
+    "OpaqueRelayerKey redaction tests cover every serialization surface (JSON.stringify, toString, util.inspect with Symbol.for, pino, winston, structuredClone, brand-forged object). The cyclic-object test in scrubSecrets correctly validates that the scrubbed copy's self-reference points to the SCRUBBED output, not the original.",
+    "The `replay-store-entry-retained-after-settlement-failure` test correctly simulates the production flow rather than treating the NonceStore as an independent unit — it drives through the module-scope singleton that verify and settle share, which is the only way to actually pin the structural guarantee."
+  ],
+  "task_spec_coverage_gaps": [
+    {
+      "gap": "D18 event 'signature_invalid' — the test in core.test.ts at line 619 correctly asserts that verify returning 'invalid_signature' fires 'signature_invalid' with a payerHash. However, the parameterized test at lines 578-600 maps multiple verify reasons to their events. The test for 'nonce_already_used' → 'nonce_replay' should be reconciled with the spec event name 'nonce_replay_attempt' (see finding T9-R1-04)."
+    },
+    {
+      "gap": "Task-9 spec calls for a dedicated test for `core.test.ts::d18_chain_id_mismatch_event_fires` as a D14-triggered event. This is covered by the existing test at line 528 ('settle throws NetworkMismatchError → emit chain_id_mismatch + return 402 settlement_failed reason internal_error'). The test correctly asserts both the 402 body shape and the chain_id_mismatch event payload — fully covered."
+    }
+  ],
+  "verdict": "APPROVE_WITH_MINOR_FIXES",
+  "required_fixes": ["T9-R1-01"],
+  "suggested_fixes": ["T9-R1-02", "T9-R1-03", "T9-R1-04", "T9-R1-05"]
+}

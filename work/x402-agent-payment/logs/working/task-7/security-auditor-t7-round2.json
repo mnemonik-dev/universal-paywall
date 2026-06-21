@@ -1,0 +1,146 @@
+{
+  "reviewer": "security-auditor-t7",
+  "task": 7,
+  "round": 2,
+  "commits": ["e7ce27d", "40d3510"],
+  "baseline_commit": "e98ece8",
+  "verdict": "pass",
+  "summary": "All two round-1 required fixes are correctly addressed. Three recommended findings were also resolved. No new security issues introduced. One residual observation (INFO, non-blocking) about gas_estimate_revert being a semantically approximate classification for a signature-parse failure, but this is inherent to the 7-reason taxonomy and is documented in the code. All 12 security invariants confirmed.",
+
+  "round1_required_findings_verification": [
+    {
+      "id": "SEC-T7-01",
+      "original_severity": "HIGH",
+      "status": "FIXED",
+      "description": "v-normalization fallback no longer silently defaults to yParity=0.",
+      "fix_analysis": "settle.ts lines 356-366: the three-branch ladder is now explicit. Branch 1: `typeof sig.yParity === 'number'` uses it directly. Branch 2: `sig.v !== undefined` derives yParity as `Number(sig.v) - 27`. Branch 3: neither present — returns `{ ok: false, reason: 'gas_estimate_revert' }` without calling writeContract. This is correct: a signature that parseSignature cannot express as yParity or v is malformed and should not be broadcast. The choice of `gas_estimate_revert` as the reason is a best-fit within the constrained 7-reason taxonomy (there is no 'malformed_signature' bucket); the comment in the code documents this correctly.",
+      "residual_note": "gas_estimate_revert semantically means 'gas estimation reverted during pre-broadcast simulation'. A parseSignature edge case is not a gas estimation error. However, since the spec defines exactly 7 reason codes and this is the appropriate pre-broadcast failure bucket, the classification is acceptable. Documented in code."
+    },
+    {
+      "id": "SEC-T7-02",
+      "original_severity": "MEDIUM",
+      "status": "FIXED",
+      "description": "verify.ts now calls checkAndInsert exclusively; has+insert primitives are no longer called.",
+      "fix_analysis": "verify.ts lines 178-186: checkAndInsert is called with from, nonce, validBefore (in ms), and now. The result is checked: if !accepted, the reason ('nonce_already_used' | 'authorization_expired') is forwarded directly as the VerifyResult reason. Both strings are valid members of the VerifyReason union type (lines 63-70). The test in verify.test.ts lines 195-220 asserts checkSpy called once with expected args, hasSpy and insertSpy never called. The defense-in-depth property is now active: a validBefore <= now entry that somehow passes the earlier explicit check will be caught by checkAndInsert's internal guard. The checkAndInsert 'authorization_expired' path in verify.ts is unreachable under normal operation (the earlier explicit check at line ~148 already rejects validBeforeMs <= nowMs + SAFETY_MARGIN_MS, which is a stricter condition) — this is intentional defense-in-depth, correctly described in the comment."
+    }
+  ],
+
+  "round1_recommended_findings_verification": [
+    {
+      "id": "SEC-T7-03",
+      "original_severity": "LOW",
+      "status": "FIXED",
+      "description": "HttpRequestError (any status) now classified as rpc_5xx.",
+      "fix_analysis": "settle.ts lines 249-257: the status-conditional branches are removed; any HttpRequestError returns reason 'rpc_5xx'. The comment in the code correctly explains the rationale (429 rate-limit and 401 auth failures must not masquerade as rpc_timeout). This is accurate within the taxonomy constraints."
+    },
+    {
+      "id": "SEC-T7-04",
+      "original_severity": "INFO",
+      "status": "FIXED",
+      "description": "Unknown network no longer throws NetworkMismatchError(0,0).",
+      "fix_analysis": "settle.ts lines 292-295: throws a plain Error with a descriptive message including the unknown network string. JSON.stringify is used on opts.network — since opts.network is a string, this is safe and produces a properly quoted value in the error message. No misleading D18 chain_id_mismatch event will be emitted for this case."
+    },
+    {
+      "id": "SEC-T7-05",
+      "original_severity": "INFO",
+      "status": "ACKNOWLEDGED_NOT_FIXED",
+      "description": "WalletClient cache keyed only by network.id; second relayer key silently reused.",
+      "fix_analysis": "Per verify-settle's note, the single-key-per-process assumption is intentional per D6/D13. The code comment in buildWalletClient already documents 'Sole extraction site per D13 + systemic-fixes §5'. This is acceptable for MVP scope. Recommendation: add a short comment on the WALLET_CACHE declaration stating the per-process key assumption explicitly. No security issue in current scope."
+    }
+  ],
+
+  "new_findings": [
+    {
+      "id": "SEC-T7-R2-01",
+      "severity": "INFO",
+      "title": "settle.ts balanceOf defensive type guard classifies non-bigint as rpc_5xx — correct but untested",
+      "file": "packages/middleware/src/settle.ts",
+      "lines": "323-331",
+      "description": "The defensive `typeof raw !== 'bigint'` check (new in round 2) correctly handles a misbehaving RPC or test double returning a non-bigint from readContract. The rpc_5xx classification is reasonable ('data plane is broken'). However, no test exercises this branch. For a new defensive branch touching the balance-check path, a missing test means coverage could slip.",
+      "recommendation": "Add a test: mock publicClient.readContract to return a string or number instead of bigint; assert result is { ok: false, reason: 'rpc_5xx' }. Low urgency — this is an RPC data-integrity guard, not a security control."
+    }
+  ],
+
+  "confirmed_invariants": [
+    {
+      "id": "INV-01",
+      "description": "EIP-712 domain built from NETWORKS[opts.expectedNetwork], not from payload",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1. verify.ts lines 177-182."
+    },
+    {
+      "id": "INV-02",
+      "description": "Tampered chainId / verifyingContract / name / version all produce invalid_signature",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1. Tests unchanged."
+    },
+    {
+      "id": "INV-03",
+      "description": "Time comparisons in milliseconds; SAFETY_MARGIN_MS=5_000; boundary nowSec+4 fails, nowSec+5 fails (exact boundary), nowSec+6 passes",
+      "status": "CONFIRMED",
+      "note": "Round 2 adds the nowSec+5 exact-boundary test (verify.test.ts new lines). The check is `<=` (not strict `<`), confirmed: validBeforeMs == nowMs + 5_000 rejects. Three boundary tests now cover +4, +5, +6."
+    },
+    {
+      "id": "INV-04",
+      "description": "NonceStore: checkAndInsert used (TOCTOU-safe atomic primitive)",
+      "status": "CONFIRMED",
+      "note": "Fixed in round 2. verify.ts uses checkAndInsert. Test asserts checkSpy called once, hasSpy/insertSpy never called."
+    },
+    {
+      "id": "INV-05",
+      "description": "settle.ts is sole getRelayerKeySecret() call site; raw key never crosses function boundaries",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1."
+    },
+    {
+      "id": "INV-06",
+      "description": "Proactive USDC.balanceOf check; constant MIN_RELAYER_USDC_BALANCE (1_000_000n); strict <",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1. Round 2 adds defensive non-bigint guard after the readContract call."
+    },
+    {
+      "id": "INV-07",
+      "description": "WaitForTransactionReceiptTimeoutError checked before TimeoutError",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1."
+    },
+    {
+      "id": "INV-08",
+      "description": "authorization_already_used_onchain via case-insensitive substring match; no 4-byte selector",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1."
+    },
+    {
+      "id": "INV-09",
+      "description": "No SecurityLogger import or securityEvent call in verify.ts or settle.ts",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1. Static grep tests unchanged."
+    },
+    {
+      "id": "INV-10",
+      "description": "settle.ts never touches NonceStore; replay-store retention on failure is structural",
+      "status": "CONFIRMED",
+      "note": "Round 2 test refactored to exercise the full verify→settle pipeline and assert store.size() remains 1 after settle failure."
+    },
+    {
+      "id": "INV-11",
+      "description": "ChainId pin on first writeContract per network; mismatch throws NetworkMismatchError",
+      "status": "CONFIRMED",
+      "note": "Unchanged from round 1."
+    },
+    {
+      "id": "INV-12",
+      "description": "v/r/s split; v normalized to 27/28; malformed compact signature returns gas_estimate_revert",
+      "status": "CONFIRMED",
+      "note": "Fixed in round 2. The fallback is now a hard failure return rather than silent yParity=0."
+    }
+  ],
+
+  "overall_assessment": {
+    "secret_leak": "CLEAN — no new paths introduced that could expose the relayer key. The OpaqueRelayerKey serialization test in round 2 also checks opts (not just result), expanding coverage.",
+    "error_information_disclosure": "CLEAN — no sensitive data in SettleResult failure shapes. Unknown network error now uses opts.network (a config string the developer wrote), not an internal address or key.",
+    "cross_chain_replay": "PROTECTED — unchanged from round 1.",
+    "signature_malleability": "NOT_VULNERABLE — unchanged from round 1. v-normalization fix removes the edge case introduced in round 1.",
+    "replay_protection": "PROTECTED — checkAndInsert is now used, activating the defense-in-depth guard in NonceStore."
+  }
+}

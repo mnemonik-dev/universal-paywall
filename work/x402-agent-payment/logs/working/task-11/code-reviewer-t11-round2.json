@@ -1,0 +1,31 @@
+{
+  "reviewer": "code-reviewer-t11",
+  "task": "11",
+  "round": 2,
+  "verdict": "approved",
+  "summary": "All three accepted fixes verified. T11-04 decline accepted — the 'USDC' vs 'USD Coin' discrepancy is a user-spec example error, not a code error; the README correctly reflects the T3-verified on-chain value and the live wire format. No new issues found. Task 11 is approved.",
+  "fixes_verified": [
+    {
+      "id": "T11-01",
+      "status": "fixed",
+      "verification": "scripts/register.ts line 257-260: `waitForTransactionReceipt({ hash: txHash, timeout: 30_000 })` — timeout parameter present and correct."
+    },
+    {
+      "id": "T11-02",
+      "status": "fixed",
+      "verification": "register-cli.test.ts waitForPort (lines 99-117): dead `createServer()` removed. Function now uses a clean fetch-based poll loop with no spurious TCP server instantiation. The `createServer` import on line 17 is still present (used for getFreePort), which is correct."
+    },
+    {
+      "id": "T11-03",
+      "status": "fixed",
+      "verification": "README.md line 44: URL is now `https://testnet.arcscan.app` — matches the canonical URL from tech-spec.md lines 543, 643, 677."
+    },
+    {
+      "id": "T11-04",
+      "status": "declined_accepted",
+      "verification": "Decline rationale is sound and well-documented. The T3 spike artifact (contracts/scripts/arc-testnet-usdc-domain.json) confirmed the on-chain EIP-712 name is 'USDC', not 'USD Coin'. The middleware's build402Body() emits whatever NETWORKS['arc-testnet'].usdcEip712Name holds at runtime, which is 'USDC'. The README correctly reflects the live wire format. The user-spec discrepancy is already tracked as SA-T6-INFO-02 in decisions.md. No change warranted."
+    }
+  ],
+  "new_issues": [],
+  "final_assessment": "Implementation is correct, spec-compliant, and production-ready. All acceptance criteria from tasks/11.md are satisfied. Approved for merge."
+}

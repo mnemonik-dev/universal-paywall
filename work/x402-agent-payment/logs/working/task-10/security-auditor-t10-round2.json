@@ -1,0 +1,35 @@
+{
+  "reviewer": "security-auditor-t10",
+  "task": 10,
+  "round": 2,
+  "commit": "9edc669",
+  "date": "2026-06-17",
+  "files_reviewed": [
+    ".gitleaks.toml",
+    "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts"
+  ],
+  "prior_findings_resolution": [
+    {
+      "id": "SEC-T10-01",
+      "severity": "Medium",
+      "status": "RESOLVED",
+      "verification": ".gitleaks.toml now has a populated [allowlist] with a path-based regex entry covering forked-e2e.test.ts. The comment correctly explains the keys are publicly-documented Foundry test fixtures not production secrets. The regex uses the correct gitleaks path-allowlist syntax (TOML raw string triple-quoted). PASS."
+    },
+    {
+      "id": "SEC-T10-02",
+      "severity": "Low",
+      "status": "RESOLVED",
+      "verification": "arc-testnet-e2e.test.ts line 148: `const relayerKey = new OpaqueRelayerKey(requireEnv('PAYWALL_RELAYER_KEY'));` — no plain-string intermediate. The wrapped reference `relayerKey` is used directly in the PaywallConfig at line 200. Comment at lines 143-146 documents the D13 rationale. PASS."
+    },
+    {
+      "id": "SEC-T10-03",
+      "severity": "Low",
+      "status": "RESOLVED",
+      "verification": "arc-testnet-e2e.test.ts line 149: `payerAccount = privateKeyToAccount(requireEnv('ARC_TESTNET_PAYER_PK') as '0x${string}');` — no plain-string intermediate. Raw key is consumed directly by viem's privateKeyToAccount which does not hold a reference to the raw string after account derivation. PASS."
+    }
+  ],
+  "new_findings": [],
+  "overall_assessment": "All three round-1 findings are correctly resolved. No new findings introduced by the changes. The implementation is clean from a security perspective.",
+  "blocking": false,
+  "verdict": "APPROVED"
+}

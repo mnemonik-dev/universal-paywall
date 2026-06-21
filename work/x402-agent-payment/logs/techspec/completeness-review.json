@@ -1,0 +1,88 @@
+{
+  "status": "pass",
+  "round": 3,
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 41,
+  "requirements_covered": 41,
+  "requirements_partial": 0,
+  "requirements_missing": 0,
+  "round2_resolutions": {
+    "C1_receive_payable_constraint": {
+      "status": "resolved",
+      "evidence": "D16 added; Data Models PaymentVaultImpl shows '// No receive() or fallback()' comment; contract test row 'No receive()/fallback() (D16): sending native asset to the vault reverts'"
+    },
+    "C2_developer_factory_immutability": {
+      "status": "resolved",
+      "evidence": "D17 added; Data Models comment 'set in initialize, never overwritten — no setter exists (D17)'; contract test row 'No setters for developer/factory (D17): pattern-test the ABI'"
+    },
+    "M1_relayer_no_balance_detection": {
+      "status": "resolved",
+      "evidence": "Risks table now specifies: proactive USDC.balanceOf(relayer) check before writeContract; reactive classifier for gas failure; both paths emit securityEvent('settlement_failed')"
+    },
+    "M2_D4_no_partial_withdraw_deviations": {
+      "status": "resolved",
+      "evidence": "User-Spec Deviations entry added: 'No partial-withdraw API on vault (withdraw() only, no withdraw(amount)). [TECHNICAL — D4]' with fee-rounding gaming justification"
+    },
+    "M3_developer_factory_immutability_decisions": {
+      "status": "resolved",
+      "evidence": "D17 decision section present with rationale and alternatives considered"
+    }
+  },
+  "findings": [
+    {
+      "type": "documented_deviation",
+      "source": "tech-spec",
+      "requirement": "US-Spec Deviations — entire spec pending user approval",
+      "detail": "Deviations section ends with '[PENDING USER APPROVAL]' covering the entire user-spec + tech-spec rewrite. This is correct for draft status (spec.status = 'draft'). No action needed until status transitions to 'approved', at which point this marker must be removed or each individual deviation must be marked approved.",
+      "severity": "minor"
+    }
+  ],
+  "requirement_map": {
+    "US-1": { "description": "withPaywall(handler, config) exported as Node http wrapper", "coverage": "covered", "evidence": "Solution step 8; D6; Architecture adapters/node-http.ts; Task 8" },
+    "US-2": { "description": "fastifyPaywall(opts) exported as Fastify plugin", "coverage": "covered", "evidence": "Solution step 8; D6; Architecture adapters/fastify.ts; Task 8" },
+    "US-3": { "description": "No X-PAYMENT → 402 x402 v1 JSON body (all required fields)", "coverage": "covered", "evidence": "Solution steps 3-4; D1; x402.ts module; unit test: x402 codec" },
+    "US-4": { "description": "Valid X-PAYMENT → full verify+settle pipeline (all sub-checks)", "coverage": "covered", "evidence": "Solution step 7a-g; D2/D5/D12; verify.ts, settle.ts, replay-store.ts; unit tests for each sub-check" },
+    "US-5": { "description": "Invalid signature → 402 invalid_signature", "coverage": "covered", "evidence": "Solution step 7c; verify.ts; unit test: tampered fields" },
+    "US-6": { "description": "value < maxAmountRequired → 402 insufficient_amount + required/received", "coverage": "covered", "evidence": "Solution step 7c; verify.ts; errors.ts; unit test: value < required" },
+    "US-7": { "description": "validBefore <= now+5s → 402 authorization_expired", "coverage": "covered", "evidence": "Solution step 7c; verify.ts; unit test: validBefore boundary" },
+    "US-8": { "description": "validAfter > now → 402 authorization_not_yet_valid", "coverage": "covered", "evidence": "Solution step 7c; verify.ts; unit test: validAfter > now" },
+    "US-9": { "description": "Repeated (from, nonce) → 402 nonce_already_used", "coverage": "covered", "evidence": "Solution step 7c; D5; replay-store.ts; unit test: same (from,nonce) twice → reject" },
+    "US-10": { "description": "On-chain settle failure → 402 settlement_failed + 7 named reasons", "coverage": "covered", "evidence": "Solution step 7e; settle.ts error taxonomy; Risks (M1 detection logic); unit test: 7 reasons mocked" },
+    "US-11": { "description": "network mismatch → 402 network_mismatch", "coverage": "covered", "evidence": "Solution step 7c; D1 network normalization; unit test: network mismatch" },
+    "US-12": { "description": "X-PAYMENT > 4KB → 400 header_too_large", "coverage": "covered", "evidence": "Solution step 7a; x402.ts 4KB cap; D1; unit test: header size cap" },
+    "US-13": { "description": "Malformed base64/JSON → 400 malformed_payment_header", "coverage": "covered", "evidence": "Solution step 7b; x402.ts decodeXPayment; errors.ts; unit test: missing/invalid fields" },
+    "US-14": { "description": "NETWORKS map with alias + CAIP-2 pointing to same NetworkConfig", "coverage": "covered", "evidence": "D1; networks.ts module; NetworkConfig interface in Data Models; unit test: CAIP-2 ↔ alias round-trip" },
+    "US-15": { "description": "Startup chainId pin — getChainId() vs NETWORKS[id].chainId", "coverage": "covered", "evidence": "D14; startup chainId pin unit test; NetworkMismatchError; Task 7" },
+    "US-16": { "description": "Relayer key non-enumerable, not in JSON.stringify, not logged", "coverage": "covered", "evidence": "D13; relayer-key.ts OpaqueRelayerKey; unit test: JSON.stringify/toString/util.inspect redaction; pino/winston serialization" },
+    "US-17": { "description": "npm publish @universal-paywall/middleware 0.1.0-alpha.0, ESM-only", "coverage": "covered", "evidence": "Task 1 (ESM-only scaffold); Tech AC 'package.json: engines.node >= 20, exports map ESM-only'; Task 16 publish" },
+    "US-18": { "description": "Price-to-amount conversion with error handling for invalid inputs", "coverage": "covered", "evidence": "Data Models PaywallConfig price field; unit test: price parsing cases incl. reject list; InvalidPriceError" },
+    "US-19": { "description": "Factory constructor (IERC20, address treasury, uint16 feeBps) — revert on invalid args", "coverage": "covered", "evidence": "D10 (feeBps default/cap); D11 (treasury); D8 (OZ 5.x); Data Models; contract test: 'Constructor reverts on zero usdc/treasury/feeBps > 1000'" },
+    "US-20": { "description": "Factory inherits Ownable2Step", "coverage": "covered", "evidence": "D8 explicitly states Ownable2Step; contract test: 'Ownable2Step two-step transfer happy path + cancel'" },
+    "US-21": { "description": "Factory inherits Pausable", "coverage": "covered", "evidence": "D12; Data Models events Paused/Unpaused; contract test: 'pause/unpause: owner-only'" },
+    "US-22": { "description": "Constructor deploys vaultImpl = new PaymentVaultImpl()", "coverage": "covered", "evidence": "D3 'deploys a deterministic minimal-proxy vault clone'; Data Models 'address public immutable vaultImpl'; Solution intro" },
+    "US-23": { "description": "register() — whenNotPaused, duplicate check, Clones.cloneDeterministic, initialize, vaults map, VaultDeployed", "coverage": "covered", "evidence": "D3 fully specifies; Data Models VaultDeployed event; contract test: all sub-cases" },
+    "US-24": { "description": "computeVaultAddress(developer) view — matches Clones.predictDeterministicAddress", "coverage": "covered", "evidence": "D3 mentions 'pure computation'; contract test: CREATE2 cross-component invariant (3 distinct EOAs)" },
+    "US-25": { "description": "setFeeBps(uint16) — owner-only, revert >1000, emits FeeBpsUpdated", "coverage": "covered", "evidence": "D10; Data Models FeeBpsUpdated event; contract test: 'setFeeBps: owner-only; revert InvalidFeeBps on bps > 1000; emits'" },
+    "US-26": { "description": "setPlatformTreasury(address) — owner-only, revert on zero, emits PlatformTreasuryUpdated", "coverage": "covered", "evidence": "D11; Data Models PlatformTreasuryUpdated event; contract test: 'setPlatformTreasury: owner-only; revert ZeroAddress; emits'" },
+    "US-27": { "description": "pause()/unpause() — owner-only", "coverage": "covered", "evidence": "D12; contract test: 'pause/unpause: owner-only'" },
+    "US-28": { "description": "View getters: usdc(), feeBps(), platformTreasury(), vaultImpl(), vaults(address)", "coverage": "covered", "evidence": "Data Models: all five declared as 'public' (Solidity auto-generates getters); factory-state cache unit test exercises paused + vaults reads" },
+    "US-29": { "description": "Contract verified on testnet.arcscan.app after deploy", "coverage": "covered", "evidence": "Task 11 'arcscan verification'; Task 16 'verify on arcscan'; Tech AC 'verifiable on https://testnet.arcscan.app'" },
+    "US-30": { "description": "Vault inherits Initializable + storage-based ReentrancyGuard (not transient)", "coverage": "covered", "evidence": "D8 explicitly: 'storage-based ReentrancyGuard chosen because Arc Testnet transient-storage support unverified'" },
+    "US-31": { "description": "initialize(_developer): initializer modifier, require !=0, sets developer + factory=msg.sender", "coverage": "covered", "evidence": "D3 vault.initialize(msg.sender); D17 'factory = msg.sender'; Data Models developer + factory fields; contract test: single-call + reverts on second" },
+    "US-32": { "description": "withdraw() full logic: nonReentrant, msg.sender==developer, balanceOf, require>0, fee math, safeTransfer, Withdrawal event", "coverage": "covered", "evidence": "D4 specifies exact logic; Data Models Withdrawal event + NoBalance error; contract test: all sub-cases including fee edge cases" },
+    "US-33": { "description": "Withdraw works independently of factory.paused()", "coverage": "covered", "evidence": "D12 'Vaults do NOT check factory.paused() (vaults always allow withdraw)'; contract test: 'Withdraw works when factory is paused()'" },
+    "US-34": { "description": "No setters for developer or factory — immutable post-initialize", "coverage": "covered", "evidence": "D17 explicitly; Data Models 'never overwritten — no setter exists (D17)'; contract test: ABI pattern-test for setDeveloper/setFactory selectors" },
+    "US-35": { "description": "Vault has no receive() payable", "coverage": "covered", "evidence": "D16 explicitly; Data Models '// No receive() or fallback()'; contract test: 'sending native asset to the vault reverts'" },
+    "US-36": { "description": "npm test middleware — vitest ≥85% line coverage", "coverage": "covered", "evidence": "Testing Strategy unit tests section; Tech AC '≥85% line coverage on src/'" },
+    "US-37": { "description": "hardhat test — ≥95% branch coverage", "coverage": "covered", "evidence": "Testing Strategy contract tests section; Tech AC '≥95% branch coverage on both contracts'" },
+    "US-38": { "description": "Hardhat-fork integration test in CI (no env flag), both adapters", "coverage": "covered", "evidence": "Testing Strategy forked-e2e.test.ts section; 'runs in CI, no env gate'; explicitly 'both adapters'" },
+    "US-39": { "description": "Live Arc Testnet integration test gated ARC_TESTNET_E2E=1", "coverage": "covered", "evidence": "Testing Strategy E2E section; Task 10 arc-testnet-e2e.test.ts; Tech AC 'Live Arc Testnet test passes when ARC_TESTNET_E2E=1'" },
+    "US-40": { "description": "Deploy script works, outputs factory + vaultImpl addresses", "coverage": "covered", "evidence": "Task 11 deploy script; Tech AC 'Deploy script outputs factory address'; Architecture deploy/01_deploy_factory.ts" },
+    "US-41": { "description": "README with full dev onboarding (faucet → register → middleware → test with agent)", "coverage": "covered", "evidence": "Task 11 'README walks: faucet → register → install middleware → run server'; 'Verify-user: Read README.md; steps work when followed by a new developer'" }
+  },
+  "summary": "41/41 requirements covered, 0 missing, 0 partial. All 5 round-2 findings (C1, C2, M1, M2, M3) confirmed resolved. One minor documented-deviation finding: the [PENDING USER APPROVAL] marker on the Deviations section is correct for draft status but must be cleared upon spec approval. No new critical or major gaps found."
+}

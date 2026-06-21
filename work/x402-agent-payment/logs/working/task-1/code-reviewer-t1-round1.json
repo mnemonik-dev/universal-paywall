@@ -1,0 +1,164 @@
+{
+  "reviewer": "code-reviewer-t1",
+  "task": "1",
+  "round": 1,
+  "commit": "0272fe3",
+  "verdict": "approved_with_minors",
+  "summary": "Task 1 scaffolding is complete and correct. All acceptance criteria from the task spec are satisfied. Smoke verification passed per scaffolder's report. Two minor issues found — neither is blocking.",
+  "issues": [
+    {
+      "id": "T1-M1",
+      "severity": "minor",
+      "dimension": "3_readability_maintainability",
+      "file": "packages/middleware/tsup.config.ts",
+      "line": 1,
+      "title": "tsup.config.ts uses double quotes instead of single quotes",
+      "description": "The tsup config uses double-quoted strings (\"src/index.ts\", \"esm\", \"node20\") while the .prettierrc enforces singleQuote: true. Because tsup.config.ts is in **/tsup.config.ts inside ignorePatterns of .eslintrc.cjs, ESLint won't flag it, but Prettier will reformat it on the first format run. This creates a small diff noise on the next format:check run and may fail CI if format:check is added as a pre-commit step later.",
+      "recommendation": "Change all double-quoted strings in tsup.config.ts to single quotes to be consistent with the project Prettier config. This avoids a silent format diff the next time `npm run format` runs.",
+      "example_fix": "entry: ['src/index.ts'],\nformat: ['esm'],\ntarget: 'node20',"
+    },
+    {
+      "id": "T1-M2",
+      "severity": "minor",
+      "dimension": "7_dependencies_management",
+      "file": "packages/middleware/package.json",
+      "line": null,
+      "title": "ajv listed as devDependency but tech-spec lists it as a production dependency for middleware",
+      "description": "The tech-spec Dependencies section lists `ajv` under 'New (middleware)' without the dev qualifier. The task spec (iteration-3-addendum §9) places it in devDependencies with the rationale that 'in production code middleware ajv is not needed, only in tests'. This is fine for pure unit tests (T9), but if any runtime code path in core.ts or x402.ts uses ajv for validation at request time (which the tech-spec's testing strategy implies is used in x402 codec validation), it would need to move to dependencies. The current placeholder index.ts doesn't import it, so the issue is latent — just needs to be watched when T6 writes the x402 codec module. The task spec's rationale (ajv for test fixture validation only) is sound; flagging so T6/T9 implementers don't accidentally import ajv in production code paths without moving it to dependencies first.",
+      "recommendation": "Add a comment or note in task 6 that if ajv is used in production src/ code (not just tests), it must be promoted to dependencies. No action required in T1 itself — current placement is consistent with the task spec's stated intent.",
+      "example_fix": null
+    }
+  ],
+  "passing_checks": [
+    {
+      "dimension": "1_architecture",
+      "note": "ESM-only workspace structure correctly established. Workspace glob patterns (packages/*, apps/*, contracts) match tech-spec layout. No architectural anti-patterns present in scaffolding."
+    },
+    {
+      "dimension": "2_separation_of_concerns",
+      "note": "Root package.json lint script correctly scoped to packages/middleware only. contracts/ and apps/ are explicitly excluded from both ESLint and the pre-commit hook. Follows task spec §pre-commit lint scope requirement exactly."
+    },
+    {
+      "dimension": "3_readability_maintainability",
+      "note": "All config files are clean and readable. The //test sibling comment in scripts correctly documents the --passWithNoTests guard per iteration-4-addendum §5. No magic values; all version pins documented in task spec."
+    },
+    {
+      "dimension": "4_error_handling_logging",
+      "note": "Pre-commit hook has appropriate fail-fast behavior: gitleaks absence check fails with actionable message before attempting lint. No swallowed errors."
+    },
+    {
+      "dimension": "5_type_safety",
+      "note": "tsconfig.json includes all required strict flags: strict, noUncheckedIndexedAccess, noImplicitOverride, exactOptionalPropertyTypes, verbatimModuleSyntax. ESM-specific: verbatimModuleSyntax enforces import type for type-only imports, correct for ESM-only output."
+    },
+    {
+      "dimension": "6_testing_coverage",
+      "note": "vitest installed in both root devDependencies and packages/middleware devDependencies per §9 iteration-3-addendum. --passWithNoTests flag correctly applied. test:e2e script targets correct path src/__tests__/integration/."
+    },
+    {
+      "dimension": "7_dependencies",
+      "note": "All 7 required devDependencies present in packages/middleware per §9 iteration-3-addendum: tsup, typescript, tsx, vitest, ajv, pino, winston. Root devDependencies include vitest@^1.5.0 for root-level npx vitest invocation. No unnecessary dependencies added. All versions use ^ with pinned major."
+    },
+    {
+      "dimension": "8_security",
+      "note": "gitleaks pre-commit hook correctly uses --staged --redact flags. The --redact flag prevents the hook itself from logging the matched secret in output. .gitleaks.toml with useDefault = true uses the full default ruleset. No secrets or credentials present in any committed file. .gitignore correctly excludes contracts/.env."
+    },
+    {
+      "dimension": "9_performance",
+      "note": "N/A for scaffolding. tsup config has treeshake: true and minify: false (correct per task spec — minification deferred to Task 8's bundle size check)."
+    },
+    {
+      "dimension": "10_cross_file_consistency",
+      "note": "ESLint ignorePatterns includes **/tsup.config.ts — this avoids a parse failure since tsup.config.ts uses import syntax and would otherwise require the TypeScript project reference to include it. .eslintrc.cjs uses __dirname correctly for tsconfigRootDir (required since root type=module would break if the file were .eslintrc.js). The tsconfig.json exclude correctly references src/__tests__ (not root __tests__) per systemic-fix §2."
+    },
+    {
+      "dimension": "11_resource_management",
+      "note": "N/A for scaffolding. No heavy resources instantiated."
+    },
+    {
+      "check": "AC: package.json workspaces",
+      "status": "pass",
+      "note": "packages/*, apps/*, contracts declared."
+    },
+    {
+      "check": "AC: lint scope to packages/middleware",
+      "status": "pass",
+      "note": "Root lint script: eslint packages/middleware --ext .ts,.cts,.mts,.tsx"
+    },
+    {
+      "check": "AC: root devDependencies contains vitest@^1.5.0",
+      "status": "pass",
+      "note": "Present in root package.json devDependencies."
+    },
+    {
+      "check": "AC: middleware package.json name/type/engines/exports",
+      "status": "pass",
+      "note": "name: @universal-paywall/middleware, type: module, engines.node: >=20, exports with import-only branch (no require branch)."
+    },
+    {
+      "check": "AC: middleware scripts build/dev/typecheck/clean/test/test:e2e",
+      "status": "pass",
+      "note": "All 6 scripts present. test uses vitest run --passWithNoTests. test:e2e uses vitest run src/__tests__/integration/ --passWithNoTests."
+    },
+    {
+      "check": "AC: //test sibling comment",
+      "status": "pass",
+      "note": "Present with correct value: 'keep --passWithNoTests until T6 lands first vitest test; do not remove'"
+    },
+    {
+      "check": "AC: middleware devDependencies full set",
+      "status": "pass",
+      "note": "tsup, typescript, tsx, vitest, ajv, pino, winston all present."
+    },
+    {
+      "check": "AC: tsconfig strict flags",
+      "status": "pass",
+      "note": "strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax all present. noImplicitOverride present. exclude references src/__tests__."
+    },
+    {
+      "check": "AC: tsup.config.ts format ESM-only",
+      "status": "pass",
+      "note": "format: ['esm'] only. No cjs. dts: true, target: node20."
+    },
+    {
+      "check": "AC: src/index.ts placeholder",
+      "status": "pass",
+      "note": "export {}; present."
+    },
+    {
+      "check": "AC: .eslintrc.cjs with @typescript-eslint + prettier, ignores contracts/ and apps/",
+      "status": "pass",
+      "note": "Both in ignorePatterns. root: true set."
+    },
+    {
+      "check": "AC: .prettierrc + .prettierignore",
+      "status": "pass",
+      "note": "Both present. .prettierignore excludes dist/, node_modules/, cache/, artifacts/, coverage/, typechain-types/, *.sol."
+    },
+    {
+      "check": "AC: .husky/pre-commit executable with gitleaks + lint",
+      "status": "pass",
+      "note": "chmod +x applied (mode 100755 in diff). gitleaks check with actionable error. npm run lint --silent."
+    },
+    {
+      "check": "AC: .gitleaks.toml with useDefault = true",
+      "status": "pass",
+      "note": "Present with [extend] useDefault = true and empty [allowlist]."
+    },
+    {
+      "check": "AC: no main field, no require branch in exports",
+      "status": "pass",
+      "note": "No main field. Exports map has only import branch under '.'."
+    },
+    {
+      "check": "AC: publishConfig.access public + provenance",
+      "status": "pass",
+      "note": "Both present in middleware package.json."
+    },
+    {
+      "check": "AC: .gitignore additions",
+      "status": "pass",
+      "note": ".husky/_/, contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/ all added."
+    }
+  ],
+  "recommendation": "Approve. The two findings are minor style/latent issues that do not block T2+ work. Suggest fixing T1-M1 (tsup.config.ts quote style) in this commit to avoid Prettier noise later. T1-M2 is informational and should be tracked at T6 implementation time."
+}

@@ -1,0 +1,29 @@
+{
+  "reviewer": "code-reviewer-t5",
+  "task": "5",
+  "round": 2,
+  "commit": "c4c6d3a",
+  "verdict": "approved",
+  "summary": "All round-1 findings resolved. R1-01 and R1-04 fixed correctly. R1-03 defense is technically correct — the reviewer's original finding was wrong. The test is sound. Suite is approved.",
+  "findings": [],
+  "round1_resolution": {
+    "R1-01": {
+      "status": "fixed",
+      "assessment": "vm.assume threshold correctly changed from > 0xff to > 9. Comment rewritten to name precompiles [1..9] specifically. Accepted."
+    },
+    "R1-02": {
+      "status": "no_action_agreed",
+      "assessment": "Confirmed correct — expectEmit masks intentionally differ between events with and without indexed parameters."
+    },
+    "R1-03": {
+      "status": "reviewer_error_acknowledged",
+      "assessment": "The contract-tester's empirical defense is correct and the reviewer's original R1-03 finding was technically wrong. The full call chain is: vault.withdraw() [ENTERED] → safeTransfer(dev, net) → safeTransfer(malicious, fee) → ERC20._update → onUsdcReceived() → reentryCount++ → target.withdraw() [REVERTS: ReentrancyGuardReentrantCall]. The revert from target.withdraw() propagates through onUsdcReceived, through _update, through safeTransfer, and unwinds the entire outer vault.withdraw() call. Cross-contract storage writes (reentryCount++ on MockMaliciousTreasury) that occur within the reverting call tree ARE rolled back — there is no call boundary that would preserve MockMaliciousTreasury's storage across the revert. The EVM's state journal is per-transaction, not per-contract-instance. The empirical confirmation (`0 != 1` failure on assertEq) is conclusive. The updated comment is precise and correctly explains the selector-as-proof argument. No code change required — the test was correct in round 1."
+    },
+    "R1-04": {
+      "status": "fixed",
+      "assessment": "Clarifying comment added to VaultHandler.withdrawFromVault explaining gross-vs-net accounting and why gross is the right unit for the integrity invariant. Accepted."
+    }
+  },
+  "new_findings": [],
+  "overall_assessment": "Suite is approved. 51 tests passing. 100% branch coverage on both contracts. All spec requirements met. The reentrancy test correctly relies on the unique ReentrancyGuardReentrantCall selector as proof of hook-and-block — no alternative path in PaymentVaultImpl can produce that selector. Ready for security-auditor review."
+}

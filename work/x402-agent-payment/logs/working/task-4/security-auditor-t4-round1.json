@@ -1,0 +1,197 @@
+{
+  "reviewer": "security-auditor-t4",
+  "round": 1,
+  "task": "4",
+  "timestamp": "2026-06-17",
+  "verdict": "PASS_WITH_NOTES",
+  "summary": "No critical or high-severity vulnerabilities found. The contracts correctly implement all mandatory security invariants (D15/D16/D17). Three low-severity findings and four informational notes are documented below. The most actionable item is a medium-severity treasury-DoS operator risk that should be explicitly documented in code comments and the README, and mitigated in tests.",
+  "findings": [
+    {
+      "id": "SA-T4-01",
+      "severity": "MEDIUM",
+      "category": "Denial of Service / Operator Risk",
+      "title": "Broken platformTreasury can block all vault withdrawals",
+      "location": "contracts/src/PaymentVaultImpl.sol:81",
+      "description": "withdraw() performs two safeTransfer calls in sequence. The second transfer — to platformTreasury — is only skipped when fee == 0. If the owner sets platformTreasury to a contract address that reverts on ERC-20 transfer (e.g. a non-ERC20 contract, a paused token vault, or a malicious contract), every subsequent withdraw() call will revert after the developer's net transfer has already been executed — no wait, actually both calls are in the same transaction, so both revert atomically. The developer cannot recover their funds until the owner fixes platformTreasury. This requires owner compromise or misconfiguration but the impact (all developer funds frozen) is high relative to the access control.",
+      "attack_vector": "Owner (or compromised owner key) calls setPlatformTreasury(badContract). All vault.withdraw() calls revert indefinitely. feeBps=0 is a workaround, but the owner who broke the treasury could also set feeBps > 0.",
+      "impact": "All developer vaults become unable to withdraw accumulated USDC until owner corrects platformTreasury. Developers cannot access their own funds.",
+      "mitigation": "Two options: (1) Add an in-code NatSpec comment documenting this invariant and require the deployment guide to always use a plain EOA or a battle-tested multisig as platformTreasury, never a contract with custom ERC20 receive logic. (2) Pull-over-push pattern: accumulate fees in factory storage and let treasury pull, removing the push-to-treasury transfer from the hot path. Option 1 is sufficient for MVP if documented. Option 2 is architecturally stronger but adds complexity.",
+      "spec_reference": "tech-spec.md Risks row: 'Front-running of setFeeBps / setPlatformTreasury against pending vault.withdraw'",
+      "test_coverage_required": "Add a test: deploy a MockRevertingTreasury, call factory.setPlatformTreasury(mockRevertingTreasury), verify vault.withdraw() reverts. Also add a test: feeBps=0, vault.withdraw() succeeds even with a reverting treasury address (because the if(fee>0) guard prevents the second transfer)."
+    },
+    {
+      "id": "SA-T4-02",
+      "severity": "LOW",
+      "category": "Storage Layout / Proxy Compatibility",
+      "title": "ReentrancyGuard._status not explicitly initialized in initialize(); relies on 0-default behavior",
+      "location": "contracts/src/PaymentVaultImpl.sol:53-57",
+      "description": "OZ 5.x ReentrancyGuard uses slot 0 for _status with values NOT_ENTERED=1 and ENTERED=2. The constructor sets _status=1, but EIP-1167 clones do NOT run the constructor, so _status starts at 0 on fresh clones. The guard checks `if (_status == ENTERED)` (== 2, not != NOT_ENTERED), so 0 passes the check correctly: first withdraw on a fresh clone works as designed. After completion _status becomes NOT_ENTERED(1). This is functionally correct and is the OZ-documented proxy usage pattern. However, it is non-obvious and could mislead future auditors or developers adding additional functions.",
+      "impact": "No exploitability. The guard functions correctly. Risk is developer confusion in future modifications.",
+      "mitigation": "Add a NatSpec comment in initialize() noting that _status is intentionally not set because OZ 5.x ReentrancyGuard's check is `== ENTERED` (not `!= NOT_ENTERED`), making the zero-default safe for proxy clones. Alternatively, add `// slot 0 (_status) starts at 0 which is != ENTERED(2); safe per OZ proxy guidance` near the contract declaration.",
+      "spec_reference": "tech-spec.md D8: storage-based ReentrancyGuard chosen for Arc proxy compatibility",
+      "test_coverage_required": "Existing test `test_Withdraw_ReentrancyBlocked` covers the reentrancy guard. Add assertion that a fresh clone's first withdraw() does NOT revert unexpectedly (i.e., the 0-default doesn't false-trigger the guard)."
+    },
+    {
+      "id": "SA-T4-03",
+      "severity": "LOW",
+      "category": "Code Hygiene / Import Redundancy",
+      "title": "Redundant explicit import of Ownable in PaymentSplitterFactory",
+      "location": "contracts/src/PaymentSplitterFactory.sol:4",
+      "description": "PaymentSplitterFactory explicitly imports both Ownable and Ownable2Step. Since Ownable2Step inherits Ownable, the direct import of Ownable is redundant. It does not cause a security issue but adds noise and could mislead readers into thinking Ownable is used independently.",
+      "impact": "None — compiler deduplicates. Minor readability concern.",
+      "mitigation": "Remove line 4: `import {Ownable} from \"@openzeppelin/contracts/access/Ownable.sol\";`. The Ownable constructor call `Ownable(msg.sender)` in the factory constructor remains valid — Solidity allows calling a base constructor by name without a direct import.",
+      "spec_reference": "N/A",
+      "test_coverage_required": "None — compile-time check is sufficient."
+    },
+    {
+      "id": "SA-T4-04",
+      "severity": "INFORMATIONAL",
+      "category": "Spec Deviation / Event Signatures",
+      "title": "VaultDeployed emits vault address as indexed; tech-spec declares it non-indexed",
+      "location": "contracts/src/PaymentSplitterFactory.sol:31",
+      "description": "Tech-spec Data Models declares `event VaultDeployed(address indexed developer, address vault)` — vault is NOT indexed. The implementation declares `event VaultDeployed(address indexed developer, address indexed vault)` — vault IS indexed. This changes the ABI topic hash for the event (different Keccak of the signature string), which breaks any off-chain listener or SDK that hard-codes the non-indexed ABI for event filtering.",
+      "impact": "Low — more indexed args is strictly more queryable. Risk exists if middleware or tooling subscribes to VaultDeployed by ABI compiled from the spec, not from the on-chain contract.",
+      "mitigation": "Either: (a) Update tech-spec Data Models to reflect the indexed vault field (preferred — the indexed field is architecturally correct for filtering). (b) Remove indexed from vault in the event declaration to match spec. Recommendation: update spec to match implementation.",
+      "spec_reference": "tech-spec.md Data Models: PaymentSplitterFactory.sol events"
+    },
+    {
+      "id": "SA-T4-05",
+      "severity": "INFORMATIONAL",
+      "category": "Spec Deviation / Event Signatures",
+      "title": "PlatformTreasuryUpdated emits both addresses as indexed; spec declares neither indexed",
+      "location": "contracts/src/PaymentSplitterFactory.sol:33",
+      "description": "Tech-spec declares `event PlatformTreasuryUpdated(address oldTo, address newTo)` — neither indexed. Implementation: `event PlatformTreasuryUpdated(address indexed oldTreasury, address indexed newTreasury)` — both indexed. Same ABI topic hash mismatch concern as SA-T4-04.",
+      "impact": "Low — same analysis as SA-T4-04.",
+      "mitigation": "Update tech-spec to match implementation, or remove indexed from both fields to match spec. Recommendation: update spec.",
+      "spec_reference": "tech-spec.md Data Models: PaymentSplitterFactory.sol events"
+    },
+    {
+      "id": "SA-T4-06",
+      "severity": "INFORMATIONAL",
+      "category": "EIP-3009 Boundary Conditions",
+      "title": "MockUsdcEip3009 validAfter boundary: uses strict greater-than (> validAfter), matching EIP-3009",
+      "location": "contracts/test/mocks/MockUsdcEip3009.sol:59",
+      "description": "The mock check `if (block.timestamp <= validAfter) revert` correctly implements EIP-3009's exclusive lower bound (now must be STRICTLY after validAfter). This matches Circle's FiatTokenV2_2 behavior. Documenting as informational confirmation that the boundary is correctly implemented and middleware's 5-second safety margin (`validBefore > now + 5s`) is a middleware-layer concern, not reproduced on-chain. No action needed.",
+      "impact": "None — correct implementation. Documented for test-reviewer awareness.",
+      "mitigation": "None required. Boundary comments in MockUsdcEip3009 NatSpec would be helpful for future maintainers.",
+      "spec_reference": "user-spec.md: validBefore > now + 5s is middleware check; on-chain USDC only checks now > validAfter && now < validBefore"
+    },
+    {
+      "id": "SA-T4-07",
+      "severity": "INFORMATIONAL",
+      "category": "Architecture",
+      "title": "platformTreasury read lazily inside withdraw() rather than cached at vault initialization",
+      "location": "contracts/src/PaymentVaultImpl.sol:81",
+      "description": "The vault reads factory.platformTreasury() at withdraw time (not at initialize time). This is the correct and intentional design per D11 — fee config updates apply to all future withdrawals. Documenting for clarity: this means the vault depends on the factory being live and responding at withdraw time. If the factory is selfdestruct'd (not possible — no selfdestruct in factory) or the factory address in the vault's storage is corrupted (not possible — immutable post-initialize per D17), this would fail. Both attack vectors are architecturally eliminated.",
+      "impact": "None — by design. Confirmed safe.",
+      "mitigation": "None required.",
+      "spec_reference": "tech-spec.md D4, D11"
+    }
+  ],
+  "invariant_checks": {
+    "D15_impl_lock": {
+      "status": "PASS",
+      "details": "_disableInitializers() called in PaymentVaultImpl constructor. No selfdestruct, delegatecall, or assembly found in production code (NatSpec mention in comment is the only match — not executable code)."
+    },
+    "D15_no_forbidden_opcodes": {
+      "status": "PASS",
+      "details": "grep for selfdestruct/delegatecall/assembly in src/PaymentVaultImpl.sol returns only NatSpec comment on line 26. No executable uses found."
+    },
+    "D16_no_receive_fallback": {
+      "status": "PASS",
+      "details": "No receive() or fallback() declared in PaymentVaultImpl or PaymentSplitterFactory."
+    },
+    "D17_no_setters": {
+      "status": "PASS",
+      "details": "No setDeveloper() or setFactory() function exists. developer and factory are only written in initialize(). Initializable guard prevents re-initialization."
+    },
+    "D8_storage_reentrancy_guard": {
+      "status": "PASS",
+      "details": "Uses ReentrancyGuard from @openzeppelin/contracts/utils/ReentrancyGuard.sol (storage-based). Not ReentrancyGuardTransient. Confirmed correct for Arc Testnet."
+    },
+    "D3_create2_salt": {
+      "status": "PASS",
+      "details": "register() uses bytes32(uint256(uint160(msg.sender))) as salt. computeVaultAddress() uses the identical formula with address(this) as deployer. Off-chain prediction and on-chain deploy are consistent."
+    },
+    "D4_withdraw_split_order": {
+      "status": "PASS",
+      "details": "developer receives net first (line 79), platform treasury receives fee second (line 81), guarded by if(fee>0). Matches systemic-fix §7 canonical order."
+    },
+    "D12_withdraw_not_pausable": {
+      "status": "PASS",
+      "details": "withdraw() has no whenNotPaused modifier. factory.paused() is not checked by the vault. register() correctly uses whenNotPaused."
+    },
+    "D10_fee_cap": {
+      "status": "PASS",
+      "details": "setFeeBps reverts InvalidFeeBps on newBps > 1000. Constructor also validates _initialFeeBps <= 1000."
+    },
+    "D11_treasury_independent": {
+      "status": "PASS",
+      "details": "platformTreasury is a separate field from owner. setPlatformTreasury is owner-only with zero-address check."
+    },
+    "ownable2step": {
+      "status": "PASS",
+      "details": "Ownable2Step correctly initialized via Ownable(msg.sender) in constructor. Two-step transfer requires pendingOwner to call acceptOwnership()."
+    },
+    "custom_errors": {
+      "status": "PASS",
+      "details": "All error conditions use custom errors (NotDeveloper, NoBalance, ZeroAddress, AlreadyRegistered, InvalidFeeBps). No require-with-string-message found."
+    },
+    "fee_math_overflow": {
+      "status": "PASS",
+      "details": "fee = gross * feeBps / 10000. With feeBps max 1000 and realistic USDC supply, product fits in uint256. net = gross - fee cannot underflow because fee <= gross/10."
+    },
+    "eip712_domain_mock": {
+      "status": "PASS",
+      "details": "MockUsdcEip3009 uses OZ EIP712 helper with name='USD Coin', version='2'. Domain includes chainId and verifyingContract. TRANSFER_WITH_AUTHORIZATION_TYPEHASH matches Circle FiatTokenV2_2 exactly."
+    },
+    "mock_nonce_cei": {
+      "status": "PASS",
+      "details": "In transferWithAuthorization: nonce marked used BEFORE _transfer call (CEI pattern). No reentrancy path via ERC-20 transfer (not ERC-777)."
+    }
+  },
+  "owasp_coverage": {
+    "A01_broken_access_control": "PASS - onlyOwner on admin functions; developer-only on withdraw; no privilege escalation paths found",
+    "A02_cryptographic_failures": "PASS - EIP-712 domain correctly pins chainId+verifyingContract; ECDSA recovery via OZ ECDSA.recover; no weak algorithms",
+    "A03_injection": "N/A - no SQL/command injection surface in Solidity",
+    "A04_insecure_design": "PASS - per-developer vault eliminates cross-developer replay; CEI ordering in register(); fee-math uses integer arithmetic",
+    "A05_security_misconfiguration": "LOW - see SA-T4-03 (redundant import); no other misconfiguration found",
+    "A06_vulnerable_components": "PASS - OZ 5.0.2 is current; no known CVEs in used components",
+    "A07_auth_failures": "PASS - Ownable2Step prevents accidental owner transfer; _disableInitializers prevents impl hijack",
+    "A08_software_integrity": "PASS - no delegatecall, no selfdestruct in impl; factory is not upgradeable",
+    "A09_logging_failures": "PASS - all state-changing functions emit events; Withdrawal event captures gross+fee",
+    "A10_ssrf": "N/A - no URL/network requests in Solidity"
+  },
+  "required_actions": [
+    {
+      "id": "RA-1",
+      "priority": "MEDIUM",
+      "finding": "SA-T4-01",
+      "action": "Add NatSpec comment on withdraw() documenting that a broken platformTreasury will block all withdrawals, and document in README that treasury MUST be a plain EOA or audited multisig — never a contract with custom ERC20 callback logic. Update README operational guide with warning.",
+      "blocking": false
+    },
+    {
+      "id": "RA-2",
+      "priority": "LOW",
+      "finding": "SA-T4-02",
+      "action": "Add inline comment in initialize() explaining why _status (ReentrancyGuard slot 0) is not explicitly set: OZ 5.x nonReentrant checks == ENTERED (2), so zero-default is safe for EIP-1167 clones.",
+      "blocking": false
+    },
+    {
+      "id": "RA-3",
+      "priority": "LOW",
+      "finding": "SA-T4-03",
+      "action": "Remove redundant `import {Ownable}` from PaymentSplitterFactory.sol.",
+      "blocking": false
+    },
+    {
+      "id": "RA-4",
+      "priority": "LOW",
+      "finding": "SA-T4-04 + SA-T4-05",
+      "action": "Update tech-spec.md Data Models section to reflect the actual indexed fields in VaultDeployed and PlatformTreasuryUpdated events, so middleware/SDK generated from the spec produces correct ABI.",
+      "blocking": false
+    }
+  ],
+  "blocking": false,
+  "notes": "All mandatory security invariants from D3/D4/D8/D10-D17 are correctly implemented. The contract is safe to proceed to Task 5 (contract tests). The four required actions above are non-blocking for test writing but RA-1 and RA-4 should be completed before the deploy wave (Task 16)."
+}

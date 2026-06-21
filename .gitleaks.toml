@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[allowlist]
+# Well-known Foundry anvil deterministic test private keys (derived from the
+# public "test test test test test test test test test test test junk" mnemonic).
+# These are publicly documented test fixtures, NOT production secrets — they
+# only ever control accounts on a local anvil node. The forked-e2e suite
+# hardcodes them so contributors can run the test offline without invoking
+# `anvil --print-mnemonic` first (SEC-T10-01).
+paths = ['''packages/middleware/src/__tests__/integration/forked-e2e\.test\.ts''']

@@ -1,0 +1,43 @@
+{
+  "reviewer": "security-auditor-t9",
+  "task": 9,
+  "round": 2,
+  "commit": "1d2be230d64f9a81263340d83585da5981d6b3a4",
+  "date": "2026-06-17",
+  "verdict": "PASS",
+  "summary": "All three round-1 findings have been correctly resolved. SEC-T9-01 (ChallengeBody additionalProperties) is fixed and verified — all seven schema definitions now use `additionalProperties: false`. SEC-T9-02 (nonce_replay_attempt rename) is consistent across types.ts, core.ts, and core.test.ts with no stray `nonce_replay` references remaining. SEC-T9-03 (stale-cache + zero-vault pre-verify guard) is covered by a well-structured test that pins both the short-circuit invariant and the security event emission. The full suite of security-critical paths remains covered. No new findings.",
+  "finding_resolution": [
+    {
+      "id": "SEC-T9-01",
+      "original_severity": "Medium",
+      "status": "RESOLVED",
+      "verification": "fixtures/x402-v1.schema.json now has `additionalProperties: false` on all 7 definitions (Address, Bytes32, ExactEvmExtra, PaymentRequirements, ExactEvmAuthorization, ExactEvmPayload, PaymentPayload, ChallengeBody, XPaymentResponse — grep confirms line 29, 39, 67, 80, 89, 100, 118). The `txHash` property was correctly added to the ChallengeBody allowlist (core.ts emits it as a Bytes32 on settlement_failed). Any future addition of an undocumented field to a 402 body will now fail ajv validation at unit-test time."
+    },
+    {
+      "id": "SEC-T9-02",
+      "original_severity": "Medium",
+      "status": "RESOLVED",
+      "verification": "Grep across types.ts, core.ts, and core.test.ts finds only `nonce_replay_attempt` — zero remaining `nonce_replay` occurrences. types.ts:107 defines the catalog key; core.ts:539 is the emit site; core.test.ts:622 pins the parameterized test. The docblocks at types.ts:88 and :95 are updated. Security monitoring systems configured against the canonical D18 name will now receive events."
+    },
+    {
+      "id": "SEC-T9-03",
+      "original_severity": "Low",
+      "status": "RESOLVED",
+      "verification": "New test `stale paused-cache + zero vault on refresh still short-circuits BEFORE verify` (core.test.ts lines 373-416) correctly models the reachable attack path. The test: (1) warms the factory-state cache with vaults()=ZERO_ADDRESS; (2) crosses the 5s TTL boundary with fake timers; (3) allows the refresh to succeed but still return ZERO_ADDRESS; (4) asserts `verifySpy` was not called; (5) asserts `securityEvent('vault_not_deployed', ...)` fired. The unit-tester's note about D3 immutability (only non-zero vault addresses are cached forever) is correct — this variant (re-fetch after TTL with persistent zero vault) is the actually-reachable path, and the security invariant it pins is identical to the original finding."
+    }
+  ],
+  "security_path_coverage_final": {
+    "replay_rejection": "COVERED — checkAndInsert TOCTOU-safe primitive pinned; replay-store retention after settlement failure asserted through module-scope NonceStore singleton.",
+    "signature_recovery": "COVERED — full EIP-712 domain tamper matrix (chainId, verifyingContract, domain.name, domain.version) + malformed-sig catch branch + CAIP-2/alias normalization.",
+    "malformed_payload_rejection": "COVERED — 4KB cap, base64 parse, JSON parse, shape validation, decimal-int guard on validAfter/validBefore, non-string network.",
+    "chain_mismatch": "COVERED — D14 chainId pin (NetworkMismatchError path), unknown network in verify, unknown network throw in settle, chain_id_mismatch event emission.",
+    "vault_not_deployed_before_verify": "COVERED — both the non-stale path (pre-existing test) and the stale-cache + TTL-refresh + zero-vault path (new SEC-T9-03 test). Attacker crafting authorization.to=0x0 is blocked in both paths.",
+    "relayer_key_opacity": "COVERED — brand-forging WeakMap-miss test, JSON.stringify/toString/inspect redaction, core passes OpaqueRelayerKey by reference without extraction.",
+    "settlement_taxonomy": "COVERED — all 7 reasons with distinct mock setups; rpc_timeout vs mine_timeout distinction maintained; balance-read TimeoutError path tested."
+  },
+  "new_findings": [],
+  "notes": [
+    "The T11 register-cli.test.ts changes incidentally included in this commit are out of scope for the T9 security review and were not audited here.",
+    "The txHash addition to ChallengeBody properties is correct and necessary — core.ts emits `{ reason, txHash? }` in the settlement_failed response body (line 610), and without this entry the settlement_failed body with a txHash field would have failed the newly-strict additionalProperties:false validation."
+  ]
+}

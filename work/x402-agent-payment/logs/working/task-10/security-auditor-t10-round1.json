@@ -1,0 +1,113 @@
+{
+  "reviewer": "security-auditor-t10",
+  "task": 10,
+  "round": 1,
+  "commit": "4cb88d9",
+  "date": "2026-06-17",
+  "files_reviewed": [
+    "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+    "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts",
+    "packages/middleware/vitest.config.ts",
+    "contracts/.env.example",
+    ".gitleaks.toml",
+    ".husky/pre-commit"
+  ],
+  "focus_areas": [
+    "No real keys/secrets/RPC URLs hardcoded in test files",
+    ".env.example values are clearly placeholders",
+    "Live e2e test skips cleanly without leaking env state when ARC_TESTNET_E2E is absent",
+    "Cross-adapter replay-rejection test correctness — NonceStore shared at module scope, not reset between adapter runs"
+  ],
+  "findings": [
+    {
+      "id": "SEC-T10-01",
+      "severity": "Medium",
+      "title": "ANVIL_KEYS (well-known test private keys) not allowlisted in gitleaks — will be flagged by CI pre-commit hook",
+      "file": "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+      "lines": "78-83",
+      "description": "The ANVIL_KEYS array at lines 78-83 contains 6 private keys matching the pattern `0x[0-9a-fA-F]{64}` (32-byte hex). These are the well-known, publicly documented deterministic Foundry anvil test keys derived from the 'test test test … junk' mnemonic — they are not production secrets and carry no real value. However, `.gitleaks.toml` extends the default ruleset with an empty `[allowlist]`, meaning gitleaks' default `private-key` detection rule will flag these strings as secrets during `gitleaks protect --staged` in the pre-commit hook. The commit 4cb88d9 passed, which suggests either gitleaks was not installed at commit time or the default ruleset doesn't cover this exact pattern — but this is a CI reliability risk for contributors who have gitleaks installed.",
+      "impact": "Gitleaks will block commits touching this file for any contributor with gitleaks installed, causing CI friction. There is no real security impact since these are public test fixtures documented in Foundry's own docs. Risk: gitleaks false-positive blocks developer workflow.",
+      "recommendation": "Add an allowlist entry to `.gitleaks.toml` to suppress detection of the well-known anvil test keys by path:\n```toml\n[allowlist]\n  description = \"Well-known Foundry anvil test private keys (test-only fixtures)\"\n  paths = [\n    '''packages/middleware/src/__tests__/integration/forked-e2e.test.ts'''\n  ]\n```\nAlternatively, add a per-occurrence `# gitleaks:allow` comment on each ANVIL_KEYS line, or load the keys from `anvil`'s `--mnemonic` output at runtime instead of hardcoding them.",
+      "owasp": "A02:2021 – Cryptographic Failures (false positive — documented public test fixture)"
+    },
+    {
+      "id": "SEC-T10-02",
+      "severity": "Low",
+      "title": "relayerKeyHex lives as a plain string in local scope before OpaqueRelayerKey wrapping (arc-testnet-e2e)",
+      "file": "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts",
+      "lines": "145, 197",
+      "description": "At line 145, `requireEnv('PAYWALL_RELAYER_KEY')` returns the relayer private key as a plain `string` assigned to `relayerKeyHex`. It is wrapped in `new OpaqueRelayerKey(relayerKeyHex)` at line 197. Between those 52 lines, `relayerKeyHex` is a live, un-redacted string on the call stack. No logging or error path touches it in this window, and the code is inside `beforeAll` inside a `describe.skipIf(!SHOULD_RUN)` block (so it only executes when `ARC_TESTNET_E2E=1`). The risk is low in practice, but the D13 defense-in-depth strategy calls for minimizing the window during which the raw key is in scope.",
+      "impact": "If a test framework hook, an exception serializer, or a future instrumentation layer captures the call frame between lines 145–197, the raw key could leak into logs. This is a theoretical concern given the controlled test environment, but inconsistent with the D13 wrapping philosophy.",
+      "recommendation": "Wrap immediately on receipt:\n```ts\nconst relayerKey = new OpaqueRelayerKey(requireEnv('PAYWALL_RELAYER_KEY'));\n// ...later:\nrelayerKey: relayerKey,\n```\nThis eliminates the plain-string intermediate variable entirely.",
+      "owasp": "A02:2021 – Cryptographic Failures"
+    },
+    {
+      "id": "SEC-T10-03",
+      "severity": "Low",
+      "title": "ARC_TESTNET_PAYER_PK read as plain string and passed to privateKeyToAccount — short exposure window",
+      "file": "packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts",
+      "lines": "146, 190",
+      "description": "Similarly to SEC-T10-02, `payerPkHex` at line 146 is the raw payer private key string. It is converted to a viem account object at line 190 via `privateKeyToAccount(payerPkHex)`. The raw string persists in local scope for 44 lines. For a test-only key (not a production relayer), the operational risk is lower than SEC-T10-02, but the pattern should be consistent.",
+      "impact": "Same theoretical log-capture risk as SEC-T10-02. Lower severity because the payer key is a test-only credential that controls only the Arc Testnet nightly test account, not the relayer.",
+      "recommendation": "Convert immediately: `const payerAccount = privateKeyToAccount(requireEnv('ARC_TESTNET_PAYER_PK') as '0x${string}');` and remove the intermediate `payerPkHex` variable.",
+      "owasp": "A02:2021 – Cryptographic Failures"
+    }
+  ],
+  "passed_checks": [
+    {
+      "check": "No real keys/secrets hardcoded in forked-e2e.test.ts",
+      "result": "PASS — ANVIL_KEYS are the standard public Foundry test fixture keys (no real value). All production keys are read from env vars inside the gated arc-testnet-e2e describe block."
+    },
+    {
+      "check": "No real keys/secrets hardcoded in arc-testnet-e2e.test.ts",
+      "result": "PASS — No private keys, API keys, or RPC credentials are hardcoded. All sensitive values are read from canonical env vars (ARC_RPC_URL, PAYWALL_RELAYER_KEY, ARC_TESTNET_PAYER_PK, ARC_TESTNET_DEVELOPER_EOA, PAYMENT_SPLITTER_FACTORY_ADDRESS) via requireEnv()."
+    },
+    {
+      "check": ".env.example values are clearly placeholders",
+      "result": "PASS — contracts/.env.example has DEPLOYER_KEY=0x<your-0x-prefixed-64-hex-char-private-key> (explicit placeholder), ARC_RPC_URL=https://rpc.arc-testnet.example/ (non-live domain), ARC_VERIFY_API_KEY=replace-me. No live credentials or key-shaped strings present."
+    },
+    {
+      "check": "Live e2e test skips cleanly without leaking env state when ARC_TESTNET_E2E is absent",
+      "result": "PASS — describe.skipIf(!SHOULD_RUN) at line 128 gates the entire suite. SHOULD_RUN is a module-level const evaluated once at import. requireEnv() calls are inside beforeAll inside the gated describe block and never execute when SHOULD_RUN=false. No env reads occur before the gate except the safe boolean evaluation of ARC_TESTNET_E2E itself. The skip-gate assertion in the second describe block at line 335 also passes unconditionally (verifying the gate contract structurally)."
+    },
+    {
+      "check": "Cross-adapter replay-rejection test correctness",
+      "result": "PASS — The cross-adapter test (lines 721-747) uses a single `header` string variable constructed once and sent to BOTH the Node http endpoint (line 739) and the Fastify endpoint (line 744). The header bytes are identical — no re-encoding occurs between the two requests. Both servers are wired from the same `@universal-paywall/middleware` import in the same process, so both adapters share the same module-scope NonceStore singleton. The first request succeeds (asserting status 200), and the second request asserts 402 with error code 'nonce_already_used', which is the exact canonical wire code per systemic-fix §4."
+    },
+    {
+      "check": "NonceStore not reset between adapter runs",
+      "result": "PASS — There is no NonceStore reset between the Node http and Fastify requests in the cross-adapter test. The forked suite does not import or call any NonceStore reset function. The patchNetworksForAnvil function mutates NETWORKS but does not touch NonceStore state. The singleton NonceStore persists across all test cases within the suite's process lifetime."
+    },
+    {
+      "check": "Paused test teardown safety",
+      "result": "PASS — The paused test wraps the body in try/finally and unpauses the factory in the finally block (lines 829-840). The paused test runs last in the describe block so it cannot poison prior test cases. If unpause fails, the afterAll kills the ephemeral anvil process entirely, so no state leaks to subsequent test runs."
+    },
+    {
+      "check": "NETWORKS mutation teardown safety",
+      "result": "PASS — restoreNetworks is a module-level variable assigned after patchNetworksForAnvil succeeds (line 516). afterAll independently checks restoreNetworks !== undefined and calls it before nulling the reference (lines 593-596). This correctly handles the case where beforeAll throws mid-way: restoreNetworks is restored if set, regardless of whether state was fully populated."
+    },
+    {
+      "check": "OpaqueRelayerKey wrapping in arc-testnet-e2e",
+      "result": "PASS (with note in SEC-T10-02) — The relayer key is wrapped in OpaqueRelayerKey before placement in PaywallConfig.facilitator.relayerKey (line 197). The plain-string intermediate is the Low finding SEC-T10-02."
+    },
+    {
+      "check": "OpaqueRelayerKey wrapping in forked-e2e",
+      "result": "PASS — ANVIL_KEYS[3] is passed directly to new OpaqueRelayerKey(ANVIL_KEYS[3]) in buildConfig (line 326). No intermediate variable."
+    },
+    {
+      "check": "RPC URL is not hardcoded for production environments in forked-e2e",
+      "result": "PASS — RPC_URL in forked-e2e is 'http://127.0.0.1:${TEST_PORT}' (localhost anvil), not a production RPC."
+    },
+    {
+      "check": "vitest.config.ts timeout additions",
+      "result": "PASS — testTimeout: 60_000 and hookTimeout: 30_000 are the correct vitest-native timeout configuration, not Mocha-style this.timeout(). No security concerns."
+    }
+  ],
+  "overall_assessment": "The implementation is largely correct from a security perspective. The cross-adapter NonceStore replay test is implemented correctly — same header bytes, no reset between adapter runs, both adapters share the module-scope NonceStore. The live e2e skip gate is properly implemented with describe.skipIf and no env state leakage on default CI runs. The .env.example contains only placeholders. One Medium finding (SEC-T10-01) is a gitleaks CI tooling issue with the well-known anvil test keys — not a real secret exposure. Two Low findings (SEC-T10-02, SEC-T10-03) address short-lived plain-string key windows in test code.",
+  "blocking": false,
+  "recommended_actions": [
+    "SEC-T10-01 (Medium): Add gitleaks allowlist for forked-e2e.test.ts path to prevent false-positive pre-commit blocks. Non-blocking for the test suite itself.",
+    "SEC-T10-02 (Low): Inline relayerKeyHex into OpaqueRelayerKey construction to eliminate the plain-string intermediate.",
+    "SEC-T10-03 (Low): Inline payerPkHex into privateKeyToAccount call to eliminate the plain-string intermediate."
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "task": "T14 Test Audit — Round 1 re-audit of audit-fixer's fixes",
+  "auditor": "test-auditor",
+  "round": 1,
+  "commit_under_review": "58a1aae",
+  "verdict": "PASS_WITH_NOTES",
+  "summary": "All three T14 findings (L1/L2/L3) addressed appropriately. T14-L1 documents the deferral with a sound technical rationale (fake timers would deadlock in-flight anvil/Fastify timers in the same-process forked-e2e); the deterministic unit-level TTL test in core.test.ts:299 remains authoritative. T14-L2 extracts MOCK_USDC_NAME as a clean single source of truth. T14-L3 comment block on pause() correctly documents the forge LCOV instrumentation quirk. Test counts: middleware 208 passed + 2 skipped (−45 vs round 0 due to errors.test.ts deletion under T12-01), forge 52 passed. Coverage: middleware 96.69% lines / 88.88% branches (−0.18 / −0.30 vs round 0; still well above ≥85% gate); contracts forge LCOV branch coverage unchanged at 100% on src/. One LOW-severity observation flagged: errors.test.ts deletion removes per-reason exhaustive ajv schema validation; the canonical body shape for each reason is still pinned by core.test.ts, and the schema-validation drift detector (`additionalProperties: false` on ChallengeBody) remains active at three sites (x402.test.ts:91 build402Body, forked-e2e.test.ts:649 real-wire, arc-testnet-e2e.test.ts:240 live-wire). Not a blocking gap — the lost iteration was breadth, not depth. No regression in any hard requirement.",
+  "scope": [
+    "git diff HEAD~1 HEAD -- packages/middleware/src/__tests__",
+    "git diff HEAD~1 HEAD -- contracts/src/PaymentSplitterFactory.sol",
+    "Verified test counts and coverage after fixes applied"
+  ],
+  "findings_by_id": {
+    "T14-L1": {
+      "fixer_action": "Kept 8s real-clock wait. Expanded inline comment at forked-e2e.test.ts:865-874 explaining why vi.useFakeTimers is not viable: same-process middleware reads Date.now() inside core.ts:readFactoryState, and fake timers would freeze the anvil polling timers and the in-flight Fastify hook, deadlocking the HTTP request.",
+      "review": "ACCEPTED. Sound technical rationale. The unit-level deterministic TTL test in core.test.ts:299 (ttl_refresh_after_5s_fake_timers) is correctly designated as the authoritative coverage; the forked-e2e variant remains a path-coverage smoke. The alternative I had suggested (RPC-override that forces a cache miss) would require a public-surface API change to core.ts; deferring is the right MVP call. The comment now reads as a permanent design note rather than a TODO. No regression risk.",
+      "status": "RESOLVED"
+    },
+    "T14-L2": {
+      "fixer_action": "Extracted const MOCK_USDC_NAME = 'USD Coin' at forked-e2e.test.ts:102 with an inline comment documenting the mock-vs-live divergence. Replaced all 6 literal usages (lines 365, 671, 732, 789, 822, 888) with the constant.",
+      "review": "ACCEPTED. All six original literal sites are replaced. The comment correctly cross-references the T3 spike (decisions.md Task 3) and notes that arc-testnet-e2e.test.ts uses the live 'USDC' value. A future Circle name change is now a 1-line edit in this file. No regression risk.",
+      "status": "RESOLVED"
+    },
+    "T14-L3": {
+      "fixer_action": "Added 6-line comment block immediately above pause() in contracts/src/PaymentSplitterFactory.sol:94-99 documenting that lines 97/100/101 show as line-coverage misses despite being functionally exercised by test_Pause_BlocksRegister / test_Unpause_RestoresRegister. Branch coverage (100%) confirmed as the real CI gate.",
+      "review": "ACCEPTED. Comment is accurately scoped (forge LCOV quirk on single-statement function bodies wrapping inherited modifiers) and references the specific tests. Recommendation to gate CI on the branch metric is correctly anchored to the documented 100% branch coverage. No code logic changed — pure documentation. No regression risk.",
+      "status": "RESOLVED"
+    }
+  },
+  "verification": {
+    "middleware_tests": {
+      "command": "npm test --workspace=@universal-paywall/middleware -- --reporter=basic",
+      "result": "208 passed + 2 skipped (210 total)",
+      "delta_vs_round_0": "−45 (errors.test.ts deleted by T12-01)",
+      "verdict": "PASS"
+    },
+    "forge_tests": {
+      "command": "cd contracts && forge test",
+      "result": "52 passed / 0 failed",
+      "verdict": "PASS"
+    },
+    "middleware_coverage": {
+      "command": "npm test --workspace=@universal-paywall/middleware -- --coverage",
+      "lines_pct": 96.69,
+      "branches_pct": 88.88,
+      "functions_pct": 100.0,
+      "delta_lines_vs_round_0": -0.18,
+      "delta_branches_vs_round_0": -0.30,
+      "target_lines_pct": 85,
+      "verdict": "PASS"
+    },
+    "per_file_coverage_no_regressions": {
+      "core_ts": "96.23% lines (was 96.5%) — tiny drop from chain_id_mismatch second-site reason rename (untested branch was untested before too)",
+      "settle_ts": "96.04% lines (was 95.89%) — slight gain from new SettlementFailedReason type addition not changing line count",
+      "relayer_key_ts": "100% — still fully covered after WeakMap docstring rewrite (T12-04) and scrubSecrets regex tightening (T13-M-MW-01)",
+      "verify_ts": "100% unchanged",
+      "x402_ts": "95.76% unchanged"
+    }
+  },
+  "test_count_explanation": {
+    "round_0_total": "253 passed + 2 skipped",
+    "round_1_total": "208 passed + 2 skipped",
+    "delta": "−45 due to deletion of __tests__/errors.test.ts (14 declarations × table expansion ≈ 49 effective cases; net −45 after consolidation with overlap)",
+    "drop_is_intentional": "Per T12-01 (code-auditor): errors.ts module is dead code — core.ts:build402 is the production response builder; buildErrorResponse had diverged from the wire format on the settlementReason vs reason field. Deleting both the module and its tests is correct cleanup, not a coverage regression."
+  },
+  "errors_test_ts_deletion_assessment": {
+    "what_was_lost": [
+      "it.each([...FOUR_HUNDRED, ...FOUR_HUNDRED_TWO]) — exhaustive per-reason ajv schema validation across 2 × 400 + 11 × 402 = 13 reasons",
+      "it.each(SETTLEMENT_SUB_REASONS) — exhaustive per-sub-reason ajv schema validation across all 7 settle reasons",
+      "Regression guard: expect(JSON.stringify(r.body)).not.toContain('recipient_mismatch') (rendered moot — no source file uses 'recipient_mismatch' anywhere)"
+    ],
+    "what_is_still_covered": [
+      "Canonical body shape for every wire reason — core.test.ts asserts `body: { error: '<reason>' }` at lines 159, 181, 201, 244, 262, 504 (table-driven for 7 settle reasons), 579 (chain_id_mismatch), 652 (insufficient_amount), 712, 725, 774, 785, and via verify→D18 mapping table at 619-642 (7 verify reasons)",
+      "Schema drift detector — ajv with `additionalProperties: false` on ChallengeBody still runs at x402.test.ts:91 (build402Body), forked-e2e.test.ts:649 (real wire), arc-testnet-e2e.test.ts:240 (live wire). Any future addition of an unknown top-level field still fails the schema at three independent sites.",
+      "MalformedPaymentHeaderError class — migrated to x402.ts and fully covered by x402.test.ts:8-309 (10 tests asserting instanceof, reason, detail.phase)"
+    ],
+    "net_assessment": "The per-reason × schema-validation matrix is the only thing genuinely lost. The schema does not constrain the reason string values (error/reason are just `{type: 'string'}` in the fixture), so the iteration was redundant with `additionalProperties: false` already enforced on every 402 body actually emitted by production code (which now flows through core.ts:build402, not the deleted module). I judge this LOW severity (coverage breadth, not depth)."
+  },
+  "hard_requirements_post_fix": {
+    "VaultInvariants_t_sol_3_invariants": "PASS — unchanged",
+    "testFuzz_FeeMath_present": "PASS — unchanged",
+    "testFuzz_RegisterIdempotent_present": "PASS — unchanged",
+    "MockMaliciousTreasury_dynamic_reentrancy_test": "PASS — unchanged",
+    "slither_reentrancy_clean": "PASS — unchanged",
+    "middleware_line_coverage_ge_85": "PASS — 96.69%",
+    "contracts_branch_coverage_ge_95": "PASS — 100%",
+    "cross_adapter_replay_protection_forked_e2e": "PASS — unchanged",
+    "both_adapters_unit_plus_forked_e2e": "PASS — unchanged",
+    "register_cli_scrub": "PASS — unchanged",
+    "seven_settle_reasons_separate_tests": "PASS — unchanged",
+    "four_eip712_tamper_tests": "PASS — unchanged",
+    "ajv_schema_validation_402_body": "PASS — three sites (x402.test.ts:91, forked-e2e.test.ts:649, arc-testnet-e2e.test.ts:240) using `additionalProperties: false`"
+  },
+  "new_findings_introduced_by_round_1": [
+    {
+      "severity": "low",
+      "id": "T14-R1-L4",
+      "title": "errors.test.ts deletion removes per-reason × per-sub-reason ajv iteration",
+      "rationale": "The deleted test had value as a structural drift detector that ran ajv against every wire reason and every settlement sub-reason. The replacement schema-validation sites validate the wire format on real 402 emissions but do not iterate the synthetic per-reason matrix. The schema does not constrain the reason values themselves (`error`/`reason` are `{type: 'string'}`), so the iteration's marginal benefit was breadth — catching a future case where one reason's body shape diverged. Now that core.ts:build402 is the single response builder and `additionalProperties: false` is enforced on every emitted body, this is acceptable. Recommend a follow-up: a single parameterized test in core.test.ts that iterates the SecurityEventName + settle.SettleReason unions, builds a synthetic body via build402, and ajv-validates each (rebuilds the deleted exhaustive matrix on top of the production builder).",
+      "blocking": false,
+      "post_mvp": true
+    },
+    {
+      "severity": "info",
+      "id": "T14-R1-I1",
+      "title": "Unknown-network configuration error path (core.ts:430) is untested",
+      "rationale": "T12-03 changed the wire reason at core.ts:430 from 'internal_error' to 'chain_id_mismatch' for the case where opts.network is missing from NETWORKS. This branch was untested in round 0 too. Not a regression — pre-existing gap surfaced by the fix. Not in T14 scope; flagging for the next code-audit or T12 reviewer.",
+      "blocking": false
+    }
+  ],
+  "recommendations": [
+    "Round 1 fixes accepted as-is. T14 findings are RESOLVED.",
+    "Optional post-MVP follow-up T14-R1-L4: add a synthetic per-reason × schema-validation iteration in core.test.ts to restore the exhaustive matrix on top of the production response builder. ~15 lines; rebuilds the strongest property of the deleted test."
+  ],
+  "blockers": [],
+  "shutdown_after_round": false,
+  "max_rounds": 3,
+  "next_action": "Awaiting team-lead direction. T14 fixes are PASS; no further fixer action required for T14 unless lead asks me to verify a delta."
+}

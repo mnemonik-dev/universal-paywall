@@ -1,0 +1,128 @@
+{
+  "reviewer": "test-reviewer-t3",
+  "task": "3",
+  "round": 1,
+  "methodology": "test-master",
+  "status": "needs_improvement",
+  "summary": "The spike script is well-structured and covers most acceptance criteria. The test-pyramid context is correctly understood: this is a manually-run smoke spike, not a vitest unit-test target. Key strengths: selector self-check, dual-decimal notes, RPC retry, and stdout/artifact parity. Two medium-severity and three low-severity issues found; no critical or high issues.",
+  "taskRequired": {
+    "needed": false,
+    "reason": "No critical or high issues; all findings are actionable within the same file or via a follow-up notes entry. The spike fulfills its acceptance criteria for wave gating."
+  },
+  "testPyramidAssessment": {
+    "type": "spike/smoke",
+    "verdict": "appropriate",
+    "notes": "Task spec explicitly states the script is NOT part of the automated test suite. It is operator-invoked and its correctness is defined by self-assertions inside main() and the deterministic smoke run. No vitest specs are expected or required for this task. Evaluated against smoke-verification design."
+  },
+  "findings": [
+    {
+      "id": "T3-M1",
+      "severity": "medium",
+      "category": "Missing Coverage",
+      "title": "Hard blockers written AFTER artifact and stdout — artifact contains misleading data on supportsEip3009=false path",
+      "location": "contracts/scripts/verify-usdc-eip3009.ts:342-374",
+      "description": "The artifact is written (line 358) before the hard-blocker exit checks (lines 361-374). If supportsEip3009 === false or decimals !== 6, the artifact is already written to disk with the bad values, then process.exit(1) fires. Any downstream consumer (T6) that checks for the artifact's existence as a signal of a successful run will pick up a misleading file. The stdout (line 353) also precedes the hard blockers, so the output JSON says supportsEip3009:false while the process exits 1 — that's internally consistent for the operator, but the on-disk artifact persists from the failed run.",
+      "litmusTestFailed": false,
+      "replacement": {
+        "approach": "Perform both hard-blocker checks before writing the artifact and before emitting stdout. Restructure main() so the guard block comes after supportsEip3009 is computed but before serialisation.",
+        "assertions": [
+          "If supportsEip3009 === false: process.exit(1) fires before writeFileSync and before console.log(JSON.stringify(out))",
+          "If decimals !== 6: same ordering"
+        ],
+        "codeSketch": "// After computing supportsEip3009:\nif (!supportsEip3009) { console.error(...); process.exit(1); }\nif (domain.decimals !== 6) { console.error(...); process.exit(1); }\n// Then compute gas, build out, write artifact, emit stdout, warn on threshold."
+      }
+    },
+    {
+      "id": "T3-M2",
+      "severity": "medium",
+      "category": "Edge Case Not Covered",
+      "title": "gasPriceWei === null path sets sampleGasCostMicroUsdc=0n and gasCostExceedsThreshold=false without a notes entry explaining the skip",
+      "location": "contracts/scripts/verify-usdc-eip3009.ts:313-315",
+      "description": "When readGasPriceWei returns null (gas pricing unavailable), a 'gas pricing unavailable, threshold check skipped' note is pushed inside readGasPriceWei (line 251), but the artifact ends up with sampleGasCost='0 micro-USDC' and gasCostExceedsThreshold=false. This looks like a successful 0-cost measurement rather than a skipped measurement. The task spec (edge cases section) requires surfacing 'gas pricing unavailable, threshold check skipped' via notes[] AND implies the gasCostExceedsThreshold should reflect the uncertainty. A reader of the artifact cannot distinguish 'cost was measured as 0' from 'cost measurement was skipped'. Additionally, the 'gas pricing unavailable' note IS added (line 251), but the artifact's sampleGasCost field is ambiguous.",
+      "litmusTestFailed": false,
+      "replacement": {
+        "approach": "When gasPriceWei === null, set sampleGasCost to a sentinel string like 'unavailable (gas pricing skipped)' rather than '0 micro-USDC'. Keep gasCostExceedsThreshold=false as specified. The notes[] entry from readGasPriceWei is already correct.",
+        "assertions": [
+          "When gas pricing is unavailable: sampleGasCost field in artifact is not '0 micro-USDC'",
+          "notes[] contains 'gas pricing unavailable, threshold check skipped'"
+        ]
+      }
+    },
+    {
+      "id": "T3-L1",
+      "severity": "low",
+      "category": "Edge Case Not Covered",
+      "title": "probeTransferWithAuthorization ambiguous-error path returns exists:false without a note for the ambiguity",
+      "location": "contracts/scripts/verify-usdc-eip3009.ts:230-234",
+      "description": "When an error is neither ContractFunctionZeroDataError nor ContractFunctionExecutionError, the probe pushes a generic 'gas estimation unavailable' note and returns {exists: false, gasEstimate: null}. This flips supportsEip3009 to false even though the task spec says 'Ambiguous outcomes ... are reported via notes[] and DO NOT flip supportsEip3009 to true' — which the code implements correctly. However the pushed note text ('transferWithAuthorization: gas estimation unavailable') could be confused with the distinct 'gas estimation fallback applied' note. A more distinctive prefix (e.g., 'transferWithAuthorization: ambiguous probe outcome — method existence unconfirmed') would help T6 operator parse the log.",
+      "litmusTestFailed": false,
+      "replacement": {
+        "approach": "Change the note text to disambiguate from the fallback-constant note: 'transferWithAuthorization: ambiguous probe — selector existence unconfirmed; treating as absent. Reason: <message>'",
+        "assertions": ["Operator can distinguish ambiguous-probe note from gas-estimation-fallback note in the artifact"]
+      }
+    },
+    {
+      "id": "T3-L2",
+      "severity": "low",
+      "category": "Edge Case Not Covered",
+      "title": "Selector self-check exit happens before client is created, but notes[] is not yet built — inconsistency with the note-first philosophy",
+      "location": "contracts/scripts/verify-usdc-eip3009.ts:268-275",
+      "description": "Selector self-check correctly exits 1 on mismatch (line 271-275), which is correct. This is a developer-facing invariant, not an operator-facing RPC error. The issue is minor: the error message is printed to stderr, which is correct, but the script exits before the artifact is written (correct) and before notes[] is populated (also correct). No functional issue; just noting that the exit-before-artifact ordering here IS correct (contrast with T3-M1 where the ordering is wrong for the hard blockers).",
+      "litmusTestFailed": false,
+      "replacement": {
+        "approach": "No change needed. This path is correct. Noting for completeness that this exit is properly ordered — before artifact write.",
+        "assertions": []
+      }
+    },
+    {
+      "id": "T3-L3",
+      "severity": "low",
+      "category": "Test Anti-patterns",
+      "title": "Sanity-check band upper bound (1e12 micro-USDC) is undocumented inline",
+      "location": "contracts/scripts/verify-usdc-eip3009.ts:328",
+      "description": "The sanity-check upper bound `10n ** 12n` micro-USDC = 1,000,000 USDC per transaction is a reasonable bound but the derivation is not documented. Future maintainers cannot tell if this is domain-driven or arbitrary. A short comment explaining the bound's origin (e.g., 'max plausible gas cost: 10M gas at 100 gwei = 1e9 wei → ~1e-3 USDC, well under 1e12 micro-USDC; anything above that indicates decimal error') would make the invariant auditable.",
+      "litmusTestFailed": false,
+      "replacement": {
+        "approach": "Add a one-line comment above `const wildlyHigh` explaining the upper bound derivation.",
+        "assertions": []
+      }
+    }
+  ],
+  "coverageAssessment": {
+    "acceptanceCriteriaChecked": [
+      { "criterion": "Script exists, TypeScript-typed, runs under tsx", "status": "pass" },
+      { "criterion": "Uses viem only, no hre.ethers, no Hardhat imports", "status": "pass" },
+      { "criterion": "Reads name(), version(), decimals() from USDC on Arc Testnet", "status": "pass" },
+      { "criterion": "Selector self-check toFunctionSelector(...) === 0xe3ee160e", "status": "pass" },
+      { "criterion": "Proves authorizationState and transferWithAuthorization exist on live contract", "status": "pass", "note": "Strategy is sound; ambiguity treated conservatively (flips to false, notes ambiguity)" },
+      { "criterion": "Estimates gas for sample transferWithAuthorization and converts to USDC cost", "status": "pass" },
+      { "criterion": "Stdout JSON shape {name, version, decimals, supportsEip3009, sampleGasCost, gasCostExceedsThreshold, notes?}", "status": "pass" },
+      { "criterion": "notes key omitted when empty (not 'notes: []')", "status": "pass" },
+      { "criterion": "Exit non-zero if supportsEip3009 === false or decimals !== 6", "status": "conditional-pass", "note": "Exit 1 does fire, but artifact is already written with misleading values before exit. See T3-M1." },
+      { "criterion": "Prints warning (exit 0) if gasCostExceedsThreshold === true", "status": "pass" },
+      { "criterion": "arc-testnet-usdc-domain.json written with matching shape", "status": "pass" },
+      { "criterion": "dual-decimal notes entry emitted when conversion performed", "status": "pass" },
+      { "criterion": "Gas fallback path emits notes entry", "status": "pass" },
+      { "criterion": "Script header documents consumer contract (T6 reads notes at module load)", "status": "pass" },
+      { "criterion": "Spike outcomes recorded in decisions.md", "status": "not-verifiable", "note": "decisions.md not included in diff; cannot verify from provided files. Flagging for post-completion check." },
+      { "criterion": "No secrets / private keys leaked to stdout even on error path", "status": "pass" },
+      { "criterion": "RPC retry up to 3 times with backoff", "status": "pass" },
+      { "criterion": "gasPrice unavailable → notes entry + gasCostExceedsThreshold=false", "status": "partial", "note": "Notes entry is present, but sampleGasCost='0 micro-USDC' is ambiguous. See T3-M2." },
+      { "criterion": "Stdout/artifact JSON shape are byte-identical in field set", "status": "pass", "note": "Confirmed by same `out` object used for both console.log and writeFileSync." },
+      { "criterion": "Sanity-check band applied to dual-decimal result", "status": "pass" }
+    ]
+  },
+  "methodExistenceStrategyVerdict": {
+    "authorizationState": "sound — view call with zero args; ContractFunctionZeroDataError correctly detected as absent; ContractFunctionExecutionError (unexpected revert from body) treated as present with note. Ambiguous errors treated conservatively (absent).",
+    "transferWithAuthorization": "sound — estimateContractGas with dummy args; ContractFunctionZeroDataError = absent; ContractFunctionExecutionError (signature revert = body reached) = present. Ambiguous treated conservatively."
+  },
+  "selectorSelfCheckVerdict": "correct — toFunctionSelector(TWA_SIGNATURE) compared to EXPECTED_TWA_SELECTOR '0xe3ee160e' before any RPC call; exit 1 on mismatch with clear developer-facing message.",
+  "stdoutArtifactParityVerdict": "confirmed — single `out` object constructed once, serialized to console.log(JSON.stringify(out)) and writeFileSync(path, JSON.stringify(out, null, 2) + newline). No divergence possible.",
+  "severityCounts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 3
+  },
+  "recommendation": "Fix T3-M1 (hard blockers before artifact write) and T3-M2 (ambiguous sampleGasCost sentinel on gas-pricing-unavailable path). These are both small ordering/string changes. Low-severity items (L1-L3) can be addressed in the same pass or deferred — none block wave gating. Confirm decisions.md update (not in diff)."
+}

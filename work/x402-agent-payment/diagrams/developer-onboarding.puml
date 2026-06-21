@@ -1,0 +1,55 @@
+@startuml developer-onboarding
+title Developer Onboarding — Register Vault + Run Middleware (Arc Testnet)
+
+skinparam sequenceMessageAlign center
+skinparam backgroundColor #FAFAFA
+skinparam participantBackgroundColor #FFF3E0
+skinparam participantBorderColor #FF9800
+
+actor "Developer" as Dev
+participant "Circle Faucet\n(faucet.circle.com)" as Faucet
+participant "register CLI\n(scripts/register.ts)" as CLI
+participant "PaymentSplitterFactory\n(Arc Testnet)" as Factory
+participant "Developer's Vault\n(EIP-1167 clone,\nat deterministic addr)" as Vault
+participant "Developer Service\n(withPaywall middleware)" as Service
+
+== Step 1: Get test USDC ==
+Dev -> Faucet : Request 1 USDC on Arc Testnet
+Faucet -> Dev : USDC arrives at developer EOA\n(also pays Arc gas — USDC is native gas token)
+
+== Step 2: Register (deploys vault) ==
+Dev -> CLI : npx universal-paywall register \\\n  --network arc-testnet
+note over CLI : REGISTER_KEY env holds\nthe developer's private key
+CLI -> Factory : register()\n(from developer EOA)
+Factory -> Factory : require !paused, !already registered
+Factory -> Vault : Clones.cloneDeterministic(\n   vaultImpl,\n   bytes32(uint256(uint160(msg.sender))))
+Vault -> Vault : initialize(developer = msg.sender)\nfactory = msg.sender(=Factory)
+Factory -> Factory : vaults[msg.sender] = vault\nemit VaultDeployed
+Factory --> CLI : (tx hash, vault address)
+CLI -> Dev : ✅ Registered\nvault: 0xDevVault...\narcscan: https://testnet.arcscan.app/address/0xDevVault...
+
+== Step 3: Install + configure middleware ==
+Dev -> Service : npm install @universal-paywall/middleware
+
+Dev -> Service : Server code:\n\nimport { withPaywall } from\n  '@universal-paywall/middleware';\n\nconst server = http.createServer(\n  withPaywall(myHandler, {\n    price: '0.01',\n    developerEoa: '0xDev...',\n    network: 'arc-testnet',\n    facilitator: {\n      mode: 'inline',\n      relayerKey: process.env.PAYWALL_RELAYER_KEY\n    }\n  })\n);
+
+note over Service
+  Factory + vault addresses baked into
+  middleware NETWORKS map.
+  Vault address is computed deterministically
+  (no RPC needed for 402).
+  Relayer key funds Arc gas — needs USDC.
+end note
+
+== Step 4: Balance check & withdrawal ==
+
+Dev -> Vault : (off-chain read)\nUSDC.balanceOf(vaultAddress)
+Vault -> Dev : balance (micro-USDC)
+
+Dev -> Vault : withdraw()  (signed from dev EOA)
+Vault -> Vault : require msg.sender == developer\ngross = USDC.balanceOf(this)\nrequire gross > 0\nfee = gross * factory.feeBps() / 10000\nnet = gross - fee
+Vault -> Dev : USDC.safeTransfer(developer, net)
+Vault -> "Platform Treasury" : USDC.safeTransfer(treasury, fee)\n(if fee > 0)
+Vault -> Vault : emit Withdrawal(developer, gross, fee)
+
+@enduml

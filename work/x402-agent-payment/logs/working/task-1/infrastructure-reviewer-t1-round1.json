@@ -1,0 +1,156 @@
+{
+  "reviewer": "infrastructure-reviewer-t1",
+  "task": "1",
+  "round": 1,
+  "commit": "0272fe3",
+  "verdict": "APPROVED",
+  "summary": "Scaffolding meets all spec requirements from task-1.md and infrastructure-setup methodology. All acceptance criteria pass. One minor advisory (tsup.config.ts ESLint ignore) is the correct call and is documented by the scaffolder. No blockers.",
+  "checklist": {
+    "npm_workspaces_declared": {
+      "status": "PASS",
+      "note": "packages/*, apps/*, contracts all declared upfront. npm 10 tolerates missing globs with a warning — contracts and apps/* dirs appear in Task 2+. This is the correct approach per task-1.md §Edge cases bullet."
+    },
+    "esm_only_exports": {
+      "status": "PASS",
+      "note": "exports map contains only 'import' branch, no 'require'. No 'main' field. type=module. Verified in packages/middleware/package.json."
+    },
+    "no_require_branch": {
+      "status": "PASS",
+      "note": "Confirmed: exports['.'] has only 'types' and 'import'. ESM-only invariant holds."
+    },
+    "typescript_strict": {
+      "status": "PASS",
+      "note": "strict:true, noUncheckedIndexedAccess, noImplicitOverride, exactOptionalPropertyTypes, verbatimModuleSyntax all present. Appropriate for an ESM-only library; verbatimModuleSyntax enforces import type discipline which is desirable for tree-shaking and ESM interop clarity."
+    },
+    "tsconfig_exclude_test_tree": {
+      "status": "PASS",
+      "note": "exclude includes 'src/__tests__' (not root-level __tests__) per systemic-fix §2. Correct."
+    },
+    "tsup_esm_only": {
+      "status": "PASS",
+      "note": "format: ['esm'] only. dts:true, sourcemap:true, target:node20, splitting:false, treeshake:true, minify:false. Artifacts confirmed: dist/index.js, dist/index.d.ts, dist/index.js.map all present."
+    },
+    "dist_artifacts": {
+      "status": "PASS",
+      "note": "dist/index.js is ESM (sourceMappingURL present, no CJS require). dist/index.d.ts exports {}. Sizes are small (placeholder module) — expected."
+    },
+    "vitest_root_level": {
+      "status": "PASS",
+      "note": "vitest@^1.5.0 in root devDependencies. npm ls vitest --workspace=@universal-paywall/middleware shows vitest@1.6.1 resolved. §9 iteration-3-addendum satisfied."
+    },
+    "middleware_devdeps_complete": {
+      "status": "PASS",
+      "note": "All 7 required devDeps present: tsup, typescript, tsx, vitest, ajv, pino, winston. T6 will not need additional npm install."
+    },
+    "passWithNoTests_pin": {
+      "status": "PASS",
+      "note": "test script is 'vitest run --passWithNoTests'. Sibling key '//test' documents the pin rule. Both present per §5 iteration-4-addendum."
+    },
+    "test_e2e_script": {
+      "status": "PASS",
+      "note": "test:e2e script present: 'vitest run src/__tests__/integration/ --passWithNoTests'. Correct per systemic-fix §9."
+    },
+    "husky_v9_prepare": {
+      "status": "PASS",
+      "note": "prepare script is 'husky' (husky v9 no-arg form). .husky/pre-commit is chmod +x (-rwxr-xr-x). Husky v9 sets core.hooksPath=.husky/_ shim automatically after npm install."
+    },
+    "pre_commit_gitleaks": {
+      "status": "PASS",
+      "note": "Hook checks 'command -v gitleaks' and exits 1 with instructions if missing. Fail-hard semantics correct. gitleaks protect --staged --redact runs first, then npm run lint."
+    },
+    "pre_commit_lint_scope": {
+      "status": "PASS",
+      "note": "Root lint script is 'eslint packages/middleware --ext .ts,.cts,.mts,.tsx' — scoped to middleware only. contracts/ not linted by this hook per systemic-fix §pre-commit lint scope."
+    },
+    "eslint_ignore_contracts": {
+      "status": "PASS",
+      "note": "contracts/ and apps/ in ignorePatterns. ESLint will not attempt to parse Solidity or future apps/ code."
+    },
+    "eslint_tsup_config_ignore": {
+      "status": "ADVISORY",
+      "severity": "low",
+      "note": "tsup.config.ts added to ignorePatterns because it is not in tsconfig.json include and parserOptions.project would error. The alternative (tsconfig.eslint.json) adds complexity not required by spec. Scaffolder's judgment call is correct — tsup.config.ts is build tooling, not library source. No action needed."
+    },
+    "eslint_config_format": {
+      "status": "PASS",
+      "note": ".eslintrc.cjs (CJS extension) required because root package.json has type=module. Using __dirname in parserOptions is correct for CJS context."
+    },
+    "prettier_config": {
+      "status": "PASS",
+      "note": ".prettierrc: singleQuote, semi, trailingComma:all, printWidth:100, tabWidth:2, arrowParens:always — matches spec. .prettierignore covers dist/, node_modules/, *.sol and other build artifacts."
+    },
+    "gitleaks_toml": {
+      "status": "PASS",
+      "note": ".gitleaks.toml with [extend] useDefault=true and empty [allowlist]. Correct minimal config that inherits all default secret patterns. Future tasks can extend allowlist for RPC URLs if needed."
+    },
+    "gitignore_additions": {
+      "status": "PASS",
+      "note": ".husky/_/ correctly ignored (husky v9 auto-generates this shim dir). Foundry contract paths (contracts/out/, contracts/cache/, contracts/broadcast/, contracts/.env, contracts/node_modules/) are appropriate additions even though they originate from Task 2 concurrent teammate — correct merge, not a conflict."
+    },
+    "index_placeholder": {
+      "status": "PASS",
+      "note": "packages/middleware/src/index.ts contains 'export {};'. tsup builds it cleanly. Task 8 will replace with real exports."
+    },
+    "engines_node_20": {
+      "status": "PASS",
+      "note": "engines.node >=20 on both root and packages/middleware package.json."
+    },
+    "publish_config": {
+      "status": "PASS",
+      "note": "publishConfig.access=public, publishConfig.provenance=true present in packages/middleware/package.json. Ready for Task 16 npm publish."
+    },
+    "no_secrets_committed": {
+      "status": "PASS",
+      "note": "No .env files, private keys, or credential files in the diff. .gitignore covers all secret patterns."
+    },
+    "smoke_verification": {
+      "status": "PASS",
+      "note": "Scaffolder confirmed: npm install success (node 20.19.1, npm 10.8.2), lint exit 0, typecheck exit 0, build exit 0 (dist artifacts present), npm test exit 0 (vitest 1.6.1 with --passWithNoTests), npx vitest --version 1.6.1, ESM module loads cleanly."
+    }
+  },
+  "findings": [
+    {
+      "id": "INFRA-001",
+      "severity": "advisory",
+      "category": "tooling",
+      "title": "tsup.config.ts excluded from ESLint via ignorePatterns",
+      "description": "The scaffolder added **/tsup.config.ts to ignorePatterns because it is not in tsconfig.json's include array and parserOptions.project causes 'TSConfig does not include this file' errors. This is the correct pragmatic solution — tsup.config.ts is build tooling, not library source code. The alternative (a separate tsconfig.eslint.json) adds complexity without spec benefit.",
+      "action": "none_required",
+      "spec_reference": "task-1.md §5 (ESLint config)"
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "root_package_json_workspaces": "PASS",
+    "lint_scoped_to_middleware": "PASS",
+    "vitest_in_root_devdeps": "PASS",
+    "middleware_package_name_type_engines": "PASS",
+    "exports_map_esm_only_no_require": "PASS",
+    "publish_config_access_provenance": "PASS",
+    "scripts_test_passWithNoTests": "PASS",
+    "scripts_test_e2e": "PASS",
+    "sibling_key_comment": "PASS",
+    "middleware_devdeps_all_7": "PASS",
+    "tsconfig_strict_flags": "PASS",
+    "tsconfig_exclude_src_tests": "PASS",
+    "tsup_esm_only_format": "PASS",
+    "tsup_dts_node20": "PASS",
+    "index_placeholder_export": "PASS",
+    "eslint_typescript_prettier": "PASS",
+    "eslint_ignores_contracts_apps": "PASS",
+    "prettier_rc_and_ignore": "PASS",
+    "husky_pre_commit_executable": "PASS",
+    "husky_gitleaks_fail_hard": "PASS",
+    "husky_lint_middleware_only": "PASS",
+    "gitleaks_toml_useDefault": "PASS",
+    "npm_install_success": "PASS",
+    "lint_exit_0": "PASS",
+    "build_produces_dist": "PASS",
+    "test_exit_0": "PASS",
+    "npx_vitest_version_from_root": "PASS",
+    "no_main_field": "PASS",
+    "no_require_in_exports": "PASS",
+    "package_lock_created": "PASS",
+    "no_secrets_in_commit": "PASS"
+  },
+  "overall_assessment": "All 30 acceptance criteria from task-1.md pass. Infrastructure methodology phases 1-7 are complete: TypeScript strict ESM-only package initialized, folder structure created (src/index.ts placeholder), no Docker (not required), .gitignore covers all secret patterns, pre-commit hooks in place (gitleaks + lint), vitest installed and passes --passWithNoTests, documentation deferred to Task 7 per spec. One low-severity advisory about tsup.config.ts ESLint ignore pattern — scaffolder's judgment is sound, no remediation needed."
+}

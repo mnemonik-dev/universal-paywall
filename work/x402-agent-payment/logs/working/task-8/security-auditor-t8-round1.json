@@ -1,0 +1,192 @@
+{
+  "reviewer": "security-auditor-t8",
+  "task": 8,
+  "round": 1,
+  "commit": "3b07205",
+  "timestamp": "2026-06-17",
+  "methodology": "OWASP Top 10 (2021) + task-8 focus areas: D18 SecurityLogger completeness, PublicClient cache isolation, adapter input parsing, error response sanitization, public API surface",
+  "overall_verdict": "CONDITIONAL_PASS",
+  "summary": "The implementation is structurally sound and correctly enforces most security invariants. Three issues require fixes before ship: (1) servedStale flag computed but never consumed — stale-cache RPC error silently serves stale factory state instead of returning rpc_5xx as the spec requires; (2) txHash in settlement_failed event is always redacted by scrubSecrets because it matches HEX_64_WITH_PREFIX_RE — defeats forensic value of the event; (3) D18 relayer_low_balance event with {balanceUsdc} payload is missing — the catalog omits it and settle collapses it into settlement_failed. Additionally, two tests required by the task-8 TDD anchor are missing. All other security invariants verified green.",
+  "findings": [
+    {
+      "id": "SEC-T8-01",
+      "severity": "Medium",
+      "category": "Security Logging & Monitoring (OWASP A09)",
+      "title": "servedStale flag computed but never consumed — stale-cache RPC error returns stale data instead of rpc_5xx",
+      "spec_reference": "task-8.md AC: 'stale-cache RPC error surfaces as 402 settlement_failed with reason: rpc_5xx'; task-8.md TDD anchor: 'factory-state RPC error with stale cache returns 402 settlement_failed reason rpc_5xx'",
+      "files": ["packages/middleware/src/core.ts:220-265"],
+      "description": "readFactoryState returns a FactoryReadResult discriminant { entry, servedStale: boolean }. When the cache is stale and a refresh RPC call fails, it returns { entry: cachedStaleEntry, servedStale: true }. However, every call site in paywall() destructures only read.entry and discards read.servedStale (lines 425, 516). The caller never checks servedStale and proceeds to use potentially expired paused/vault state for access decisions. The spec mandates that a stale-cache + RPC-failure should surface as 402 settlement_failed reason=rpc_5xx, but the implementation silently accepts the stale data.",
+      "impact": "An operator pausing the factory (e.g., emergency response) may not take effect for an unbounded duration if the RPC is degraded — the stale unpause=false result keeps accepting payments. This is the opposite of fail-safe behavior.",
+      "reproduction": "1. Load a factory state entry into FACTORY_STATE_CACHE with paused=false. 2. Advance time past TTL_MS (5s). 3. Mock publicClient.readContract to reject on the refresh call. 4. Send a valid X-PAYMENT. 5. Observe: middleware proceeds instead of returning rpc_5xx.",
+      "fix": "In the 7d branch of paywall(), check servedStale and surface rpc_5xx when true: `const read = await readFactoryState(...); if (read.servedStale) { emit(opts, 'settlement_failed', ...rpc_5xx); return build402(402, ..., 'settlement_failed', { reason: 'rpc_5xx' }); } factoryState = read.entry;`. Also add the two missing tests from the TDD anchor: 'factory-state RPC error returns last-good non-stale value' and 'factory-state RPC error with stale cache returns 402 settlement_failed reason rpc_5xx'."
+    },
+    {
+      "id": "SEC-T8-02",
+      "severity": "Medium",
+      "category": "Security Logging & Monitoring (OWASP A09)",
+      "title": "txHash in settlement_failed SecurityLogger event is always scrubbed to '<redacted:relayer-key>'",
+      "spec_reference": "tech-spec D18: settlement_failed { payerHash, reason, txHash? }; tech-spec D13: scrubSecrets scrubs '0x[0-9a-fA-F]{64}' patterns",
+      "files": ["packages/middleware/src/core.ts:557-559", "packages/middleware/src/relayer-key.ts:30-103"],
+      "description": "core.ts emits settlement_failed with payload { payerHash, reason, txHash? }. scrubSecrets is applied to the full payload before emit (core.ts:384). HEX_64_WITH_PREFIX_RE = /0x[0-9a-fA-F]{64}/g matches a 32-byte transaction hash (0x + 64 hex = 66 chars total). Therefore, every txHash value in the event will be replaced with '<redacted:relayer-key>' before reaching the integrator's monitoring system. This is a false positive from the regex — a tx hash is not a secret — but the pattern runs unconditionally.",
+      "impact": "Operators lose the ability to correlate settlement_failed events with on-chain transactions. When reason=receipt_reverted or mine_timeout the txHash is the only forensic handle to investigate the failure. This is a monitoring regression, not a security leak.",
+      "reproduction": "Call settle with a mock that returns { ok: false, reason: 'mine_timeout', txHash: '0x' + 'fe'.repeat(32) }. Check the emitted payload — txHash will be '<redacted:relayer-key>'.",
+      "fix": "Option A (preferred): In the scrubSecrets boundary for SecurityLogger events, pass the txHash separately after scrubbing or mark it as a known-safe value. Option B: Before calling scrubSecrets, extract and save txHash, then re-attach after: `const scrubbed = scrubSecrets(payload) as ...; if (txHash) scrubbed.txHash = txHash;`. Option C: Accept the redaction as intentional (defense in depth — a tx hash near a private key in a log could mislead forensics) and document it. If Option C is chosen, update D18 table to mark txHash as 'may be redacted'."
+    },
+    {
+      "id": "SEC-T8-03",
+      "severity": "Low",
+      "category": "Security Logging & Monitoring (OWASP A09) — D18 catalog completeness",
+      "title": "D18 relayer_low_balance event missing from SecurityEventCatalog and never emitted",
+      "spec_reference": "tech-spec D18 table: 'relayer_low_balance | { balanceUsdc }'; settle.ts returns reason='relayer_no_balance' which collapses into settlement_failed",
+      "files": ["packages/middleware/src/core.ts:65-79", "packages/middleware/src/settle.ts:339-344"],
+      "description": "The tech-spec D18 catalog explicitly includes relayer_low_balance: { balanceUsdc } as a distinct event. The SecurityEventCatalog in core.ts omits this event entirely. When settle.ts detects low balance, it returns { ok: false, reason: 'relayer_no_balance', details: { balance } }. core.ts receives this and emits settlement_failed with reason='relayer_no_balance' — discarding the balance field. Operators monitoring for 'relayer wallet needs refilling' have no dedicated signal with the actual balance value.",
+      "impact": "Operational: operators cannot configure dedicated alerting on relayer balance depletion with a balance threshold (they would need to parse settlement_failed reason field instead of a distinct event). Does not affect payment security.",
+      "fix": "Add relayer_low_balance: { balanceUsdc: string } to SecurityEventCatalog. In the settle failure handling in core.ts, inspect settleResult.details?.balance when reason='relayer_no_balance' and emit both relayer_low_balance (with balanceUsdc) AND settlement_failed (to preserve existing integrations). Alternatively, note in D18 that the catalog was intentionally merged and close with a documented deviation."
+    },
+    {
+      "id": "SEC-T8-04",
+      "severity": "Low",
+      "category": "Security Logging & Monitoring (OWASP A09) — D18 catalog naming",
+      "title": "chain_id_mismatch payload field names deviate from D18 spec",
+      "spec_reference": "tech-spec D18: chain_id_mismatch { expectedChainId, observedChainId }; implementation uses { expected, actual, network }",
+      "files": ["packages/middleware/src/core.ts:78", "packages/middleware/src/core.ts:547-550"],
+      "description": "The tech-spec D18 table specifies chain_id_mismatch payload as { expectedChainId, observedChainId }. The implementation declares SecurityEventCatalog.chain_id_mismatch as { expected: number; actual: number; network: string } and emits it with those field names. The field names differ from the canonical D18 catalog. The extra 'network' field is a useful addition but the misnamed core fields will break any monitoring rules written against the spec.",
+      "impact": "Low — integrators parsing chainId mismatch events from logs will use wrong field names. Task-8 explicitly notes this deviation ('supersedes' D18) for nonce_replay vs nonce_replay_attempt, but does NOT note the chain_id_mismatch field rename.",
+      "fix": "Either: (a) Align field names to spec: rename 'expected' → 'expectedChainId', 'actual' → 'observedChainId', keep 'network' as an additional field. Or (b) Document the deviation explicitly in task-8 TDD anchor or a decisions.md entry, making the rename intentional and traceable."
+    },
+    {
+      "id": "SEC-T8-05",
+      "severity": "Low",
+      "category": "Insecure Design — defense-in-depth",
+      "title": "verify() receives expectedVaultAddress=ZERO_ADDRESS when factory lookup fails before header read",
+      "spec_reference": "tech-spec Solution step 7c: to == computeVaultAddress(developerEoa); core.ts lines 421-428",
+      "files": ["packages/middleware/src/core.ts:421-429", "packages/middleware/src/core.ts:462-470"],
+      "description": "When the initial factory state read fails (lines 422-429), payTo stays ZERO_ADDRESS. This ZERO_ADDRESS is passed as expectedVaultAddress to verifyEip3009Authorization. An attacker who crafts authorization.to=ZERO_ADDRESS would pass the to_mismatch check. The 7d vault_not_deployed check (line 531) is the safety net — it blocks settlement even if a second factory read succeeds and payTo gets updated to a real vault. In practice, an attacker gains nothing (they cannot redirect funds to their chosen address) but can waste relayer USDC attempting settlement to 0x0 if the 7d re-fetch accidentally returns a real vault for a different developer.",
+      "impact": "Theoretical relayer USDC waste in a specific race condition. Does not enable fund theft due to the cryptographic binding of authorization.to in EIP-3009.",
+      "fix": "Guard verify call with an early-exit if payTo == ZERO_ADDRESS: if payTo is still ZERO_ADDRESS when reaching 7c, return 402 vault_not_deployed immediately without calling verify. This makes the invariant explicit and removes the confusing state where expectedVaultAddress=ZERO_ADDRESS is treated as a valid verification target."
+    },
+    {
+      "id": "SEC-T8-06",
+      "severity": "Info",
+      "category": "Test Coverage",
+      "title": "Two TDD anchor tests from task-8 spec are missing from core.test.ts",
+      "spec_reference": "task-8.md TDD anchor: 'factory-state RPC error returns last-good non-stale value' and 'factory-state RPC error with stale cache returns 402 settlement_failed reason rpc_5xx'",
+      "files": ["packages/middleware/src/__tests__/core.test.ts"],
+      "description": "The task-8 spec lists two mandatory TDD anchor tests. Only one test covering this behavior exists ('factory-state RPC error with no cache surfaces as 402 settlement_failed reason rpc_5xx'). The missing tests are: (1) when RPC fails but cache is still fresh (non-stale), the last-good cached value should be returned; (2) when RPC fails and cache is stale, it should return rpc_5xx. Both missing tests are directly related to SEC-T8-01.",
+      "impact": "The missing tests allowed the servedStale bug (SEC-T8-01) to go undetected.",
+      "fix": "Add both tests as specified in the TDD anchor. See SEC-T8-01 fix for the implementation change they drive."
+    }
+  ],
+  "verified_green": [
+    {
+      "invariant": "OpaqueRelayerKey opacity",
+      "status": "PASS",
+      "notes": "core.ts imports getRelayerKeySecret: NO (verified grep). core.ts holds the wrapper opaque and passes it to settle.ts by reference. settle.ts is the sole extraction site. Test 'core passes OpaqueRelayerKey opaque to settle — never extracts' asserts OpaqueRelayerKey.is() identity and JSON.stringify redaction."
+    },
+    {
+      "invariant": "SecurityLogger single-owner emission (addendum §2)",
+      "status": "PASS",
+      "notes": "verify.ts: zero matches for SecurityLogger or .securityEvent() (confirmed by source-level test and grep). settle.ts: zero matches for SecurityLogger or .securityEvent(). core.ts is the sole emit site. Each emit call is individually wrapped in try/catch."
+    },
+    {
+      "invariant": "EIP-712 domain derived from CONFIGURED network, not client-supplied network",
+      "status": "PASS",
+      "notes": "verify.ts:106 uses NETWORKS[opts.expectedNetwork] (server-configured) to build the EIP-712 domain — not payload.network (client-supplied). payload.network is only checked for network_mismatch after ecrecover, not used in domain construction. This closes chain-replay and domain-confusion attacks."
+    },
+    {
+      "invariant": "scrubSecrets applied before every SecurityLogger emit",
+      "status": "PASS",
+      "notes": "emit() helper at core.ts:384 calls scrubSecrets(payload) before opts.logger.securityEvent(). No raw addresses or signatures reach the logger payload. Note: txHash incidental scrubbing is tracked as SEC-T8-02 (monitoring concern, not security leak)."
+    },
+    {
+      "invariant": "PublicClient cache key includes network.id AND resolved rpcUrl — no cross-network leakage",
+      "status": "PASS",
+      "notes": "cacheKey = `${network.id}|${resolveRpcUrl(opts, network)}` (core.ts:199). Two different networks cannot share the same PublicClient. rpcUrl override per-request cannot cause cross-network contamination because network.id is part of the key."
+    },
+    {
+      "invariant": "FactoryStateCache keyed by canonical network.id — alias and CAIP-2 share one entry",
+      "status": "PASS",
+      "notes": "FACTORY_STATE_CACHE.get(network.id) at core.ts:227 uses the resolved NetworkConfig.id (always canonical CAIP-2 'eip155:5042002'), not the user-supplied opts.network string. 'arc-testnet' and 'eip155:5042002' resolve to the same network object and same id, so no duplicate cache entries."
+    },
+    {
+      "invariant": "X-PAYMENT header parsed strictly — no extra fields allowed",
+      "status": "PASS",
+      "notes": "decodeXPayment uses assertExactKeys() which enforces exact key sets at each level: top-level {x402Version,scheme,network,payload}, payload {signature,authorization}, authorization {from,to,value,validAfter,validBefore,nonce}. Unexpected keys throw MalformedPaymentHeaderError phase='shape'."
+    },
+    {
+      "invariant": "Header size measured in UTF-8 bytes, not character count",
+      "status": "PASS",
+      "notes": "core.ts:441: Buffer.byteLength(headerValue, 'utf8'). x402.ts:141 also uses Buffer.byteLength. No character-count bypass possible."
+    },
+    {
+      "invariant": "D14 chainId pin is in settle.ts (not core.ts)",
+      "status": "PASS",
+      "notes": "settle.ts:308-313: publicClient.getChainId() called on first use of network. core.ts does NOT call getChainId. NetworkMismatchError is caught in core.ts and emits chain_id_mismatch."
+    },
+    {
+      "invariant": "2-arg verifyEip3009Authorization call shape (addendum §3) — nonceStore in opts",
+      "status": "PASS",
+      "notes": "core.ts:464-471: exactly 2 args. nonceStore passed inside the opts object at key 'nonceStore'. Test 'core calls verifyEip3009Authorization with 2-arg shape' asserts args.length === 2."
+    },
+    {
+      "invariant": "payerHash / developerEoaHash / nonceHash canonical 10-char form (addendum §5)",
+      "status": "PASS",
+      "notes": "shortHash = '0x' + keccak256(input).slice(2, 10) → length 10 total. Tests assert .length === 10 and /^0x[0-9a-f]{8}$/. Raw addresses never appear in event payloads."
+    },
+    {
+      "invariant": "Public API surface — no internal helpers exported",
+      "status": "PASS",
+      "notes": "index.ts exports: withPaywall, fastifyPaywall, NETWORKS, OpaqueRelayerKey (class), and type exports. getRelayerKeySecret: NOT exported. NonceStore: NOT exported. __resetCoreCachesForTests: NOT exported. __getNonceStoreForTests: NOT exported. settleOnChain: NOT exported. verifyEip3009Authorization: NOT exported. index.test.ts asserts all of these."
+    },
+    {
+      "invariant": "WalletClient owned by settle.ts, not core.ts",
+      "status": "PASS",
+      "notes": "core.ts imports NO createWalletClient from viem. settle.ts owns WALLET_CACHE and buildWalletClient(). The OpaqueRelayerKey wrapper is passed by reference from core to settle; settle is the sole extraction site via getRelayerKeySecret."
+    },
+    {
+      "invariant": "Logger throws swallowed per-call",
+      "status": "PASS",
+      "notes": "emit() helper wraps opts.logger.securityEvent in try/catch per call. Test 'SecurityLogger throws are swallowed' verifies a throwing logger does not block the request path."
+    },
+    {
+      "invariant": "NonceStore is module-scope process-singleton",
+      "status": "PASS",
+      "notes": "const nonceStore = new NonceStore() at core.ts:118 at module-level, not inside paywall(). __getNonceStoreForTests() surfaces the same instance. Test verifies identity across two calls."
+    },
+    {
+      "invariant": "scrubSecrets cycle-safety",
+      "status": "PASS",
+      "notes": "scrubSecrets uses a seen Map<object,unknown> that registers each node BEFORE recursing into children, preventing infinite loops and cycle-based secret leakage."
+    },
+    {
+      "invariant": "scrubString applies 130-char pattern before 64-char pattern",
+      "status": "PASS",
+      "notes": "relayer-key.ts:100-103 applies HEX_130_WITH_PREFIX_RE first, then HEX_64_WITH_PREFIX_RE. This prevents partial corruption of full ECDSA signatures."
+    },
+    {
+      "invariant": "Fastify adapter uses reply.code(status).send(body) + return reply for 402",
+      "status": "PASS",
+      "notes": "fastify.ts:41-42: reply.code(result.status).send(result.body); return reply. Fastify short-circuit is correctly implemented. On passthrough, reply.send is NOT called — reply chaining preserved."
+    },
+    {
+      "invariant": "Node http adapter sets X-PAYMENT-RESPONSE BEFORE invoking user handler",
+      "status": "PASS",
+      "notes": "node-http.ts:39-42: setHeader loop runs before handler(req, res). Test asserts call order ['setHeader:X-PAYMENT-RESPONSE', 'handler']."
+    },
+    {
+      "invariant": "Header lookup is case-insensitive",
+      "status": "PASS",
+      "notes": "readHeader() at core.ts:357-367 lowercases both the target and each key. Both adapters pass headers as-is from framework (already lowercased by Node/Fastify), and the fallback iteration handles mixed-case custom adapters."
+    }
+  ],
+  "required_fixes": [
+    "SEC-T8-01 (Medium): Check servedStale in 7d factory-state read path; return rpc_5xx when stale + RPC failed",
+    "SEC-T8-02 (Medium): Decide explicitly whether txHash scrubbing in settlement_failed is intentional; if not, preserve txHash through scrubSecrets",
+    "SEC-T8-06 (Info): Add two missing TDD anchor tests for stale/non-stale RPC error cache behavior"
+  ],
+  "optional_improvements": [
+    "SEC-T8-03 (Low): Add distinct relayer_low_balance event to SecurityEventCatalog with { balanceUsdc } payload",
+    "SEC-T8-04 (Low): Align chain_id_mismatch payload field names with D18 spec (expectedChainId, observedChainId) or document deviation",
+    "SEC-T8-05 (Low): Guard verify() call to return vault_not_deployed early when payTo=ZERO_ADDRESS, rather than relying on the post-7c safety net"
+  ]
+}

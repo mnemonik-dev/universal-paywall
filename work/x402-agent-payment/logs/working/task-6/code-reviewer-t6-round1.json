@@ -1,0 +1,101 @@
+{
+  "reviewer": "code-reviewer-t6",
+  "round": 1,
+  "commit": "b5dfd2c",
+  "task": "6",
+  "timestamp": "2026-06-17",
+  "verdict": "approved_with_issues",
+  "summary": "Implementation is solid and spec-compliant across all six modules. Tests are thorough and well-structured. Two issues worth addressing: getRelayerKeySecret is unnecessarily exported from the public index.ts (should stay internal), and OpaqueRelayerKey._extract is a public static method. All other findings are minor.",
+  "findings": [
+    {
+      "id": "T6-R1-01",
+      "severity": "major",
+      "dimension": "Security Considerations",
+      "file": "packages/middleware/src/index.ts",
+      "line": 32,
+      "title": "getRelayerKeySecret exported from public npm API surface",
+      "description": "index.ts re-exports `getRelayerKeySecret` from `relayer-key.ts`, making it part of the public npm package API. The spec explicitly states: 'settle.ts (Task 7) imports getRelayerKeySecret; no other module should' (task spec line 39). Publishing this to the npm surface invites external consumers to call it, which contradicts the access-control intent of D13. settle.ts can import directly from relayer-key.ts without this function appearing in the public barrel.",
+      "recommendation": "Remove `getRelayerKeySecret` from the `export { ... } from './relayer-key.js'` line in index.ts. settle.ts should import it directly: `import { getRelayerKeySecret } from './relayer-key.js'`.",
+      "spec_reference": "task 6 line 39, D13"
+    },
+    {
+      "id": "T6-R1-02",
+      "severity": "major",
+      "dimension": "Security Considerations",
+      "file": "packages/middleware/src/relayer-key.ts",
+      "line": 75,
+      "title": "OpaqueRelayerKey._extract is a public static method on the exported class",
+      "description": "`static _extract(key: OpaqueRelayerKey): string` is defined as a public static method on the exported class. Any code that imports `OpaqueRelayerKey` can call `OpaqueRelayerKey._extract(someKey)` directly, bypassing the brand-check in `getRelayerKeySecret`. The leading underscore is a convention, not enforcement. The actual private-field protection means the key value is still not accessible via property enumeration, but the extraction path is wider than intended. The `_extract` call from `getRelayerKeySecret` is the only internal use, so moving the logic inline into `getRelayerKeySecret` and marking it `#extract` (private method) would be cleaner.",
+      "recommendation": "Change `static _extract` to a private method `static #extract` and call it from `getRelayerKeySecret` internally. This removes the public bypass path while keeping the same runtime behavior.",
+      "spec_reference": "task 6 line 39, D13 — 'The ONLY extraction path'"
+    },
+    {
+      "id": "T6-R1-03",
+      "severity": "minor",
+      "dimension": "Type Safety",
+      "file": "packages/middleware/src/x402.ts",
+      "line": 1690,
+      "title": "PRICE_RE accepts leading zeros (e.g. '00.01', '01')",
+      "description": "The regex `/^\\d+(\\.\\ d{1,6})?$/` accepts inputs like `'00.01'` and `'01'`. BigInt parsing of `'00'` is valid in JS (equals `0n`), so the math is correct and the result is not wrong. However, the spec's canonical price form for USD amounts would not include leading zeros. This is a permissiveness the task spec doesn't explicitly address, but it could cause upstream price formatting bugs if a caller normalizes `'01.5'` and expects back `1_500_000n` (which it does get correctly). Consider tightening to `^(0|[1-9]\\d*)(\\.\\d{1,6})?$` for clarity.",
+      "recommendation": "Tighten PRICE_RE to reject leading zeros: `^(0|[1-9]\\d*)(\\.\\d{1,6})?$`. Add test cases for '00.01' and '01' if keeping current behavior. Either way document the behavior explicitly.",
+      "spec_reference": "task 6 line 66 — 'strict validation', addendum §4"
+    },
+    {
+      "id": "T6-R1-04",
+      "severity": "minor",
+      "dimension": "Error Handling & Logging",
+      "file": "packages/middleware/src/networks.ts",
+      "line": 168,
+      "title": "console.warn at module load for T3 artefact notes not suppressed in test env",
+      "description": "When `contracts/scripts/arc-testnet-usdc-domain.json` has a non-empty `notes` array (as it does — it includes 'gas estimation fallback applied' and 'arc-dual-decimal' notes), `networks.ts` calls `console.warn` at module load unless `UP_SUPPRESS_T3_NOTES=1` is set. The test suite has no vitest config setting this env var, so every test run that imports `networks.ts` will emit two console.warn lines to stderr. This is not a correctness issue, but it is noisy and may confuse CI log readers.",
+      "recommendation": "Set `UP_SUPPRESS_T3_NOTES=1` in the vitest config (vitest.config.ts or package.json test env section) for the middleware workspace. Alternatively document this env var in a comment near the `UP_SUPPRESS_T3_NOTES` check so test maintainers know about it.",
+      "spec_reference": "task 6 — networks.ts, UP_SUPPRESS_T3_NOTES"
+    },
+    {
+      "id": "T6-R1-05",
+      "severity": "minor",
+      "dimension": "Separation of Concerns",
+      "file": "packages/middleware/src/replay-store.ts",
+      "line": 89,
+      "title": "insert() primitive does not call evictExpired before capacity check",
+      "description": "`has()` calls `#evictExpired` before checking, but `insert()` does not. This means stale TTL entries inflate `#count`, causing premature cap-evictions when callers use the `insert()` primitive directly (e.g. tests using `store.insert(...)` + `store.has(...)`). The primary consumer (`checkAndInsert`) is not affected because it calls `#evictExpired` first. The discrepancy makes the `insert()` primitive behave differently from the `checkAndInsert` path in tests around capacity.",
+      "recommendation": "Either call `#evictExpired(from, input.now ?? Date.now())` at the start of `insert()` — requiring adding `now` to `InsertInput` — or document the existing behavior explicitly in the `insert()` JSDoc: 'does not evict expired entries; use checkAndInsert for the full pipeline'.",
+      "spec_reference": "task 6 — replay-store.ts primitives for tests"
+    },
+    {
+      "id": "T6-R1-06",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "packages/middleware/src/__tests__/relayer-key.test.ts",
+      "line": 387,
+      "title": "Cyclic scrubSecrets test does not verify the cycle node value is scrubbed",
+      "description": "The cyclic test asserts `out.v` contains REDACTED (the direct value is scrubbed) and `out.self` is defined. However, `scrubSecrets` returns the **original** object reference for already-seen cyclic nodes, not a scrubbed copy. This means `out.self.v` still contains the raw hex string via the original object. The test does not catch this: `out.self === a` (original) and `a.v` is the unscrubbed value. The spec says 'handles cycles without stack-overflow'; it does that. But the redaction guarantee is incomplete for cyclic nodes — documenting this limitation would be helpful.",
+      "recommendation": "Add a comment to `scrubSecrets` explaining that cyclic back-references return the original un-scrubbed node (a known limitation of non-destructive scrubbing). Optionally add a test assertion: `expect(out.self?.v).not.toContain(RAW_HEX_NO_PREFIX)` — this will currently fail, confirming the limitation exists so it can be explicitly waived.",
+      "spec_reference": "task 6 line 46 — scrubSecrets handles cycles"
+    },
+    {
+      "id": "T6-R1-07",
+      "severity": "minor",
+      "dimension": "Code Readability & Maintainability",
+      "file": "packages/middleware/src/relayer-key.ts",
+      "line": 273,
+      "title": "Static class field [BRAND] = true could cause confusion with instance brand stamp",
+      "description": "The class has `static readonly [BRAND] = true` on the class object itself AND `Object.defineProperty(this, BRAND, { value: true })` on each instance in the constructor. The `is()` method checks `(x)[BRAND] === true` which reads the instance's own property (correct for instances). The static class field is unused by `is()` and serves no purpose other than potentially confusing readers. It also means `OpaqueRelayerKey[BRAND] === true` which could cause a false positive if someone passes the class itself to `is()` — `is(OpaqueRelayerKey)` returns `false` only because it checks `typeof x === 'object'` and the class is `typeof 'function'`. This is fine, but the static field is dead code.",
+      "recommendation": "Remove `static readonly [BRAND] = true as const` from the class definition — it's unused. The instance brand stamp in the constructor is sufficient for `is()`.",
+      "spec_reference": "task 6 — relayer-key.ts brand check"
+    }
+  ],
+  "positive_observations": [
+    "scrubSecrets correctly applies HEX_130 replacement BEFORE HEX_64 to prevent partial matches on 65-byte ECDSA signatures — this ordering is subtle and correct.",
+    "NETWORKS uses `as const satisfies Record<string, NetworkConfig>` which provides compile-time exhaustiveness checking while keeping the literal type — good TypeScript practice.",
+    "NonceStore checkAndInsert is truly synchronous with no await between has and insert — the TOCTOU contract is met by API shape as the spec requires.",
+    "decodeXPayment uses assertExactKeys at every level (top, payload, authorization) — strict shape enforcement prevents future extra-field smuggling.",
+    "The arc-mainnet placeholder correctly uses eip155:0 (not eip155:42161) as required by systemic-fix §8 — this guards against Arbitrum One false-positive matches.",
+    "networks.ts throws a loud blocker error at module load when T3 artefact is missing — correct fail-fast behavior that prevents silent wrong-domain-hash bugs.",
+    "parseUsdPrice uses pure integer arithmetic (no floating point) to avoid IEEE-754 rounding errors in micro-USDC conversion.",
+    "The 100k cap eviction in NonceStore is O(n) scan-on-overflow — acceptable given the cap is an absolute ceiling, and the implementation comment explains this trade-off."
+  ],
+  "blocking": false,
+  "requires_changes": ["T6-R1-01", "T6-R1-02"],
+  "optional_improvements": ["T6-R1-03", "T6-R1-04", "T6-R1-05", "T6-R1-06", "T6-R1-07"]
+}

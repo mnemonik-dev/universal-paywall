@@ -1,0 +1,74 @@
+{
+  "reviewer": "security-auditor-t11",
+  "task": 11,
+  "round": 2,
+  "timestamp": "2026-06-17",
+  "verdict": "pass",
+  "summary": "All five round-1 findings addressed correctly. Both mediums fully resolved: SA-T11-01 (classifyError scrubs err.message via scrubSecrets before pattern-matching) and SA-T11-02 (--allow-test-network flag removed, test-anvil gated exclusively on NODE_ENV=test). SA-T11-03 low fixed (static error message, no inner JSON.parse message forwarded). SA-T11-04 low fixed (README CI masking note added). SA-T11-05 info fixed (new test register_never_prints_key_on_rpc_failure covers the error classification path). No new security issues found in the diff. Task 11 is cleared to ship.",
+
+  "resolution_verification": [
+    {
+      "finding_id": "SA-T11-01",
+      "severity": "medium",
+      "status": "resolved",
+      "verification": "register.ts:142-164: classifyError() now declares rawMessage = (err as Error | undefined)?.message ?? '' and immediately passes it through scrubSecrets() before toLowercase() pattern matching (line 154: const message = (scrubSecrets(rawMessage) as string).toLowerCase()). A defense-in-depth comment block above the function documents the intent. The scrubSecrets import is from relayer-key.ts which applies the three regex patterns from D13. Verified: the raw message never reaches any output path; the classifier still returns only fixed tokens."
+    },
+    {
+      "finding_id": "SA-T11-02",
+      "severity": "medium",
+      "status": "resolved",
+      "verification": "register.ts:60-63: Args interface no longer contains allowTestNetwork. parseArgs (lines 65-86) has no --allow-test-network case. The test-anvil gate at line 191 reads exclusively: args.network === 'test-anvil' && process.env['NODE_ENV'] === 'test'. Comment explicitly states 'gated EXCLUSIVELY on NODE_ENV=test (per security-auditor SA-T11-02)'. The test suite sets NODE_ENV=test in runRegister's env (register-cli.test.ts:227), so existing tests are unaffected. The attack surface from the prior flag is gone."
+    },
+    {
+      "finding_id": "SA-T11-03",
+      "severity": "low",
+      "status": "resolved",
+      "verification": "post-deploy.ts:258-268: the JSON.parse catch block now uses catch (no binding), throws a new Error with a static message 'failed to parse broadcast JSON at ${broadcastPath} (malformed JSON; re-run forge script)'. The inner error's .message is not interpolated. Comment documents the security-auditor reference."
+    },
+    {
+      "finding_id": "SA-T11-04",
+      "severity": "low",
+      "status": "resolved",
+      "verification": "README.md: the forge verify-contract block now has a trailing paragraph: 'When you run this in CI, mask $PLATFORM_TREASURY_ADDRESS (and $DEPLOYER_KEY) in the job log output. GitHub Actions does this automatically for secrets registered as secrets.*; on other runners, redirect the forge/cast stdout through sed or use the runner's mask primitive — these addresses are public, but echoing them in log streams adds avoidable surface.' The note is accurate and actionable."
+    },
+    {
+      "finding_id": "SA-T11-05",
+      "severity": "info",
+      "status": "resolved",
+      "verification": "register-cli.test.ts:424-441: new test 'register_never_prints_key_on_rpc_failure' spawns the register CLI with a valid REGISTER_KEY (DEVELOPER_KEY) but rpcUrl='http://127.0.0.1:1' (port 1 is reserved, guaranteed connection-refused). Asserts: exit code is non-zero, combined stdout+stderr does not contain DEVELOPER_KEY, does not contain DEVELOPER_KEY.slice(2) (bare hex without 0x prefix), does not match /0x[0-9a-fA-F]{64}/, and stderr matches /register_failed:/. This is the correct test to close the error-classification path scrub gap."
+    }
+  ],
+
+  "new_findings": [],
+
+  "secondary_observations": [
+    {
+      "id": "OBS-R2-01",
+      "severity": "info",
+      "description": "register.ts:147-150: classifyError() has a redundant branch — the HttpRequestError handling checks 'if (typeof status === 'number' && status >= 500) return rpc_5xx' and immediately falls through to 'return rpc_5xx' unconditionally. This means ALL HttpRequestError instances return rpc_5xx, including 4xx responses (e.g., 401, 429). A 429 rate-limit error would be misclassified as rpc_5xx rather than a distinct reason. This is not a security issue but a behavioral accuracy gap. Not a blocking finding — the caller only receives a reason string and the security invariant (no key leak) holds regardless of the reason value. Advisory only."
+    }
+  ],
+
+  "confirmed_safe_r2": [
+    {
+      "description": "No new env-var reading or key extraction paths introduced in the diff."
+    },
+    {
+      "description": "The test-anvil buildTestNetwork() function (register.ts:116-140) is unchanged and its TEST_FACTORY_ADDRESS validation remains present."
+    },
+    {
+      "description": "scrubSecrets is imported from the internal relayer-key module path (register.ts imports it as a named import alongside OpaqueRelayerKey via '../packages/middleware/src/relayer-key.js'). The scrub function is the same one used at the D18 security-logger boundary — consistent behavior."
+    },
+    {
+      "description": "The new register_never_prints_key_on_rpc_failure test does NOT require the anvil fixture to be reachable at the bad RPC URL — it uses port 1 which will always refuse connections, so the test is deterministic and CI-safe without network isolation."
+    }
+  ],
+
+  "owasp_coverage_r2": {
+    "A02_cryptographic_failures": "PASS — private key handling unchanged and correct; new scrub in classifyError closes the architectural leak path",
+    "A03_injection": "PASS — no new shell interpolation or dynamic code paths",
+    "A05_security_misconfiguration": "PASS — --allow-test-network production escape hatch removed",
+    "A07_identification_authentication": "PASS — test-anvil gate now exclusively NODE_ENV=test",
+    "A09_logging_monitoring_failures": "PASS — error classification path now scrubbed; new test verifies it"
+  }
+}

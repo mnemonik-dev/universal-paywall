@@ -1,0 +1,108 @@
+{
+  "reviewer": "code-reviewer-t5",
+  "task": "5",
+  "round": 1,
+  "commit": "3cf5f71",
+  "verdict": "approve_with_minor_findings",
+  "summary": "The test suite is well-structured, thorough, and correctly implements the spec. All 9 test groups from the task description are covered. The Foundry-native approach (OZ Clones.predictDeterministicAddress in Solidity, vm.* cheats, fuzz + invariant harness) is correct. The MockUsdcWithHook decision is sound and well-documented. Four minor findings below — none block approval.",
+  "findings": [
+    {
+      "id": "R1-01",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "contracts/test/PaymentSplitterFactory.t.sol",
+      "line": 296,
+      "title": "testFuzz_RegisterIdempotent: vm.assume on precompile range may hide valid edge addresses",
+      "description": "The fuzz exclusion `vm.assume(uint160(dev) > 0xff)` skips the entire [1, 255] address range. While precompiles [1, 9] are the practical concern (vm.prank on a precompile can behave unexpectedly), address bytes [10, 255] are ordinary accounts that Foundry handles fine. The current assumption discards ~255 out of 2^160 possible values — negligible statistically — but the reasoning comment only mentions precompiles. A tighter bound `vm.assume(uint160(dev) > 9)` is more precise and skips only the 9 live precompiles. This is a comment/precision issue, not a test-correctness issue.",
+      "recommendation": "Change to `vm.assume(uint160(dev) > 9)` and update the comment to: '// Skip precompile addresses [1..9] — vm.prank on a precompile can fail in Foundry.'",
+      "affects_correctness": false
+    },
+    {
+      "id": "R1-02",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "contracts/test/PaymentSplitterFactory.t.sol",
+      "line": 134,
+      "title": "test_SetFeeBps_EmitsEvent: expectEmit uses all-false topic mask, missing topic1 (indexed topic) check",
+      "description": "`FeeBpsUpdated(uint16 oldBps, uint16 newBps)` is declared with no indexed parameters, so `vm.expectEmit(false, false, false, true, address(factory))` is technically correct. However, the task spec requires all events verified with `vm.expectEmit` — and the current call omits address-check mode `checkAddress: true` in the 5-arg form, which it does pass. This is fine as-is. The actual minor concern: `VaultDeployed` event at line 271 uses `vm.expectEmit(true, false, false, true, ...)` where the first `true` checks topic1 (`developer` is indexed). `FeeBpsUpdated` has no indexed params so the all-false mask is correct. No change needed — the note is informational only to confirm the reviewer verified this intentional difference.",
+      "recommendation": "No action required. Document inline that the differing masks reflect the indexed-parameter difference between events.",
+      "affects_correctness": false
+    },
+    {
+      "id": "R1-03",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "contracts/test/PaymentVaultImpl.t.sol",
+      "line": 224,
+      "title": "Reentrancy test: reentryCount assertion omitted with misleading comment",
+      "description": "The test comment says 'does NOT assert malicious.reentryCount because state reverts', but `reentryCount` is incremented inside `onUsdcReceived()` which runs BEFORE `target.withdraw()` reverts. Since `reentryCount` is storage in `MockMaliciousTreasury` (a separate contract from the reverting vault), it is NOT rolled back when `hostileVault.withdraw()` reverts — only vault storage is rolled back. Therefore `malicious.reentryCount` WILL be 1 after the test (the hook fired once). This means an assertion `assertEq(malicious.reentryCount, 1)` is possible and would strengthen the test by confirming the hook actually fired (i.e., the reentrancy path was actually exercised, not that the revert happened for a different reason). Without this assertion, a bug that prevents the hook from firing at all would still make the test pass (the outer withdraw would still revert for a different reason, or succeed silently). The current test is not wrong — `vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)` already pins the exact revert reason — but the missing assertion leaves a coverage gap on whether the reentrancy path was actually reached.",
+      "recommendation": "After the `vm.expectRevert(...)` + `hostileVault.withdraw()` block, add: `assertEq(malicious.reentryCount, 1, 'hook must have fired exactly once');` This is safe because MockMaliciousTreasury storage is not part of the reverting call's scope. Update the comment to: '// reentryCount IS observable post-revert (MockMaliciousTreasury is not the reverting contract).'",
+      "affects_correctness": false
+    },
+    {
+      "id": "R1-04",
+      "severity": "minor",
+      "dimension": "Testing Coverage",
+      "file": "contracts/test/invariants/VaultInvariants.t.sol",
+      "line": 48,
+      "title": "invariant_VaultBalanceIntegrity: totalWithdrawn tracks full gross, not net — correct but subtle",
+      "description": "`withdrawFromVault()` records `totalWithdrawn += balBefore` (the full gross amount). `invariant_VaultBalanceIntegrity` asserts `vault.balance == totalMinted - totalWithdrawn`. This is correct because the vault holds gross and withdraw() drains the entire vault balance to zero (splitting between dev and treasury, but vault ends at 0). The invariant therefore holds. The subtlety: `totalWithdrawn` is named 'withdrawn' but it actually tracks 'vault balance drained' — the dev receives net and treasury receives fee, but the vault's perspective is that the gross left. The current naming and logic are consistent. Informational note: if a future refactor introduces partial withdrawals, `totalWithdrawn` would need to track vault balance decrease, not amount sent to dev. Adding a short clarifying comment to `withdrawFromVault()` would future-proof this.",
+      "recommendation": "Add a comment to `withdrawFromVault()`: '// Tracks vault balance drained (gross), not developer net received — vault always drains to zero on full withdraw.' No code change required.",
+      "affects_correctness": false
+    }
+  ],
+  "spec_coverage_check": {
+    "factory_test_groups": {
+      "group_1_register_happy_path": "PASS — 5 tests covering deploy, vaults mapping, developer init, AlreadyRegistered, EnforcedPause",
+      "group_2_create2_cross_component": "PASS — OZ Clones.predictDeterministicAddress used directly in Solidity for 3 EOAs",
+      "group_3_register_reentrancy": "PASS — static analysis approach with NatSpec comment as spec requires (dynamic impossible)",
+      "group_4_set_fee_bps": "PASS — owner-only, bounds, valid values, event",
+      "group_5_set_platform_treasury": "PASS — owner-only, zero revert, event",
+      "group_6_ownable2step": "PASS — transfer-requires-accept, accept-completes, cancel-by-new-transfer",
+      "group_7_pause_unpause": "PASS — owner-only, blocks register, restore after unpause",
+      "group_8_constructor_reverts": "PASS — zero usdc, zero treasury, too-high fee, happy path state reads, vaultImpl non-zero + has code",
+      "group_9_vault_deployed_event": "PASS — event with args, unregistered returns zero, two devs distinct vaults",
+      "fuzz_register_idempotent": "PASS — present with vm.assume precompile skip"
+    },
+    "vault_test_groups": {
+      "group_1_initialize": "PASS — first call via setUp, second call reverts, zero-developer reverts (bonus beyond spec)",
+      "group_2_d15_impl_locked": "PASS — direct initialize on impl reverts InvalidInitialization",
+      "group_3_d16_no_receive": "PASS — native transfer call{value:1} returns false",
+      "group_4_d17_no_setters": "PASS — setDeveloper/setFactory selectors absent, plus developer non-zero positive assertion",
+      "group_5_withdraw_happy_path": "PASS — non-developer, zero balance, happy path with event and balances",
+      "group_6_fee_edge_cases": "PASS — feeBps=0, feeBps=1000, dust (1), boundary 199, boundary 200",
+      "group_7_fee_snapshot": "PASS — uses current feeBps at withdraw time pinned",
+      "group_8_reentrancy": "PASS — MockMaliciousTreasury + MockUsdcWithHook, ReentrancyGuardReentrantCall selector asserted",
+      "group_9_withdraw_when_paused": "PASS — factory.pause() then vault.withdraw() succeeds",
+      "fuzz_fee_math": "PASS — fee+net==gross, fee<=gross, vault drained"
+    },
+    "invariants": {
+      "invariant_vault_balance_integrity": "PASS",
+      "invariant_fee_bps_bounded": "PASS",
+      "invariant_developer_non_zero": "PASS"
+    },
+    "mocks": {
+      "MockMaliciousTreasury": "PASS — re-enters via onUsdcReceived, documented as test-only",
+      "MockUsdcWithHook": "PASS — setHooksEnabled flag prevents staging mints from triggering hook prematurely"
+    }
+  },
+  "positive_observations": [
+    "3-arg constructor used consistently throughout all setUp() deployments — no 4-arg instances found.",
+    "OZ error selectors used correctly throughout: Ownable.OwnableUnauthorizedAccount, Pausable.EnforcedPause, Initializable.InvalidInitialization, ReentrancyGuard.ReentrancyGuardReentrantCall — all OZ 5.x forms.",
+    "hooksEnabled flag on MockUsdcWithHook prevents inadvertent hook triggering during mint staging — correct design.",
+    "VaultHandler.setFeeBps correctly uses vm.prank(factoryOwner) — invariant runner would otherwise fail since test contract is owner, not handler.",
+    "FuzzSelector targetSelector properly restricts the fuzzer to the 3 handler entry points — prevents fuzzer from calling factory.setPlatformTreasury or vault.initialize randomly.",
+    "test_Initialize_RevertsOnZeroDeveloper is a bonus test beyond the spec — good defensive coverage of the initialize guard.",
+    "foundry.toml [profile.ci] correctly configures invariant runs=256, depth=64 per addendum §1.",
+    "Transfer order (developer first, treasury second) correctly noted as indirectly pinned by the reentrancy test — if treasury were first, the revert scope comment in the test would be wrong.",
+    "No Hardhat, chai, mocha, ethers, or viem imports — clean Foundry-only test suite.",
+    ".gitignore entry for contracts/lcov.info is correct — prevents binary coverage artifact from being committed."
+  ],
+  "cross_file_consistency": {
+    "factory_constructor_args": "Verified: all 3 setUp() + constructor tests use exactly (usdc, treasury, feeBps) — no 4-arg instances.",
+    "salt_formula": "Verified: test uses bytes32(uint256(uint160(devs[i]))) matching factory register() line 64.",
+    "oz_import_paths": "Verified: remappings.txt maps @openzeppelin/contracts/ to lib/openzeppelin-contracts/contracts/ — imports in test files resolve correctly.",
+    "mock_usdc_hook": "MockUsdcEip3009 confirmed to have no hook; MockUsdcWithHook used only for reentrancy test — correctly isolated."
+  },
+  "overall_assessment": "Suite is production-ready for a security audit. All required spec test cases are present and correctly implemented. The only material improvement would be adding the reentryCount assertion in the reentrancy test (R1-03) to confirm the hook path was actually exercised. The other three findings are comment-precision level. Coverage claim of 100% branches on both contracts is plausible given the thoroughness of the suite."
+}
