@@ -1,0 +1,26 @@
+# Mastodon donation-campaign provider recipe (scaffold).
+# The provider only serves the campaign JSON; point a Mastodon instance at it via
+# DONATION_CAMPAIGNS_URL. No facilitator env needed here — donations settle later
+# at donation_url via the agent + facilitator.
+services:
+  up-provider:
+    image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
+    environment:
+      PLATFORM: mastodon
+      CAMPAIGN_DONATION_URL: ${CAMPAIGN_DONATION_URL:?set donor stake/checkout url}
+      CAMPAIGN_ID: ${CAMPAIGN_ID:-universal-paywall}
+      CAMPAIGN_BANNER_MESSAGE: ${CAMPAIGN_BANNER_MESSAGE:-Support this instance — settles onchain via Universal Paywall}
+      # CAMPAIGN_AMOUNTS: '{"one_time":{"USD":[5,10,25]},"monthly":{"USD":[5]}}'
+      # CAMPAIGN_DEFAULT_CURRENCY: USD
+      PORT: "8410"
+    ports:
+      - "8410:8410"
+
+  # A Mastodon instance pointed at the provider. Full Mastodon compose (db, redis,
+  # sidekiq, streaming) is omitted; this shows only the wiring env.
+  # mastodon-web:
+  #   image: ghcr.io/mastodon/mastodon:latest
+  #   environment:
+  #     DONATION_CAMPAIGNS_URL: "http://up-provider:8410/api/v1/donation_campaigns"
+  #     DONATION_CAMPAIGNS_ENVIRONMENT: "production"
+  #   depends_on: [up-provider]

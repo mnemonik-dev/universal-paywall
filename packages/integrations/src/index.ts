@@ -25,6 +25,15 @@ export type {
   ListenTrackMetadata,
 } from './listenbrainz.js';
 
+export { buildDonationCampaign } from './mastodon.js';
+export type {
+  CampaignAmounts,
+  CampaignTemplate,
+  DonationCampaign,
+  DonationCampaignOptions,
+  DonationCampaignQuery,
+} from './mastodon.js';
+
 export {
   createSidecarServer,
   subsonicRoute,
@@ -33,5 +42,7 @@ export {
   citationRoute,
   immichRoute,
   listenBrainzRoutes,
+  mastodonCampaignRoute,
+  RouteResponse,
 } from './serve.js';
 export type { Route, RouteHandler, SidecarServerOptions } from './serve.js';

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Hex, Reporter, ReportInput, ReportOutcome } from '../core.js';
 import { handleSharedLinkResolve } from '../immich.js';
-import { citationRoute, immichRoute, listenBrainzRoutes, owncastRoute, subsonicRoute } from '../serve.js';
+import { citationRoute, immichRoute, listenBrainzRoutes, mastodonCampaignRoute, owncastRoute, RouteResponse, subsonicRoute } from '../serve.js';
 import { OwncastPresenceMeter } from '../owncast.js';
 import { handleListenSubmit, listenCreatorKey, parseListenToken } from '../listenbrainz.js';
+import { buildDonationCampaign, type CampaignTemplate } from '../mastodon.js';
 import type { IncomingHttpHeaders } from 'node:http';
 
 const NO_HEADERS: IncomingHttpHeaders = {};
@@ -143,5 +144,47 @@ describe('listenbrainz adapter', () => {
     );
     expect(outcomes).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('mastodon donation-campaign provider', () => {
+  const campaign: CampaignTemplate = {
+    id: 'up-1',
+    banner_message: 'Support this instance',
+    amounts: { one_time: { USD: [5, 10, 25] }, monthly: { USD: [5] } },
+    default_currency: 'USD',
+    donation_url: 'https://pay.example/donate',
+  };
+
+  it('buildDonationCampaign echoes the requested locale', () => {
+    expect(buildDonationCampaign({ campaign }, { locale: 'de' })).toMatchObject({ id: 'up-1', locale: 'de' });
+  });
+
+  it('buildDonationCampaign defaults locale to en when absent', () => {
+    expect(buildDonationCampaign({ campaign }, {})?.locale).toBe('en');
+    expect(buildDonationCampaign({ campaign }, { locale: '' })?.locale).toBe('en');
+  });
+
+  it('buildDonationCampaign returns null when no campaign is configured', () => {
+    expect(buildDonationCampaign({ campaign: null }, { locale: 'en' })).toBeNull();
+  });
+
+  it('route serves the campaign JSON with the request locale', async () => {
+    const route = mastodonCampaignRoute({ campaign });
+    expect(route).toMatchObject({ method: 'GET', path: '/api/v1/donation_campaigns' });
+    const out = await route.handle({
+      body: null,
+      url: new URL('http://x/api/v1/donation_campaigns?platform=web&seed=42&locale=fr'),
+      headers: NO_HEADERS,
+    });
+    expect(out).toMatchObject({ id: 'up-1', locale: 'fr', donation_url: 'https://pay.example/donate' });
+  });
+
+  it('route returns a 204 RouteResponse when no campaign is configured', async () => {
+    const route = mastodonCampaignRoute({ campaign: null });
+    const out = await route.handle({ body: null, url: new URL('http://x/api/v1/donation_campaigns?locale=en'), headers: NO_HEADERS });
+    expect(out).toBeInstanceOf(RouteResponse);
+    expect((out as RouteResponse).status).toBe(204);
+    expect((out as RouteResponse).body).toBeUndefined();
   });
 });

@@ -19,11 +19,12 @@ layer + CLI.
 | VOD (Jellyfin) | `handleJellyfinEvent` | `jellyfinRoute` (POST `/jellyfin`) | ✓ |
 | Feeds (RSSHub) | `handleCitation` | `citationRoute` (POST `/citation`) | ✓ |
 | Photo (Immich) | `handleSharedLinkResolve` | `immichRoute` (POST `/immich/resolve`) | ✓ |
+| Fediverse (Mastodon) | `buildDonationCampaign` | `mastodonCampaignRoute` (GET `/api/v1/donation_campaigns`) | ✓ |
 
 - `createSidecarServer(routes)` + `up-integration` CLI: run any sidecar from env
   (`PLATFORM`, `FACILITATOR_URL`, `FACILITATOR_API_KEY`, `PAYER_WALLETS`,
   `CREATOR_WALLETS`, `RATE`, `STREAMER_KEY`, `PORT`, `SIDECAR_API_KEY`).
-- **24 unit tests** (core resolver, 5 verticals + ListenBrainz/Navidrome, route builders).
+- **29 unit tests** (core resolver, verticals + ListenBrainz/Navidrome + Mastodon provider, route builders).
 
 ## Proven end-to-end
 

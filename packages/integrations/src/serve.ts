@@ -11,10 +11,22 @@ import {
   type ListenBrainzOptions,
   type ListenSubmission,
 } from './listenbrainz.js';
+import { buildDonationCampaign, type DonationCampaignOptions } from './mastodon.js';
 
 const MAX_BODY = 64 * 1024;
 
 export type RouteHandler = (ctx: { body: unknown; url: URL; headers: IncomingHttpHeaders }) => Promise<unknown>;
+
+/**
+ * Lets a route return a non-200 status (e.g. Mastodon's 204 "no banner"). A plain
+ * object returned from a handler is still serialized as a 200 JSON body.
+ */
+export class RouteResponse {
+  constructor(
+    readonly status: number,
+    readonly body?: unknown,
+  ) {}
+}
 
 export interface Route {
   method: 'GET' | 'POST';
@@ -83,6 +95,16 @@ async function dispatch(
   }
   const body = req.method === 'POST' ? (JSON.parse((await readBody(req)) || 'null') as unknown) : null;
   const result = await route.handle({ body, url, headers: req.headers });
+  if (result instanceof RouteResponse) {
+    if (result.body === undefined) {
+      res.writeHead(result.status);
+      res.end();
+      return;
+    }
+    res.writeHead(result.status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(result.body));
+    return;
+  }
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end(JSON.stringify(result ?? { ok: true }));
 }
@@ -159,4 +181,25 @@ export function listenBrainzRoutes(reporter: Reporter, opts: ListenBrainzOptions
       },
     },
   ];
+}
+
+/**
+ * Mastodon donation-campaign provider. Serves the campaign JSON Mastodon fetches
+ * + caches from `DONATION_CAMPAIGNS_URL` (default path `/api/v1/donation_campaigns`),
+ * echoing the requested `locale`. Returns 204 when no campaign is configured.
+ */
+export function mastodonCampaignRoute(opts: DonationCampaignOptions, path = '/api/v1/donation_campaigns'): Route {
+  return {
+    method: 'GET',
+    path,
+    handle: async ({ url }) => {
+      const campaign = buildDonationCampaign(opts, {
+        platform: url.searchParams.get('platform'),
+        seed: url.searchParams.get('seed'),
+        locale: url.searchParams.get('locale'),
+        environment: url.searchParams.get('environment'),
+      });
+      return campaign === null ? new RouteResponse(204) : campaign;
+    },
+  };
 }

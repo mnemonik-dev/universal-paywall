@@ -49,14 +49,13 @@ Gaps the recipes expose (tracked here, **not** built this session):
    `listenBrainzRoutes`, `PLATFORM=navidrome`), verified against
    `navidrome/adapters/listenbrainz/client.go`. Token → payer, `recording_mbid`
    (fallback first `artist_mbids`) → creator; `playing_now` skipped. +7 unit tests.
-2. **Mastodon provider** — the CLI has no `mastodon` case. Needs a provider route
-   that answers `GET /api/v1/donation_campaigns?platform&seed&locale` with the
-   campaign JSON. ⚠️ The `pr-drafts.md` draft is **stale**; the real schema
-   (verified in `mastodon/spec/requests/api/v1/donation_campaigns_spec.rb`) is:
-   `{id, banner_message, banner_button_text, donation_message, donation_button_text,
-   donation_success_post, amounts:{one_time:{EUR:[…],USD:[…]}, monthly:{…}},
-   default_currency, donation_url, locale}` — `amounts` is a nested object, not an
-   array — and the provider must echo the requested `locale`. **New route needed.**
+2. ~~**Mastodon provider**~~ — **CLOSED.** The sidecar now serves
+   `GET /api/v1/donation_campaigns` (`src/mastodon.ts`, `mastodonCampaignRoute`,
+   `PLATFORM=mastodon`): 200 campaign JSON echoing the requested `locale`, or 204
+   when unset. Built to the real schema (`amounts` nested `{one_time,monthly}`;
+   the stale `pr-drafts.md` array shape corrected), verified against the controller
+   + request spec and live HTTP-smoke-tested. No facilitator needed (config-only).
+   +5 unit tests. `RouteResponse` added to `serve.ts` for the 204 path.
 3. **PeerTube plugin** — sidecars-only means PeerTube still needs the separately
    **published** `peertube-plugin-universal-paywall` to emit the view event to the
    sidecar (draft in `pr-drafts.md`). The recipe documents installing it; building/
