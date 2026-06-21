@@ -53,7 +53,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 |---|---|---|---|---|---|
 | **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness) |
 | **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz) |
-| **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | TODO |
+| **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | TODO |
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | provider verified (L2 live) |
 | **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | TODO (needs plugin) |
@@ -169,4 +169,25 @@ changes**:
 
 So both gap #1 (ListenBrainz target) and gap #4 (MusicBrainz resolver) are now
 field-verified together against a real instance + the real MusicBrainz API.
+
+## Jellyfin REAL L3 — done (2026-06-21)
+
+Via `scripts/e2e-jellyfin-live-docker.mjs` against a live
+`ghcr.io/jellyfin/jellyfin:latest` (10.11.11) + the **official Webhook plugin**
+(21.0.0.0). No fork change — the plugin delivers playback events.
+
+1. Startup wizard (admin/abc123), Movie library, 2-min test movie scanned.
+2. Webhook plugin installed (catalog was empty on a fresh server -> dropped the
+   release zip into `/config/plugins/Webhook` + restart) and configured via
+   `POST /Plugins/{guid}/Configuration`: Generic destination -> our `/jellyfin`,
+   `NotificationTypes:["PlaybackStop"]`, `SendAllProperties:true`, EnableMovies.
+3. Reported a real playback start + stop (`POST /Sessions/Playing[/Stopped]`,
+   `PositionTicks=1_200_000_000`) -> `ISessionManager.PlaybackStopped` -> plugin POST.
+4. **The plugin's real payload matched the route exactly:** `NotificationType:
+   "PlaybackStop"`, `UserId`, `ItemId`, `PlaybackPositionTicks:1200000000` (plus
+   lots of extra fields we ignore). Billed 2 min x 1000 -> **creator paid 2000
+   micro-USDC on-chain.** PASS.
+
+Note: `SendAllProperties:true` makes the plugin emit those exact PascalCase keys, so
+no Handlebars template is needed.
 </content>

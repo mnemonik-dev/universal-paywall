@@ -72,7 +72,10 @@ per-platform test matrix.
 - [x] Navidrome **real L3** (live `ghcr.io/navidrome/navidrome`, native ListenBrainz
       scrobble -> recording_mbid -> live MusicBrainz artist -> on-chain settle, artist
       paid 100) — PASS. Field-verifies gaps #1 + #4 together.
-- [ ] Build the L3/L4 acceptance loop for the remaining platforms (Jellyfin/RSSHub/Mastodon).
+- [x] Jellyfin **real L3** (live `ghcr.io/jellyfin/jellyfin` + official Webhook
+      plugin, real PlaybackStop -> per-minute bill -> on-chain settle, creator paid
+      2000) — PASS.
+- [ ] Build the L3/L4 acceptance loop for the remaining platforms (RSSHub/Mastodon).
 - [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
