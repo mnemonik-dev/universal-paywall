@@ -49,6 +49,11 @@ later at `donation_url` via `@universal-paywall/agent` + the facilitator.
 `curl 'http://localhost:8410/api/v1/donation_campaigns?platform=web&seed=1&locale=en'`
 returns the campaign JSON with `"locale":"en"`; unset the campaign → `204`.
 
+**Donation L4 (PROVEN, Docker-free):** `npm run e2e:mastodon -w
+@universal-paywall/integrations` (anvil on :8545) serves the real-schema campaign,
+follows the `donation_url` to a donor stake/grant, and settles the donation through
+the rail to the instance wallet on-chain (instance funded 5,000,000 micro-USDC).
+
 ## Note
 
 Per-user creator payments (paying an author for a popular post/reshare) is a

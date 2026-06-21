@@ -23,7 +23,8 @@
     "clean": "rm -rf dist",
     "test": "vitest run --passWithNoTests",
     "e2e:anvil": "tsx scripts/e2e-integration-anvil.ts",
-    "e2e:owncast": "tsx scripts/e2e-owncast-acceptance-anvil.ts"
+    "e2e:owncast": "tsx scripts/e2e-owncast-acceptance-anvil.ts",
+    "e2e:mastodon": "node scripts/e2e-mastodon-donation-anvil.mjs"
   },
   "dependencies": {
     "@universal-paywall/sdk": "*"
