@@ -37,10 +37,14 @@ gaps. The new rail resolves them. Evidence trail in `work/x402-agent-payment/`:
 - `external-analysis.md` + `external-analysis-response.md` — the Canteen "Distribution Bootstrap" thesis and how it maps (full thesis map with links).
 - `work/facilitator-rail/facilitator-rail-design.md` — the new paradigm (the design doc that drove the implementation).
 
-**Carried-forward decision:** the old-paradigm docs (`tech-spec.md`, `decisions.md`,
-diagrams, `.claude/skills/project-knowledge/references/*`, `CLAUDE.md`, `README.md`)
-still describe the OLD model and contradict the new one. They need reconciliation or
-supersession (see "What's left").
+**Carried-forward decision:** the root `README.md` and `CLAUDE.md` have been
+**reconciled** to the new StakeVault rail + integrations model (they now describe the
+rail, the package layout, the supported platform integrations, and point at the
+integration docs; the old per-payment model is kept as a "History / legacy" note for
+`packages/middleware`). Still pending: the deeper old-paradigm docs (`tech-spec.md`,
+`decisions.md`, diagrams, `.claude/skills/project-knowledge/references/*`) describe the
+OLD model and contradict the new one — they need reconciliation or supersession (see
+"What's left").
 
 ## Package inventory (on `feat/creator-platform-integrations`)
 
@@ -161,7 +165,8 @@ pkill -x anvil
 - [ ] Verify each sidecar against a real platform instance.
 
 **Docs**
-- [ ] Reconcile or supersede the old-paradigm docs (`tech-spec`, `decisions`, diagrams, project-knowledge, `CLAUDE.md`, `README.md`).
+- [x] Reconcile the root `README.md` + `CLAUDE.md` to the rail + integrations model (done; point at the integration docs, legacy middleware noted as History).
+- [ ] Reconcile or supersede the remaining old-paradigm docs (`tech-spec`, `decisions`, diagrams, project-knowledge).
 - [ ] Add the SessionStart bootstrap hook.
 
 ## Doc index

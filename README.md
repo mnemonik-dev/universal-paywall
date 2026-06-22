@@ -1,14 +1,55 @@
 # Universal Paywall
 
-Open-core paywall for HTTP services. Charges AI agents through the x402 protocol on the Arc Network (Arc Testnet for MVP; chain-agnostic by design) and human users through Stripe Connect. Service owners receive payment from both audiences without writing settlement code.
+Open-core, non-custodial payment rail for HTTP services and creator platforms.
+Consumers (AI agents or human-driven clients) stake USDC once and grant a bounded
+spending policy; a facilitator batches metered usage and settles it **per event,
+feelessly and non-custodially, on-chain**. Service owners and creators get paid
+without writing any settlement code — and **without modifying the platforms they
+run** (Owncast, Navidrome, Jellyfin, PeerTube, Mastodon, RSSHub, Immich, …).
+
+## How it works (the rail)
+
+```
+        PAYER SIDE                          CREATOR / PAYEE SIDE
+  ┌───────────────────┐               ┌──────────────────────────────┐
+  │ @universal-paywall │   x402 /     │  platform instance (unforked) │
+  │      /agent        │  stamped     │            │ event            │
+  │  stake + grant ───▶│  request     │            ▼                  │
+  │  policy in         │              │  @universal-paywall/integrations │
+  │  StakeVault        │              │   sidecar / plugin / provider │
+  └─────────┬─────────┘               └──────────────┬───────────────┘
+            │                                         │ metered charge
+            │                                         ▼
+            │                          @universal-paywall/facilitator
+            │                            (batches charges)
+            │                                         │ settle (batched)
+            └────────────────────────────────────────▼
+                              StakeVault  (feeless, non-custodial, on-chain)
+                              creator paid:  rate × units
+```
+
+- **Payer** stakes USDC in a `StakeVault` and grants the facilitator a bounded,
+  revocable policy (cap + expiry). Nothing is custodied — funds stay in the vault
+  until a valid, in-policy charge settles them.
+- **Creator-side integration** observes a platform event (a play, a counted view, a
+  scrobble, a citation, a shared-link resolve) and reports a metered charge to the
+  facilitator. The platform itself is never forked — attachment is always through
+  the platform's existing config/plugin/proxy surface.
+- **Facilitator** batches charges and calls `StakeVault.settle` on-chain. The
+  universal invariant every test asserts: **payee balance += rate × units**.
 
 ## Project Structure
 
 ```
-packages/middleware/   # @universal-paywall/middleware — npm package
-apps/api/              # Fastify backend (onboarding, checkout, webhooks, dashboard API)
-apps/dashboard/        # Next.js developer dashboard
-contracts/             # Solidity PaymentSplitterFactory (Foundry)
+packages/agent/            # @universal-paywall/agent — payer: stake, grant policy, fetchWithPaywall
+packages/facilitator/      # @universal-paywall/facilitator — batches metered charges, settles on-chain (up-facilitator CLI)
+packages/integrations/     # @universal-paywall/integrations — creator-side sidecars/plugins/providers (up-integration CLI)
+packages/extension/        # @universal-paywall/extension — payer-side MV3 browser-extension adaptor
+packages/peertube-plugin/  # peertube-plugin-universal-paywall — published PeerTube view-hook plugin
+packages/sdk/              # @universal-paywall/sdk — shared client/types
+packages/resource-adapter/ # @universal-paywall/resource-adapter — x402 resource helper
+packages/middleware/       # @universal-paywall/middleware — legacy per-payment x402 middleware (see History)
+contracts/                 # Foundry: rail/ (StakeVault, StakeVaultFactory) + legacy PaymentVault/Factory
 ```
 
 ## Key Commands
@@ -17,177 +58,81 @@ contracts/             # Solidity PaymentSplitterFactory (Foundry)
 # Install all dependencies
 npm install
 
-# Run API locally
-npm run dev --workspace=apps/api
-
-# Run dashboard locally
-npm run dev --workspace=apps/dashboard
-
-# Run contract tests
+# Run all unit tests (vitest across packages) + contract tests
+npm test --workspaces --if-present
 cd contracts && forge test
 
-# Deploy contracts (Arc Testnet staging) — maintainer-only flow, see below
-cd contracts && forge script script/Deploy.s.sol:Deploy \
-  --rpc-url $ARC_RPC_URL --broadcast --verify
+# Build the rail packages
+npm run build -w @universal-paywall/agent
+npm run build -w @universal-paywall/facilitator
+npm run build -w @universal-paywall/integrations
+
+# Run a creator-side sidecar for any supported platform (env-driven)
+PLATFORM=owncast \
+FACILITATOR_URL=http://localhost:8402 FACILITATOR_API_KEY=k \
+PAYER_WALLETS='{"viewer-1":"0x..."}' CREATOR_WALLETS='{"stream":"0x..."}' \
+RATE=1000 npx up-integration
+
+# Run the facilitator
+FACILITATOR_KEY=0x... STAKE_VAULT_FACTORY=0x... npx up-facilitator
+
+# End-to-end on-chain money loops (need anvil :8545 + built contracts)
+npm run e2e:anvil    -w @universal-paywall/integrations   # full vertical: stake → event → settle
+npm run e2e:owncast  -w @universal-paywall/integrations   # Owncast L4 over real HTTP
+npm run e2e:mastodon -w @universal-paywall/integrations   # Mastodon donation L4
+npm run e2e:anvil    -w @universal-paywall/extension      # payer-side auto-pay loop
 ```
 
-## Getting paid by AI agents (x402 on Arc Testnet)
+## Supported platform integrations
 
-This section walks a new developer end-to-end from "fresh checkout" to "your endpoint returns HTTP 402 and gets paid by an x402-aware agent". The four steps are in the order you run them.
+Every integration attaches **without modifying the platform** — it uses one of six
+permissionless patterns (config-redirect, event-sidecar, reverse-proxy, published
+plugin, external provider, payer-side adaptor).
 
-### 1. Claim test USDC from the faucet
+| Platform | Vertical | Attach surface | Pattern |
+|---|---|---|---|
+| Owncast | Live video | admin webhook → sidecar | event-sidecar |
+| Navidrome | Music | `ND_LISTENBRAINZ_BASEURL` → ListenBrainz-shaped sidecar | config-redirect |
+| Subsonic (gonic, …) | Music | scrobble endpoint → sidecar | config-redirect |
+| Jellyfin | VOD | official Webhook plugin → sidecar | event-sidecar |
+| RSSHub | Feeds | crawler/citation boundary → sidecar | event-sidecar |
+| Immich | Photo | reverse proxy meters shared-link resolves | reverse-proxy |
+| Mastodon | Fediverse | `DONATION_CAMPAIGNS_URL` → campaign provider | external provider |
+| PeerTube | Federated VOD | published `action:api.video.viewed` plugin | published plugin |
+| MusicBrainz | Registry/resolver | WS/2 `recording_mbid → artist_mbid → wallet` | resolver (the moat) |
+| Any browser extension | Payer side | `agent.fetchWithPaywall` + MV3 messaging bridge | payer-side adaptor |
 
-x402 settles in USDC. Arc Testnet pays gas in USDC too, so you need a small balance before you can register.
+All ten are verified against **real Docker'd instances** with on-chain settlement;
+see the documentation below.
 
-1. Open [https://faucet.circle.com](https://faucet.circle.com) and select **Arc Testnet** in the network selector. _Screenshot: faucet showing Arc Testnet selected._
-2. Paste your developer EOA address and claim. If Arc Testnet is not yet listed at Circle's faucet, fall back to [https://thirdweb.com/arc-testnet](https://thirdweb.com/arc-testnet); both are documented in `deployment.md`.
-3. Confirm USDC arrived: paste your address into [https://testnet.arcscan.app](https://testnet.arcscan.app) (Arc Testnet block explorer) and check the USDC balance.
+## Documentation
 
-You only need enough USDC to cover the `register()` transaction (~13 micro-USDC at current gas rates) — a single faucet drip is more than enough.
+- **`packages/integrations/INTEGRATION-PLAYBOOK.md`** — the instruction doc +
+  "questions script" for building a new integration from scratch.
+- **`work/creator-platform-integrations/integration-patterns.md`** — the six
+  permissionless attachment patterns and when to use each.
+- **`work/creator-platform-integrations/testing-plan.md`** — the four-layer test
+  ladder (L1 unit → L2 sidecar HTTP contract → L3 real Docker instance → L4 anvil
+  on-chain money loop) and the per-platform matrix.
+- **`work/creator-platform-integrations/deployment-plan.md`** + the per-platform
+  recipes in **`packages/integrations/deploy/<platform>/`** — grounded, fork-free
+  attach recipes.
+- **`work/creator-platform-integrations/STATUS.md`** — current build/test status.
+- **`work/HANDOFF.md`** — doc index and environment gotchas (Docker, anvil, gitleaks).
+- `.claude/skills/project-knowledge/references/` — architecture, deployment, and UX
+  references.
 
-### 2. Register your EOA on the factory
+## History / legacy
 
-This deploys a per-developer USDC vault as an EIP-1167 minimal proxy. The vault address is deterministic from your EOA, so the middleware can compute the `payTo` recipient off-chain without an RPC round-trip.
-
-```bash
-export REGISTER_KEY=0x<your-developer-eoa-private-key>
-npx tsx scripts/register.ts --network arc-testnet
-```
-
-Expected output on the first run:
-
-```
-Registered. Vault: 0x<your-vault-address>
-Tx: 0x<tx-hash>
-```
-
-Expected output on a re-run (idempotent):
-
-```
-Already registered. Vault: 0x<your-vault-address>
-```
-
-The CLI exits non-zero with `register_failed: <reason>` on RPC error, revert, or gas estimate failure. It never echoes your `REGISTER_KEY` to stdout or stderr under any code path; the value is wrapped in an opaque key handle the instant it is read from the environment.
-
-### 3. Install the middleware
-
-```bash
-npm install @universal-paywall/middleware
-```
-
-Minimal Node http example:
-
-```ts
-import { createServer } from 'node:http';
-import { withPaywall } from '@universal-paywall/middleware';
-import { OpaqueRelayerKey } from '@universal-paywall/middleware';
-
-const relayerKey = new OpaqueRelayerKey(process.env.PAYWALL_RELAYER_KEY!);
-
-const handler = withPaywall(
-  (req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ paid: true }));
-  },
-  {
-    price: '0.01',
-    developerEoa: '0x<your-developer-eoa>',
-    network: 'arc-testnet',
-    facilitator: { mode: 'inline', relayerKey },
-    resource: 'https://api.example.com/paid',
-    description: 'Premium endpoint',
-    mimeType: 'application/json',
-  },
-);
-
-createServer(handler).listen(3000, () => console.log('listening on :3000'));
-```
-
-The `PAYWALL_RELAYER_KEY` env var is the **relayer signer** — the wallet that pays gas for settlements on behalf of paying agents. It is distinct from the `REGISTER_KEY` you used above. The relayer must hold a small USDC balance on Arc Testnet to cover gas; the middleware emits a typed `relayer_low_balance` security event (with the current `balanceUsdc` payload) whenever the balance dips below 1 USDC, which is the recommended channel for operational alerting (see `deployment.md`).
-
-### 4. Run the server and confirm 402
-
-```bash
-PAYWALL_RELAYER_KEY=0x<your-relayer-private-key> node server.js
-# in another terminal:
-curl -i http://localhost:3000/paid
-```
-
-A request without an `X-PAYMENT` header should return:
-
-```
-HTTP/1.1 402 Payment Required
-content-type: application/json
-
-{"x402Version":1,"error":"payment_required","accepts":[{
-  "scheme":"exact","network":"eip155:5042002","maxAmountRequired":"10000",
-  "payTo":"0x<your-vault-address>","asset":"0x3600000000000000000000000000000000000000",
-  "maxTimeoutSeconds":60,
-  "extra":{"assetTransferMethod":"eip3009","name":"USDC","version":"2"},
-  ...
-}]}
-```
-
-The body shape is validated by the x402 v1 schema (per the `user-spec.md` acceptance criteria). An x402-aware AI agent now has everything it needs: the EIP-3009 asset transfer method, the per-payment amount in micro-USDC, your vault address as the recipient, and the EIP-712 domain (`name: "USDC"`, `version: "2"`) used to recover signatures.
-
-### Operational reading
-
-For production-time concerns, see [`deployment.md`](.claude/skills/project-knowledge/references/deployment.md):
-
-- relayer balance monitoring (the `relayer_low_balance` event)
-- multisig ownership of the factory (Ownable2Step + Safe)
-- fee schedule semantics and the 1000-bps cap (D10)
-- treasury-DoS risk: `PLATFORM_TREASURY_ADDRESS` MUST be a plain EOA or audited multisig, never a contract with custom token-receive logic
-
-## Maintainer: deploying the contracts to Arc Testnet
-
-The end-to-end deploy is a two-step pipeline.
-
-```bash
-# 1. Foundry deploys the factory; the factory's constructor also deploys
-#    the immutable PaymentVaultImpl.
-cd contracts
-export DEPLOYER_KEY=0x<deployer-private-key>
-export PLATFORM_TREASURY_ADDRESS=0x<treasury-eoa-or-multisig>
-forge script script/Deploy.s.sol:Deploy \
-  --rpc-url $ARC_RPC_URL --broadcast --verify
-
-# 2. Patch packages/middleware/src/networks.ts with the new addresses.
-cd ..
-npx tsx contracts/scripts/post-deploy.ts
-```
-
-`forge script ... --verify` submits the factory source to arcscan automatically. The `--verify` step occasionally races the arcscan indexer or reports "already verified" — both are non-fatal and surfaced in stdout. If verification did not succeed, re-run:
-
-```bash
-cd contracts
-forge verify-contract --chain-id 5042002 <factory_address> \
-  src/PaymentSplitterFactory.sol:PaymentSplitterFactory \
-  --constructor-args $(cast abi-encode "constructor(address,address,uint16)" \
-    0x3600000000000000000000000000000000000000 \
-    $PLATFORM_TREASURY_ADDRESS 50)
-```
-
-When you run this in CI, mask `$PLATFORM_TREASURY_ADDRESS` (and `$DEPLOYER_KEY`) in the job log output. GitHub Actions does this automatically for secrets registered as `secrets.*`; on other runners, redirect the `forge`/`cast` stdout through `sed` or use the runner's "mask" primitive — these addresses are public, but echoing them in log streams adds avoidable surface.
-
-`contracts/scripts/post-deploy.ts` is idempotent — re-running against the same broadcast artifact produces no diff. On the canonical `arc-testnet` chain it refuses to overwrite already-populated addresses without `--force`; pass `--force` only when you intentionally redeploy.
-
-## Canonical environment variables
-
-| Variable                    | Purpose                                                  |
-| --------------------------- | -------------------------------------------------------- |
-| `DEPLOYER_KEY`              | Deployer EOA private key for `forge script`              |
-| `PLATFORM_TREASURY_ADDRESS` | Address that receives platform fees on `vault.withdraw()`|
-| `ARC_RPC_URL`               | Arc Testnet JSON-RPC URL (default in `networks.ts`)      |
-| `REGISTER_KEY`              | Developer EOA private key for `scripts/register.ts`      |
-| `PAYWALL_RELAYER_KEY`       | Relayer EOA private key that pays gas for settlements    |
-
-No legacy variants (`ARC_TESTNET_RPC_URL`, `ARC_TESTNET_PRIVATE_KEY`) are accepted anywhere in this repo.
-
-## Project Knowledge
-
-Architecture, patterns, deployment, and UX guidelines live in `.claude/skills/project-knowledge/references/`.
+`packages/middleware` and the `contracts/src/PaymentSplitterFactory` +
+`PaymentVaultImpl` contracts are the **original per-payment x402 design**: an HTTP
+service returns `402 Payment Required`, an x402-aware agent pays inline per request,
+and funds route to a per-developer vault. That path still builds and tests, but the
+current architecture is the **stake-once / meter-and-batch StakeVault rail** above,
+which is what the platform integrations settle against. New work should target the
+rail; the middleware remains for x402-native, per-request endpoints.
 
 ## Default Branch
 
-`main` — production. Feature branches off `dev`. PRs go to `dev` first.
+`main` — production. Feature branches off `dev`. PRs go to `dev` first. Integration
+work for this effort lives on `claude/universal-paywall-integrations-2xsjwu`.
