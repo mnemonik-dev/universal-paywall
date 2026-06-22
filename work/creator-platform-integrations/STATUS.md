@@ -83,7 +83,7 @@ per-platform test matrix.
 - [x] Browser-extension **E2E** (`e2e:anvil`): real payer loop through the handler+bridge,
       agent from an injected account, auto-pays a real x402 resource -> 402->grant->200 ->
       on-chain settle -> creator paid 50000. Headless equivalent of the extension auto-paying.
-- [ ] Build the L3/L4 acceptance loop for the remaining platforms (RSSHub/Mastodon).
+- [x] All platform L3s done incl. **Mastodon full-stack L3** (live Mastodon fetched our provider) and **Subsonic** (gonic).
 - [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.
 - [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).

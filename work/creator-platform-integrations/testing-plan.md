@@ -55,7 +55,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz) |
 | **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
 | **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | **L3+L4 PASS** (live RSSHub item) |
-| **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + donation L4 PASS** (`e2e:mastodon`) |
+| **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + full-stack L3 + donation L4 PASS** (live Mastodon fetched our provider) |
 | **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **L3+L4 PASS** (real PeerTube 7.3.0 + real headless-browser player -> counted view -> settle) |
 | **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
 | **Subsonic** (gonic family) | scrobble a track | `createSubsonicProxy` in front of the server | `ratePerPlay` per submission | proxied + metered | **L3+L4 PASS** (live gonic) |
@@ -110,6 +110,22 @@ run in CI without Docker.
 2. L2 contract check green (real platform request/response bytes).
 3. L3 a real instance calls the sidecar on a real event.
 4. L4 the payee's on-chain balance increased by the expected amount.
+
+## Mastodon full-stack L3 — done (2026-06-22)
+
+`scripts/e2e-mastodon-live-docker.mjs`: a live full-stack **Mastodon v4.x** (postgres
++ redis + Rails/puma), bootstrapped with generated secrets + an approved Owner user
++ a read-scope OAuth token, configured with `DONATION_CAMPAIGNS_URL` -> our provider,
+**actually fetched our provider** (logged the real query
+`?environment=production&locale=en&platform=web&seed=N`) and returned our campaign
+(id, echoed locale, nested `amounts`) to the authenticated client — 200. PASS.
+
+Real operator requirements surfaced by the live run (documented in the harness):
+production `force_ssl` (use `X-Forwarded-Proto: https`); the SSRF guard
+(`ALLOWED_PRIVATE_ADDRESSES` to reach a local provider); email MX validation (create
+the user via a rails runner with `validate: false`); user approval; and an
+image-version config-path skew (`config.x.mastodon.donation_campaigns` vs the
+controller's `config.x.donation_campaigns`).
 
 ## Owncast acceptance — done (2026-06-21)
 
