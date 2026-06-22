@@ -7,6 +7,9 @@ export type { MusicBrainzResolverOptions } from './musicbrainz.js';
 export { handleScrobble, parseSubsonicScrobble } from './subsonic.js';
 export type { ScrobbleEvent, ScrobbleOptions } from './subsonic.js';
 
+export { createSubsonicProxy, isScrobbleSubmission } from './subsonic-proxy.js';
+export type { SubsonicProxyOptions } from './subsonic-proxy.js';
+
 export { OwncastPresenceMeter } from './owncast.js';
 export type { OwncastEventType, OwncastMeterOptions, OwncastWebhookEvent } from './owncast.js';
 

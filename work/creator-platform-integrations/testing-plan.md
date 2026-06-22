@@ -58,6 +58,7 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 | **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + donation L4 PASS** (`e2e:mastodon`) |
 | **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **plugin built + tested** (9 assertions); **installs+registers+configures on real PeerTube 7.3.0**; counted-view trigger needs a real player session |
 | **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
+| **Subsonic** (gonic family) | scrobble a track | `createSubsonicProxy` in front of the server | `ratePerPlay` per submission | proxied + metered | **L3+L4 PASS** (live gonic) |
 | **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | **E2E PASS** (`e2e:anvil`): real rail, injected-account agent, 402->grant->200->settle |
 
 ## L2 contract checks (write one per platform)
