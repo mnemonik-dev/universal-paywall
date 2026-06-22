@@ -5,10 +5,17 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "node build.mjs",
     "test": "node test.mjs",
-    "e2e:anvil": "node e2e-anvil.mjs"
+    "e2e:anvil": "node e2e-anvil.mjs",
+    "e2e:browser": "node e2e-browser.mjs"
   },
   "dependencies": {
-    "@universal-paywall/agent": "*"
+    "@universal-paywall/agent": "*",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "playwright": "^1.40.0"
   }
 }

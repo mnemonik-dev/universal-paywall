@@ -41,6 +41,11 @@ function wire(channel, external) {
   });
 }
 
+// Test hook: lets an E2E invoke the REAL handler inside the loaded service worker
+// (content scripts run in an isolated world; this exercises the in-browser agent).
+// Unused in production.
+globalThis.__upHandle = (msg, sender) => getHandler().then((h) => h(msg, sender));
+
 // chrome is provided by the WebExtension runtime.
 /* global chrome */
 if (typeof chrome !== 'undefined' && chrome.runtime) {
