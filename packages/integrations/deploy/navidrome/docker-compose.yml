@@ -1,0 +1,34 @@
+# Navidrome per-listen recipe (scaffold).
+# Attaches via Navidrome's native ListenBrainz scrobble target — no fork change.
+# Requires the sidecar's `listenbrainzRoute` (PLATFORM=navidrome), not yet built.
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    ports:
+      - "4533:4533"
+    environment:
+      ND_LISTENBRAINZ_ENABLED: "true"
+      # Point Navidrome's scrobble target at the sidecar instead of listenbrainz.org:
+      ND_LISTENBRAINZ_BASEURL: "http://up-sidecar:8410/1/"
+    volumes:
+      - navidrome-data:/data
+      - ./music:/music:ro   # TODO: mount a music library to play from
+    depends_on:
+      - up-sidecar
+
+  up-sidecar:
+    image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
+    environment:
+      PLATFORM: navidrome                  # validate-token + submit-listens (gap #1 closed)
+      FACILITATOR_URL: ${FACILITATOR_URL:?set facilitator url}
+      FACILITATOR_API_KEY: ${FACILITATOR_API_KEY:?set facilitator api key}
+      RATE: ${RATE:-100}                   # micro-USDC per listen
+      PAYER_WALLETS: ${PAYER_WALLETS:-{}}      # {"<lb-user-token>":"0x..."}
+      CREATOR_WALLETS: ${CREATOR_WALLETS:-{}}  # {"<recording_mbid>":"0x..."}
+      PORT: "8410"
+    ports:
+      - "8410:8410"
+
+volumes:
+  navidrome-data:
+</content>

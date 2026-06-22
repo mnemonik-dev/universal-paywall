@@ -123,6 +123,11 @@ pkill -x anvil
 ```
 
 ### Gotchas learned
+- **Docker works** in this environment — the daemon just isn't auto-started. As root:
+  `nohup dockerd >/tmp/dockerd.log 2>&1 &` then `docker pull` (Docker Hub reachable).
+  Enables real L3 platform runs (proven: live Owncast AND live Navidrome → real
+  event → MusicBrainz resolve → on-chain settle). Docker Hub anon pulls are
+  rate-limited (~a few/6h) — prefer GHCR (`ghcr.io/navidrome/navidrome`) to avoid it.
 - `pkill -f anvil` kills the e2e scripts (filenames contain "anvil") — use `pkill -x anvil`.
 - Egress allowlist blocks many hosts (`x402.org`, `thecanteenapp.com`); GitHub/npm/code.claude.com are allowed. Article content lives in `work/x402-agent-payment/external-analysis.md`.
 - Public anvil dev keys in e2e scripts are annotated `// gitleaks:allow` (not secrets).
@@ -163,5 +168,7 @@ pkill -x anvil
 
 - `work/HANDOFF.md` — this file.
 - `work/facilitator-rail/` — `facilitator-rail-design.md` (the design), `implementation-plan.md`, `STATUS.md`.
-- `work/creator-platform-integrations/` — `README.md` (alignment), `platforms.md` (the list), `pr-drafts.md`, `STATUS.md`, **`upstream-integration-guide.md`** (next-session guide with platform repos).
+- `work/creator-platform-integrations/` — `README.md` (alignment), `platforms.md` (the list), `pr-drafts.md`, `STATUS.md`, **`upstream-integration-guide.md`** (next-session guide), **`deployment-plan.md`** (grounded per-platform recipes + gap status, forks in scope), **`testing-plan.md`** (L1–L4 verification per platform), **`integration-patterns.md`** (how to attach a paywall without touching the platform — the six patterns).
+- `packages/integrations/deploy/<platform>/` — runnable sidecar-attach recipes (Owncast/Navidrome/Jellyfin/RSSHub/Mastodon/Immich) + design docs for PeerTube plugin, MusicBrainz resolver, and the payer-side browser-extension adaptor.
+- **`packages/integrations/INTEGRATION-PLAYBOOK.md`** — the build-a-new-integration instruction doc (discovery questions script → per-pattern steps → L1–L4 test ladder → done checklist).
 - `work/x402-agent-payment/` — original spec + the review docs that justified the pivot.

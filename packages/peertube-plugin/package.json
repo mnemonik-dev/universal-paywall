@@ -1,0 +1,30 @@
+{
+  "name": "peertube-plugin-universal-paywall",
+  "version": "0.0.1",
+  "description": "Per-view onchain settlement for PeerTube via the Universal Paywall rail (action:api.video.viewed -> facilitator charge).",
+  "engine": {
+    "peertube": ">=6.0.0"
+  },
+  "keywords": [
+    "peertube",
+    "plugin",
+    "universal-paywall",
+    "x402",
+    "payments"
+  ],
+  "library": "./main.js",
+  "staticDirs": {},
+  "css": [],
+  "clientScripts": [],
+  "translations": {},
+  "scripts": {
+    "build": "esbuild main.js --bundle --platform=node --format=cjs --target=node18 --outfile=dist/main.js",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "@universal-paywall/integrations": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
