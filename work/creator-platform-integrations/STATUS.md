@@ -24,7 +24,7 @@ layer + CLI.
 - `createSidecarServer(routes)` + `up-integration` CLI: run any sidecar from env
   (`PLATFORM`, `FACILITATOR_URL`, `FACILITATOR_API_KEY`, `PAYER_WALLETS`,
   `CREATOR_WALLETS`, `RATE`, `STREAMER_KEY`, `PORT`, `SIDECAR_API_KEY`).
-- **29 unit tests** (core resolver, verticals + ListenBrainz/Navidrome + Mastodon provider, route builders).
+- **48 unit tests** (core resolver, all verticals + the immich/subsonic reverse-proxies, route builders).
 
 ## Proven end-to-end
 
@@ -43,9 +43,11 @@ plumbing).
 ## Whole-repo test totals (this branch)
 
 contracts **39** · facilitator **20** · sdk **4** · resource-adapter **10** ·
-agent **7** · integrations **39**  →  **119 unit tests**, plus anvil e2es
-(settle / adapter / agent / integration / **owncast-acceptance**) and a real
-Owncast L3 + live MusicBrainz WS/2 validation, all PASS.
+agent **11** · integrations **48** (+ peertube-plugin **9** · extension **13** node
+assertions) → **132 vitest + 22 node**, all PASS. Plus **real Docker L3s** for
+Owncast / Navidrome+MusicBrainz / Jellyfin / RSSHub / Immich / Subsonic / PeerTube
+(browser player) / Mastodon (full stack), the **extension browser E2E** (headless
+Chromium), and the Mastodon donation L4 — every on-chain settle verified.
 
 ## Deployment recipes + gap status (forks now in scope)
 
@@ -76,18 +78,17 @@ per-platform test matrix.
 - [x] Jellyfin **real L3** (live `ghcr.io/jellyfin/jellyfin` + official Webhook
       plugin, real PlaybackStop -> per-minute bill -> on-chain settle, creator paid
       2000) — PASS.
-- [x] PeerTube **real-instance** (live PeerTube 7.3.0 + postgres/redis): self-contained
-      plugin bundle installs + registers the view hook + settings + enabled + configurable
-      via the API. Counted-view trigger needs a real player session (PeerTube view-throttle);
-      hook->charge covered by the plugin unit test.
+- [x] PeerTube **real L3+L4** (live PeerTube 7.3.0 + a real headless-browser player ->
+      counted view -> action:api.video.viewed -> on-chain settle). Live run also
+      found+fixed a real bug (MVideoImmutable has no channelId).
 - [x] Browser-extension **E2E** (`e2e:anvil`): real payer loop through the handler+bridge,
       agent from an injected account, auto-pays a real x402 resource -> 402->grant->200 ->
       on-chain settle -> creator paid 50000. Headless equivalent of the extension auto-paying.
 - [x] All platform L3s done incl. **Mastodon full-stack L3** (live Mastodon fetched our provider) and **Subsonic** (gonic).
 - [x] Gap #4: `createMusicBrainzResolver` (async `Resolve`) — built + live-validated; wired into Navidrome/Subsonic via `MUSICBRAINZ_USER_AGENT`.
 - [x] Real Navidrome L3 (docker) using the resolver: scrobble -> recording_mbid -> artist -> settle. PASS.
-- [ ] Gap #5: agent signer abstraction → `@universal-paywall/extension` (MV3).
-- [ ] Gap #3: build + publish `peertube-plugin-universal-paywall`.
+- [x] Gap #5: `@universal-paywall/extension` (MV3) + agent signer/transport injection — node E2E + **headless-Chromium browser E2E** PASS.
+- [x] Gap #3: `peertube-plugin-universal-paywall` built + self-contained bundle; **real PeerTube 7.3.0 L3+L4 PASS** (headless browser player). Only npm/index publish is external.
 - [x] Immich shared-link **reverse-proxy variant** (`createImmichProxy`, `PLATFORM=immich-proxy`):
       built + 5 unit tests + **real L3** against live Immich (server + vectorchord pg + redis):
       external viewer resolves a shared-link asset through the proxy -> license fee -> on-chain
