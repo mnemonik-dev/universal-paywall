@@ -169,5 +169,6 @@ pkill -x anvil
 - `work/HANDOFF.md` — this file.
 - `work/facilitator-rail/` — `facilitator-rail-design.md` (the design), `implementation-plan.md`, `STATUS.md`.
 - `work/creator-platform-integrations/` — `README.md` (alignment), `platforms.md` (the list), `pr-drafts.md`, `STATUS.md`, **`upstream-integration-guide.md`** (next-session guide), **`deployment-plan.md`** (grounded per-platform recipes + gap status, forks in scope), **`testing-plan.md`** (L1–L4 verification per platform), **`integration-patterns.md`** (how to attach a paywall without touching the platform — the six patterns).
-- `packages/integrations/deploy/<platform>/` — runnable sidecar-attach recipes (Owncast/Navidrome/Jellyfin/RSSHub/Mastodon) + design docs for PeerTube plugin, MusicBrainz resolver, and the payer-side browser-extension adaptor.
+- `packages/integrations/deploy/<platform>/` — runnable sidecar-attach recipes (Owncast/Navidrome/Jellyfin/RSSHub/Mastodon/Immich) + design docs for PeerTube plugin, MusicBrainz resolver, and the payer-side browser-extension adaptor.
+- **`packages/integrations/INTEGRATION-PLAYBOOK.md`** — the build-a-new-integration instruction doc (discovery questions script → per-pattern steps → L1–L4 test ladder → done checklist).
 - `work/x402-agent-payment/` — original spec + the review docs that justified the pivot.

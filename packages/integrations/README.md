@@ -43,3 +43,7 @@ skipped, never thrown.
 
 See `work/creator-platform-integrations/` for the full platform list, integration
 patterns, and the PeerTube/Mastodon plugin-provider drafts.
+
+**Adding a new platform?** Follow `INTEGRATION-PLAYBOOK.md` — a step-by-step
+instruction doc with a discovery questions script, per-pattern build steps, the test
+ladder (L1→L4), and a definition-of-done checklist.
