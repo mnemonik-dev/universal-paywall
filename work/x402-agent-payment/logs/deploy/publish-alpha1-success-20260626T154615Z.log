@@ -1,0 +1,132 @@
+Publish artefact for @universal-paywall/middleware@0.0.1-alpha.1
+Reconstructed from registry state (the live publish was driven manually by the operator owing to npm 2FA OTP).
+Date (UTC): 2026-06-26T15:46:15Z
+
+--- npm view @universal-paywall/middleware@0.0.1-alpha.1 ---
+{
+  "_id": "@universal-paywall/middleware@0.0.1-alpha.1",
+  "_rev": "4-557ef93fe0d9d7987502d670fe1c1592",
+  "name": "@universal-paywall/middleware",
+  "dist-tags": {
+    "latest": "0.0.1-alpha.1",
+    "alpha": "0.0.1-alpha.1"
+  },
+  "versions": [
+    "0.0.1-alpha.0",
+    "0.0.1-alpha.1"
+  ],
+  "time": {
+    "created": "2026-06-26T12:40:43.971Z",
+    "modified": "2026-06-26T15:38:58.598Z",
+    "0.0.1-alpha.0": "2026-06-26T12:40:44.242Z",
+    "0.0.1-alpha.1": "2026-06-26T13:40:05.042Z"
+  },
+  "maintainers": [
+    "mnemonik-dev <dev@mnemonik.xyz>"
+  ],
+  "readmeFilename": "",
+  "_contentLength": 5455,
+  "version": "0.0.1-alpha.1",
+  "dist": {
+    "shasum": "200c5d3a32b34acf1240b9da9ec1874c3c3d99eb",
+    "tarball": "https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1-alpha.1.tgz",
+    "fileCount": 4,
+    "integrity": "sha512-8fRwbcBZn7T19j8IkmvpPjTCM/7ybOk2GAtEZmUa1jUDZ7vNiaQa2pmeGJUVNwRfz+ClxgO9sTT3zgX5XhRT5A==",
+    "signatures": [
+      {
+        "sig": "MEUCIEBXVxeiTkoS3NIT8Qy4iELsVjoAQgVGl07Sxx5YSd0vAiEAnHxHxXcVyzlREK8EjQXFmac2RX5sEUItFXyFVey7t4U=",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      }
+    ],
+    "unpackedSize": 168413
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "gitHead": "e74984e4ff0d093ac516f2b6ac811d41c5af49b3",
+  "scripts": {
+    "dev": "tsup --watch",
+    "test": "UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests",
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "//test": "keep --passWithNoTests until T6 lands first vitest test; do not remove",
+    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
+    "test:e2e": "UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "//test-env": "UP_SUPPRESS_T3_NOTES=1 silences the T3 USDC-domain boot warnings (gas-fallback / arc-dual-decimal) that fire on every networks.ts module load. Operators still see them outside the test runner.",
+    "test:coverage": "UP_SUPPRESS_T3_NOTES=1 vitest run --coverage",
+    "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "_npmUser": "mnemonik-dev <dev@mnemonik.xyz>",
+  "_npmVersion": "10.8.2",
+  "directories": {},
+  "sideEffects": false,
+  "_nodeVersion": "20.19.1",
+  "dependencies": {
+    "viem": "^2.52.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "_hasShrinkwrap": false,
+  "devDependencies": {
+    "ajv": "^8.12.0",
+    "tsx": "^4.7.0",
+    "pino": "^9.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.5.0",
+    "fastify": "^4.28.0",
+    "winston": "^3.11.0",
+    "typescript": "^5.4.0",
+    "@vitest/coverage-v8": "^1.6.1"
+  },
+  "peerDependencies": {
+    "fastify": "^4.0.0 || ^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
+  },
+  "_npmOperationalInternal": {
+    "tmp": "tmp/middleware_0.0.1-alpha.1_1782481204915_0.21111658777714215",
+    "host": "s3://npm-registry-packages-npm-production"
+  }
+}
+
+--- tarball HEAD ---
+HTTP/2 200 
+date: Fri, 26 Jun 2026 15:46:16 GMT
+content-type: application/octet-stream
+cf-ray: a11d58032b19e98c-FRA
+cf-cache-status: HIT
+accept-ranges: bytes
+access-control-allow-origin: *
+age: 7569
+cache-control: public, must-revalidate, max-age=31557600
+etag: "a65c10d130913c028d9a5f8968fce6d6"
+
+--- clean-dir install smoke ---
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+--- import test ---
+[universal-paywall] arc-testnet USDC note: gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)
+[universal-paywall] arc-testnet USDC note: arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6
+PUBLIC_API_KEYS=["NETWORKS","OpaqueRelayerKey","fastifyPaywall","withPaywall"]
+
+--- provenance ---
+SLSA provenance: skipped (GITHUB_ACTIONS env unset — published locally).
+Per task-16 brief documented refinement: provenance is best-effort, gated on (npm >= 9.5) AND (GITHUB_ACTIONS present); both must be true.

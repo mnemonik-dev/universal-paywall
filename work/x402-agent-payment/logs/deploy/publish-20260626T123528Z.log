@@ -1,0 +1,76 @@
+warning: provenance skipped — GITHUB_ACTIONS env unset (running locally, not in CI)
+
+> @universal-paywall/middleware@0.0.1-alpha.0 prepublishOnly
+> npm run clean && npm run build && npm test
+
+
+> @universal-paywall/middleware@0.0.1-alpha.0 clean
+> rm -rf dist
+
+
+> @universal-paywall/middleware@0.0.1-alpha.0 build
+> tsup
+
+CLI Building entry: src/index.ts
+CLI Using tsconfig: tsconfig.json
+CLI tsup v8.5.1
+CLI Using tsup config: /Users/syi/src/universal-paywall/packages/middleware/tsup.config.ts
+CLI Target: node20
+CLI Cleaning output folder
+ESM Build start
+ESM dist/index.js     35.53 KB
+ESM dist/index.js.map 113.16 KB
+ESM ⚡️ Build success in 72ms
+DTS Build start
+DTS ⚡️ Build success in 1942ms
+DTS dist/index.d.ts 12.89 KB
+
+> @universal-paywall/middleware@0.0.1-alpha.0 test
+> UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests
+
+
+ RUN  v1.6.1 /Users/syi/src/universal-paywall/packages/middleware
+
+ ✓ src/__tests__/networks.test.ts  (10 tests) 2ms
+ ✓ src/__tests__/replay-store.test.ts  (9 tests) 5ms
+ ✓ src/__tests__/adapters/node-http.test.ts  (4 tests) 4ms
+ ✓ src/__tests__/x402.test.ts  (43 tests) 8ms
+ ✓ src/__tests__/relayer-key.test.ts  (28 tests) 10ms
+ ✓ src/__tests__/adapters/fastify.test.ts  (5 tests) 23ms
+ ✓ src/__tests__/core.test.ts  (50 tests) 38ms
+ ✓ src/__tests__/index.test.ts  (4 tests) 237ms
+ ✓ src/__tests__/integration/arc-testnet-e2e.test.ts  (3 tests | 2 skipped) 2ms
+ ✓ src/__tests__/settle.test.ts  (23 tests) 54ms
+ ✓ src/__tests__/verify.test.ts  (18 tests) 90ms
+ ✓ src/__tests__/register-cli.test.ts  (8 tests) 8851ms
+ ✓ src/__tests__/integration/forked-e2e.test.ts  (5 tests) 10173ms
+
+ Test Files  13 passed (13)
+      Tests  208 passed | 2 skipped (210)
+   Start at  15:35:31
+   Duration  10.60s (transform 869ms, setup 1ms, collect 2.60s, tests 19.50s, environment 1ms, prepare 772ms)
+
+npm notice
+npm notice 📦  @universal-paywall/middleware@0.0.1-alpha.0
+npm notice Tarball Contents
+npm notice 13.3kB dist/index.d.ts
+npm notice 36.5kB dist/index.js
+npm notice 118.7kB dist/index.js.map
+npm notice 1.8kB package.json
+npm notice Tarball Details
+npm notice name: @universal-paywall/middleware
+npm notice version: 0.0.1-alpha.0
+npm notice filename: universal-paywall-middleware-0.0.1-alpha.0.tgz
+npm notice package size: 44.6 kB
+npm notice unpacked size: 170.2 kB
+npm notice shasum: 30d819fc86907eaef2df61a9cd0d5a2e673b47d0
+npm notice integrity: sha512-n1E2/XltXpthC[...]YAbg73+AtSB6w==
+npm notice total files: 4
+npm notice
+npm notice Publishing to https://registry.npmjs.org/ with tag alpha and public access
+npm error code EOTP
+npm error This operation requires a one-time password from your authenticator.
+npm error You can provide a one-time password by passing --otp=<code> to the command you ran.
+npm error If you already provided a one-time password then it is likely that you either typoed
+npm error it, or it timed out. Please try again.
+npm error A complete log of this run can be found in: /Users/syi/.npm/_logs/2026-06-26T12_35_28_146Z-debug-0.log

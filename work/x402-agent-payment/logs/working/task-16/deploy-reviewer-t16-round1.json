@@ -1,0 +1,147 @@
+{
+  "reviewer": "deploy-reviewer-t16",
+  "task": 16,
+  "round": 1,
+  "timestamp": "2026-06-26T13:10:00Z",
+  "verdict": "conditional_pass",
+  "summary": "Deploy pipeline is broadly correct. On-chain state, broadcast artifact, post-deploy patch, arcscan verification, and bundle size all pass. Three issues require resolution: (1) CRITICAL: decisions.md Task 16 entry is absent — the post-completion AC requires factory address, vaultImpl address, npm URL, arcscan URL all clickable; (2) MAJOR: `latest` dist-tag now points at the broken 0.0.1-alpha.0 build (npm auto-created `latest` on first publish of a scoped package) — user must run `npm dist-tag rm @universal-paywall/middleware latest` before Task 17 AC #145 ('latest unchanged') can pass; (3) MAJOR: publish log for the successful 0.0.1-alpha.1 publish is missing from committed logs — the single publish log ends with EOTP (failed auth), meaning the successful re-publish was not captured. One additional minor deviation in the alpha.0→alpha.1 retry path is documented below.",
+
+  "focus_areas": {
+
+    "forge_script_flags": {
+      "verdict": "PASS",
+      "detail": "Deploy log arcTestnet-20260626T122947Z.log shows 'ONCHAIN EXECUTION COMPLETE & SUCCESSFUL'. Broadcast artifact exists at contracts/broadcast/Deploy.s.sol/5042002/run-latest.json. The forge script path used is `script/Deploy.s.sol` (matching task spec). --broadcast was confirmed by the ONCHAIN EXECUTION line. --verify was NOT used in the initial deploy (deploy log shows no verification output); verification was performed separately via `forge verify-contract` (Path B manual fallback). Both verify log files exist: arcTestnet-verify-20260626T123210Z.log (factory) and arcTestnet-verify-vault-20260626T123218Z.log (vaultImpl). Both show `Response: OK` from arcscan. The deploy log does not show the full forge command with flags. Recommendation: the captured log should include the invocation line. The absence of '--verify' in the deploy log is a documentation gap but the verification was done correctly via Path B."
+    },
+
+    "broadcast_artifact": {
+      "verdict": "PASS",
+      "detail": "contracts/broadcast/Deploy.s.sol/5042002/run-latest.json exists and is the immutable record. Key values: factoryAddress=0x028442a366fd124a9e953c90dae58afb8b8db9d8, vaultImplAddress=0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45 (in additionalContracts — correctly NOT a top-level CREATE, deployed inside factory constructor per D3). chainId=0x4cef52=5042002 matches Arc Testnet. Constructor arguments=['0x3600000000000000000000000000000000000000','0xBD845888a6aFd2d0193850F24F8944f2DDF2C409','50'] — exactly 3 args, matching D3/iter-3 §1 canonical constructor signature (IERC20 usdc, address platformTreasury, uint16 feeBps=50). No 4th vaultImpl argument. receipt.status=0x1 (success)."
+    },
+
+    "post_deploy_ts_idempotency": {
+      "verdict": "PASS_WITH_NOTE",
+      "detail": "post-deploy.ts sentinel patch applied correctly: factoryAddress and vaultImplAddress in networks.ts match broadcast JSON byte-for-byte. Both 'arc-testnet' and 'eip155:5042002' keys point at the SAME arcTestnet object reference (line 71-72 of networks.ts), so a single sentinel replacement correctly updates both forms per D1. enabled flipped to true. usdcEip712Name and usdcEip712Version were NOT touched — they come from the build-time generated arc-testnet-usdc-domain.ts (name='USDC', version='2', which is the T3 artefact value). NOTE: The post-deploy.ts TS path was superseded in alpha.1 — networks.ts no longer reads arc-testnet-usdc-domain.json at runtime; it imports from the generated TS module. The sentinel patch still works correctly on the factoryAddress/vaultImplAddress lines. The codegen change does not break idempotency — running post-deploy.ts again on the patched file would be a no-op (sed-anchored replacement on sentinel-marked lines)."
+    },
+
+    "deploy_event_log": {
+      "verdict": "PASS",
+      "detail": "Broadcast artifact receipts.logs shows 2 events in the single factory deploy tx (0xda5d17f...): (1) OwnershipTransferred event at factory address 0x028442a3... (topic 0x8be0079c — OZ Ownable transfer, from zero to deployer 0x1a06116d). (2) Initializable.Initialized event at vaultImpl address 0x1c65f3ee... (topic 0xc7f505b2 — OZ Initializable, data=0x...ffffffffffffffff confirming _disableInitializers() was called — the `ffffffffffffffff` value is the sentinel used by OZ Initializable v5 to mark the impl as permanently locked). VaultDeployed event is NOT in the deploy receipt because no developer called register() during deploy — that event is emitted per-registration, not at factory deploy time. This is correct behaviour. The deploy log printed 'FACTORY_ADDRESS 0x028442a3...' and 'VAULT_IMPL_ADDRESS 0x1c65f3ee...' confirming the forge script logged both addresses."
+    },
+
+    "npm_publish_tag": {
+      "verdict": "PASS",
+      "detail": "Both publishes used `--tag alpha`. Confirmed from publish log: 'Publishing to https://registry.npmjs.org/ with tag alpha and public access'. dist-tags.alpha = '0.0.1-alpha.1' (the working bundle). The `--workspace @universal-paywall/middleware` flag uses the package name (not directory path) — correct per task spec directive."
+    },
+
+    "tarball_contents": {
+      "verdict": "PASS_WITH_NOTE",
+      "detail": "Publish log dry-run (alpha.0) shows 4 files: dist/index.d.ts (13.3kB), dist/index.js (36.5kB), dist/index.js.map (118.7kB), package.json (1.8kB). No src/, no __tests__/, no .env*. However README.md is absent from the tarball listing shown in the publish log. The package.json 'files' field is ['dist','README.md'] — README.md should be included. This may be because the publish log captured the alpha.0 run where README.md may have been missing from the dist checkout, or the log format may not show all files. The deployer's smoke check reports the clean-dir install and import work for alpha.1, so the tarball is functional. Recommend verifying `npm pack --dry-run` on alpha.1 shows README.md. NOTE: index.js.map is included in the tarball — source maps should typically be in 'files' or npmignored depending on preference; not a blocker but worth documenting."
+    },
+
+    "provenance_attestation": {
+      "verdict": "PASS",
+      "detail": "publishConfig.provenance: true is present in package.json. The pre-flight bash guard ran correctly: publish log line 1 reads 'warning: provenance skipped — GITHUB_ACTIONS env unset (running locally, not in CI)'. This is the correct fallback per task spec's pre-flight gate (npm >= 9.5 AND GITHUB_ACTIONS both required). The warning was logged. --provenance was omitted rather than aborting. This is a documented operational refinement, not a hard requirement. OIDC attestation will be present when published from CI."
+    },
+
+    "version_semver": {
+      "verdict": "PASS_WITH_NOTE",
+      "detail": "Final published version is 0.0.1-alpha.1. Task spec and user-spec both say '0.1.0-alpha.0' (note: 0.1.0, not 0.0.1). The actual version used is 0.0.1-alpha.0 / 0.0.1-alpha.1 — the initial version digit differs (0.0.1 vs 0.1.0). This is a spec deviation worth documenting. Both are valid semver pre-releases, neither is 0.0.0 or 1.0.0, and alpha.1 correctly follows alpha.0. The deviation is minor for an MVP alpha but should be noted in decisions.md. The alpha.0 → alpha.1 bump was triggered by a bundle bug (broken monorepo-path import), not by E409 version conflict — this is an undocumented trigger in the spec (spec only documents E409 as the retry trigger). The resolution was correct: fix the bug, publish alpha.1. No E409 occurred. This is an acceptable operational decision but should be logged as a deviation."
+    },
+
+    "arcscan_verification": {
+      "verdict": "PASS",
+      "detail": "Path B manual verify used. Factory: forge verify-contract submitted, Response OK, GUID 028442a3..., URL https://testnet.arcscan.app/address/0x028442a366fd124a9e953c90dae58afb8b8db9d8. VaultImpl: forge verify-contract submitted, Response OK, GUID 1c65f3ee..., URL https://testnet.arcscan.app/address/0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45. Both is_verified=true (confirmed by deployer). Constructor args for factory verify: correct 3-arg encoding (USDC, treasury, 0x32=50). VaultImpl verify: no constructor args (correct — _disableInitializers() in constructor body, no params)."
+    },
+
+    "decisions_md_entry": {
+      "verdict": "FAIL",
+      "severity": "CRITICAL",
+      "detail": "decisions.md has NO Task 16 entry. The task's post-completion requirements explicitly state: 'Record brief report in decisions.md following template. Include: factory address, vaultImpl address, arcscan verification URLs, npm tarball URL, provenance attestation URL (or skip reason), final published version, git tag.' The decisions.md file ends after the Task 15 entry. This is the final task-level AC that is unmet. The deployer must add this entry before Task 17 can reference the audit trail."
+    }
+  },
+
+  "findings": [
+    {
+      "id": "DR-T16-R1-C1",
+      "severity": "CRITICAL",
+      "area": "decisions.md",
+      "title": "Task 16 entry absent from decisions.md",
+      "detail": "decisions.md has no Task 16 execution report. Per task spec post-completion: factory address, vaultImpl address, arcscan verification URLs (both contracts), npm tarball URL, provenance skip reason, final published version (0.0.1-alpha.1), git tag (middleware-v0.0.1-alpha.1) must all appear as clickable entries. This is the primary audit-trail artifact for Task 16.",
+      "action_required": "Add Task 16 section to decisions.md with all required fields before marking Task 16 done."
+    },
+    {
+      "id": "DR-T16-R1-M1",
+      "severity": "MAJOR",
+      "area": "npm dist-tags",
+      "title": "dist-tags.latest points at broken 0.0.1-alpha.0 bundle",
+      "detail": "npm auto-created the `latest` tag when the first version (0.0.1-alpha.0) of a scoped package was published. dist-tags = { alpha: '0.0.1-alpha.1', latest: '0.0.1-alpha.0' }. Task 16 AC #110 states 'dist-tags.latest was NOT modified (alpha-only publish)'. This AC is technically violated — `latest` was created, not pre-existing, but points at the broken bundle. Anyone running `npm install @universal-paywall/middleware` gets the broken alpha.0. The deployer noted the user must run `npm dist-tag rm @universal-paywall/middleware latest` with OTP. This action is PENDING.",
+      "action_required": "Run `npm dist-tag rm @universal-paywall/middleware latest` to remove the auto-created latest tag. Confirm with `npm view @universal-paywall/middleware dist-tags` that latest is absent or unchanged. Log the outcome."
+    },
+    {
+      "id": "DR-T16-R1-M2",
+      "severity": "MAJOR",
+      "area": "publish audit log",
+      "title": "Successful alpha.1 publish log not committed",
+      "detail": "Only one publish log exists: publish-20260626T123528Z.log, which ends with `npm error code EOTP` — the alpha.0 publish that failed on 2FA. There is no committed log for the successful alpha.1 publish (which the deployer confirms occurred). The task spec requires: 'Capture the publish response (registry URL, integrity hash, provenance attestation URL if applicable) into work/x402-agent-payment/logs/deploy/publish-<UTC-timestamp>.log'. The alpha.1 publish log is missing from the committed artifact set.",
+      "action_required": "Commit the alpha.1 publish log (or reconstruct from npm's debug log at ~/.npm/_logs/) as publish-<UTC>-alpha1.log under work/x402-agent-payment/logs/deploy/."
+    },
+    {
+      "id": "DR-T16-R1-m1",
+      "severity": "MINOR",
+      "area": "version numbering",
+      "title": "Published version is 0.0.1-alpha.x, spec says 0.1.0-alpha.0",
+      "detail": "User-spec AC: 'Пакет публикуется на npm как @universal-paywall/middleware (initial version 0.1.0-alpha.0)'. Tech-spec task 16 description: 'Publish @universal-paywall/middleware@0.1.0-alpha.0'. Actual published versions are 0.0.1-alpha.0 and 0.0.1-alpha.1. Both are valid semver pre-releases but the minor version digit differs. This deviation should be documented in decisions.md as an accepted deviation (both represent a pre-release alpha with no public API commitment).",
+      "action_required": "Document in decisions.md Task 16 entry: 'Deviation: initial version is 0.0.1-alpha.0 rather than 0.1.0-alpha.0. Reason: [deployer to fill]. Accepted as equivalent pre-release alpha.'"
+    },
+    {
+      "id": "DR-T16-R1-m2",
+      "severity": "MINOR",
+      "area": "alpha.0 -> alpha.1 retry trigger",
+      "title": "Retry to alpha.1 was triggered by bundle bug, not E409 — undocumented trigger",
+      "detail": "Task spec documents the alpha.0 → alpha.1 version bump only for E409 (version conflict on registry). The actual trigger was a broken bundle (runtime readFileSync on monorepo-relative path that doesn't exist in node_modules). The retry is correct operationally, but the spec does not cover this case. The alpha.0 slot is burned on the registry with a broken bundle (not the E409 scenario). Deprecation of alpha.0 is also pending.",
+      "action_required": "Document the actual trigger in decisions.md. Run `npm deprecate @universal-paywall/middleware@0.0.1-alpha.0 'broken bundle — use 0.0.1-alpha.1'` with OTP when user is available."
+    },
+    {
+      "id": "DR-T16-R1-i1",
+      "severity": "INFO",
+      "area": "deploy log completeness",
+      "title": "Deploy log does not show forge invocation line with --broadcast flag",
+      "detail": "The task spec requires the deploy log to be captured with `tee` including the full forge command. arcTestnet-20260626T122947Z.log starts at the Foundry warning and script output but does not show the `forge script` command line itself. --broadcast is implied by 'ONCHAIN EXECUTION COMPLETE' but not explicitly visible. Not a blocker.",
+      "action_required": "No action required — informational only. Future runs should include the invocation line."
+    },
+    {
+      "id": "DR-T16-R1-i2",
+      "severity": "INFO",
+      "area": "tarball contents",
+      "title": "README.md presence in alpha.1 tarball not confirmed by a captured dry-run log",
+      "detail": "The publish log shows the alpha.0 dry-run tarball (4 files, no README.md visible). The package.json files field includes README.md. The deployer's smoke checks confirm installability but did not explicitly confirm README.md is in the alpha.1 tarball. Not a blocker — package.json files field is authoritative.",
+      "action_required": "No action required. Can be confirmed by `npm pack --dry-run` against alpha.1."
+    }
+  ],
+
+  "ac_checklist": {
+    "AC_forge_script_broadcast_verify_in_log": "PARTIAL — --verify used via Path B fallback (separate verify logs), not inline with forge script broadcast. Both verify logs committed. Arcscan confirmed is_verified=true for both contracts.",
+    "AC_broadcast_artifact_exists": "PASS — contracts/broadcast/Deploy.s.sol/5042002/run-latest.json committed with factory + vaultImpl addresses.",
+    "AC_post_deploy_ts_patched_networks": "PASS — factoryAddress + vaultImplAddress + enabled:true all correct in networks.ts.",
+    "AC_package_version_final": "PASS (with deviation) — version is 0.0.1-alpha.1 (not 0.1.0-alpha.0 as spec'd). publishConfig.access=public, files allow-listed.",
+    "AC_bundle_size_under_30kb": "PASS — 9.1 KB gzipped total (smoke check reported by deployer; publish log shows 36.5 KB raw for dist/index.js which is ~9 KB gzipped).",
+    "AC_dry_run_tarball_no_leakage": "PASS — publish log shows only dist/ and package.json in alpha.0 dry-run. README.md presence in alpha.1 not independently confirmed but package.json files field is authoritative.",
+    "AC_release_commit_on_branch": "PASS — commit 433d14e (alpha.0 networks.ts patch) + commit e74984e (alpha.1 bundle fix + version bump) both on dev branch.",
+    "AC_npm_publish_tag_alpha": "PASS — both publishes used --tag alpha.",
+    "AC_git_tag_after_publish": "PASS — middleware-v0.0.1-alpha.0 (sha f8ded37) and middleware-v0.0.1-alpha.1 (sha 39353d0) both created and pushed to origin.",
+    "AC_npm_view_dist_tarball_returns_url": "PASS — deployer confirmed `npm view @universal-paywall/middleware@0.0.1-alpha.1 dist.tarball` returns canonical npm registry URL.",
+    "AC_latest_tag_not_modified": "FAIL — latest was auto-created on first publish of scoped package; points at broken alpha.0. Pending user action to remove.",
+    "AC_decisions_md_entry": "FAIL — Task 16 entry absent from decisions.md."
+  },
+
+  "blocking_for_task_17": [
+    "DR-T16-R1-C1: decisions.md Task 16 entry must exist before Task 17 references audit trail.",
+    "DR-T16-R1-M1: latest dist-tag removal is prerequisite for AC #110 to pass (Task 17 will re-check)."
+  ],
+
+  "non_blocking_before_task_17": [
+    "DR-T16-R1-M2: alpha.1 publish log — should be committed but does not block Task 17 smoke checks.",
+    "DR-T16-R1-m1: version deviation — document in decisions.md, no re-publish needed.",
+    "DR-T16-R1-m2: alpha.0 deprecation — run async with user OTP."
+  ]
+}
