@@ -1,6 +1,6 @@
 {
   "name": "@universal-paywall/middleware",
-  "version": "0.0.0",
+  "version": "0.0.1-alpha.0",
   "type": "module",
   "exports": {
     ".": {
@@ -28,8 +28,7 @@
     "test:coverage": "UP_SUPPRESS_T3_NOTES=1 vitest run --coverage",
     "test:e2e": "UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests",
     "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
-    "//prepublishOnly": "guard against accidental publish before Task 16; Task 16 removes this and runs the real release pipeline",
-    "prepublishOnly": "echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1"
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
     "viem": "^2.52.0"
