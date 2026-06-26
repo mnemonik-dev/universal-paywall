@@ -39,7 +39,9 @@ chore(deps): bump viem to 2.x
 
 ## Code Patterns
 
-_Filled during development as patterns emerge._
+- **Build-time codegen for monorepo-relative data files.** The middleware bundle must not `readFileSync` files at runtime — paths that resolve inside the monorepo (e.g. `../../../contracts/scripts/foo.json`) break when the bundle is installed under `node_modules/`. Pattern: keep the JSON as the single source of truth, add a small `prebuild` codegen script that emits a TS module under `src/generated/`, import the const at top-level. tsup tree-shakes and inlines. The committed `src/generated/` file is intentional (do not gitignore it) — see comment in root `.gitignore`. Example: `packages/middleware/scripts/generate-arc-testnet-usdc-domain.ts`.
+- **Sentinel-comment patching for deployed-address propagation.** Smart-contract addresses produced by a live deploy can't be hard-coded ahead of time and must NOT be hand-edited into source. Pattern: in `packages/middleware/src/networks.ts`, the address literals carry a trailing sentinel comment (`/* deploy-script:factoryAddress */`, `/* deploy-script:vaultImplAddress */`). The post-deploy script (`contracts/scripts/post-deploy.ts`) regex-matches the sentinel and substitutes the address from the forge broadcast JSON. Sentinel format must survive a prettier-style change of quote style (both `'` and `"` accepted).
+- **`OpaqueRelayerKey` wrapper for sensitive hex.** Raw private keys (`0x…64hex`) are wrapped in an opaque class at the env-read boundary so they never appear in stack traces or unredacted logs. Never accept a bare hex string from the environment in feature code — pass through `new OpaqueRelayerKey(env.PAYWALL_RELAYER_KEY)` first.
 
 ## Business Rules
 

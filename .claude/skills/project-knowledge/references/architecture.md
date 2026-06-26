@@ -7,7 +7,7 @@
 | **Middleware (npm)** | TypeScript | Matches JS ecosystem where most API servers live; compatible with arc-nanopayments patterns |
 | **Backend API** | Node.js + Fastify | TypeScript-native, fast, minimal boilerplate for REST + webhook handlers |
 | **Frontend dashboard** | Next.js | SSR + API routes in one project; fast to build admin UI |
-| **Smart contracts** | Solidity 0.8.20+ + Hardhat | `PaymentSplitterFactory` + `PaymentVaultImpl` (EIP-1167 minimal proxy via `Clones.cloneDeterministic`). OpenZeppelin 5.x Ownable2Step/Pausable/ReentrancyGuard/SafeERC20. Vault is a passive USDC receiver; fee split happens at `withdraw()`. |
+| **Smart contracts** | Solidity 0.8.20 + Foundry (forge / cast / anvil) | `PaymentSplitterFactory` + `PaymentVaultImpl` (EIP-1167 minimal proxy via `Clones.cloneDeterministic`). OpenZeppelin 5.x Ownable2Step/Pausable/ReentrancyGuard/SafeERC20. Vault is a passive USDC receiver; fee split happens at `withdraw()`. Foundry migration replaced the initial Hardhat scaffold during the x402-agent-payment feature; broadcast artefacts live under `contracts/broadcast/Deploy.s.sol/<chainId>/run-latest.json`. |
 | **Database** | SQLite | Zero config, single file, sufficient for MVP on one VPS; same pattern as mnemonik monorepo |
 | **x402 protocol** | Standard x402 v1, self-hosted facilitator inline in middleware | Open-source spec; we are a server + facilitator; clients (CDP SDK, Circle SDK, custom) interoperate via wire format. No pinned client SDK. |
 | **Fiat payments** | Stripe Connect | Platform model: auto-split via `application_fee_amount`, Stripe handles KYC/compliance |
@@ -23,19 +23,27 @@ universal-paywall/
 ├── packages/
 │   └── middleware/                  # npm package: @universal-paywall/middleware
 │       ├── src/
-│       │   ├── index.ts             # public exports
+│       │   ├── index.ts             # public exports (withPaywall, fastifyPaywall, NETWORKS, OpaqueRelayerKey)
 │       │   ├── core.ts              # framework-agnostic paywall(req, opts)
 │       │   ├── adapters/
 │       │   │   ├── node-http.ts     # withPaywall(handler) for Node http
 │       │   │   └── fastify.ts       # fastifyPaywall(handler) for Fastify
 │       │   ├── x402.ts              # 402 body builder + X-PAYMENT/X-PAYMENT-RESPONSE codec
 │       │   ├── verify.ts            # off-chain EIP-712 ecrecover via viem
-│       │   ├── settle.ts            # on-chain settle via splitter.payWithAuthorization
+│       │   ├── settle.ts            # on-chain settle (USDC.transferWithAuthorization via relayer)
 │       │   ├── replay-store.ts      # in-memory consumed-nonce set with TTL
-│       │   ├── networks.ts          # NETWORKS map (chainId, rpcUrl, usdcAddress, splitterAddress)
-│       │   ├── errors.ts            # structured x402 error response builders
-│       │   └── types.ts             # PaymentRequirements, PaymentPayload exports
-│       ├── test/
+│       │   ├── relayer-key.ts       # OpaqueRelayerKey: wraps hex key, scrubs from stack traces
+│       │   ├── networks.ts          # NETWORKS map (chainId, rpcUrl, usdcAddress, factoryAddress, vaultImplAddress)
+│       │   ├── generated/
+│       │   │   └── arc-testnet-usdc-domain.ts  # codegen output from prebuild — inlined T3 USDC domain values; tsup natural-bundle (do NOT runtime-fs-load — see x402-agent-payment decisions Task 16)
+│       │   ├── types.ts             # PaywallConfig, PaymentRequirements, PaymentPayload
+│       │   └── __tests__/
+│       │       ├── fixtures/x402-v1.schema.json   # vendored x402 v1 wire-format schema (T9, used by ajv)
+│       │       └── integration/
+│       │           ├── arc-testnet-e2e.test.ts    # ARC_TESTNET_E2E=1 gated, real RPC + relayer + payer
+│       │           └── forked-e2e.test.ts         # anvil-spawned forked test, runs in CI
+│       ├── scripts/
+│       │   └── generate-arc-testnet-usdc-domain.ts  # prebuild codegen: JSON → TS const
 │       └── package.json
 ├── apps/
 │   ├── api/                         # Fastify backend
@@ -54,23 +62,21 @@ universal-paywall/
 │   └── dashboard/                   # Next.js developer dashboard
 │       ├── app/
 │       └── package.json
-├── contracts/                       # Solidity smart contracts
-│   ├── contracts/
+├── contracts/                       # Foundry workspace (forge / cast / anvil)
+│   ├── src/
 │   │   ├── PaymentSplitterFactory.sol   # Ownable2Step, Pausable; deploys per-developer vaults via Clones
 │   │   ├── PaymentVaultImpl.sol         # Initializable, ReentrancyGuard; passive USDC receiver, splits on withdraw
-│   │   ├── interfaces/
-│   │   │   └── IERC3009.sol             # minimal interface for off-chain ABI use only
-│   │   └── mocks/
-│   │       └── MockUsdcEip3009.sol      # test mock with EIP-3009 implementation
-│   ├── test/
-│   │   ├── PaymentSplitterFactory.test.ts
-│   │   ├── PaymentVaultImpl.test.ts
-│   │   └── integration/forked-e2e.test.ts  # Hardhat-fork integration test, runs in CI
-│   ├── deploy/
-│   │   └── 01_deploy_factory.ts
+│   │   └── interfaces/
+│   │       └── IERC3009.sol             # minimal interface for off-chain ABI use only
+│   ├── test/                            # forge tests (mocks live under test/mocks/)
+│   ├── script/
+│   │   └── Deploy.s.sol                 # forge deploy script; factory constructor takes (usdc, treasury, feeBps=50)
 │   ├── scripts/
-│   │   └── verify-usdc-eip3009.ts       # Wave 1 spike against Arc Testnet
-│   ├── hardhat.config.ts
+│   │   ├── verify-usdc-eip3009.ts       # Wave 1 spike against Arc Testnet (Task 3)
+│   │   ├── post-deploy.ts               # reads broadcast/run-latest.json, sentinel-patches packages/middleware/src/networks.ts
+│   │   └── arc-testnet-usdc-domain.json # T3 artefact — canonical USDC EIP-712 domain values (source of truth for middleware codegen)
+│   ├── broadcast/Deploy.s.sol/{chainId}/run-latest.json  # forge broadcast artefact (gitignored by default)
+│   ├── foundry.toml
 │   └── package.json
 ├── scripts/
 │   └── register.ts                  # CLI: developer calls factory.register() from their EOA
@@ -170,6 +176,7 @@ CREATE TABLE transactions (
 - `stripe` — Stripe Connect API
 - `better-sqlite3` — SQLite driver (sync, fast)
 - `@openzeppelin/contracts` 5.x — `Ownable2Step`, `Pausable`, `ReentrancyGuard`, `Initializable`, `Clones`, `SafeERC20`, `IERC20`
-- `hardhat`, `@nomicfoundation/hardhat-toolbox`, `@nomicfoundation/hardhat-verify` — contract compilation, testing, deployment, explorer verification
-- `ajv` — JSON Schema validation of 402 body shape against vendored x402 v1 schema (test-time only)
+- Foundry (forge / cast / anvil) — contract compilation, testing (unit + fuzz + invariant), Solidity-side deploy scripts, on-chain reads; replaces the initial Hardhat scaffold
+- `tsup` — middleware bundler (ESM-only, `target: node20`, sourcemap off in published `0.0.1`); naturally tree-shakes and inlines the prebuild-codegen-emitted USDC-domain module
+- `ajv` + `ajv-formats` — JSON Schema validation of the 402 body shape against the vendored x402 v1 schema (test-time + Task 17 post-deploy smoke)
 - No prebuilt x402 client SDK pinned — we are protocol-compatible, clients use their own (CDP `x402` package, Circle SDK, or hand-rolled)
