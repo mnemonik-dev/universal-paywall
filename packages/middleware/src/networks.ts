@@ -11,60 +11,21 @@
  * `enabled: false`) per systemic-fix §8 — NOT `eip155:42161`, which would
  * alias Arbitrum One's real CAIP-2 and produce false-positive matches.
  *
- * USDC EIP-712 domain (`usdcEip712Name` / `usdcEip712Version`) is populated
+ * USDC EIP-712 domain (`usdcEip712Name` / `usdcEip712Version`) is sourced
  * from Task 3's on-chain-verified JSON artefact at
- * `contracts/scripts/arc-testnet-usdc-domain.json`. If that file is missing
- * at module load — this module throws a BLOCKER error rather than ship with
- * stub values. Reason: silent stubs would mean `verify.ts` produces wrong
- * EIP-712 domain hashes and every signature recovery would fail on-chain.
+ * `contracts/scripts/arc-testnet-usdc-domain.json`. The values are mirrored
+ * into the bundle at build time via `scripts/generate-arc-testnet-usdc-domain.ts`
+ * (run as the `prebuild` hook), emitting `src/generated/arc-testnet-usdc-domain.ts`.
+ * This way the published bundle does not depend on a monorepo-relative path at
+ * runtime — consumers installing from npm get the inlined values.
  *
  * `factoryAddress` / `vaultImplAddress` ship as `0x0…0` placeholders with
  * `deploy-script:*` sentinel comments (per systemic-fix §13); Task 11's
  * deploy script does a sed-anchored replacement on these lines.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { NetworkConfig } from './types.js';
-
-interface ArcTestnetUsdcDomain {
-  name: string;
-  version: string;
-  decimals: number;
-  supportsEip3009: boolean;
-  notes?: string[];
-}
-
-function loadArcTestnetUsdcDomain(): ArcTestnetUsdcDomain {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // packages/middleware/src → ../../../contracts/scripts (or dist → ../../../contracts/scripts)
-  const candidates = [
-    resolve(here, '../../../contracts/scripts/arc-testnet-usdc-domain.json'),
-    resolve(here, '../../../../contracts/scripts/arc-testnet-usdc-domain.json'),
-  ];
-  for (const path of candidates) {
-    try {
-      const raw = readFileSync(path, 'utf8');
-      const parsed = JSON.parse(raw) as ArcTestnetUsdcDomain;
-      if (typeof parsed.name !== 'string' || typeof parsed.version !== 'string') {
-        throw new Error(
-          `NETWORKS bootstrap failed: T3 USDC domain artefact at ${path} is missing required fields (name, version)`,
-        );
-      }
-      return parsed;
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT') continue;
-      throw err;
-    }
-  }
-  throw new Error(
-    'NETWORKS bootstrap failed: T3 USDC domain artefact missing at contracts/scripts/arc-testnet-usdc-domain.json — run T3 first',
-  );
-}
-
-const arcTestnetUsdcDomain = loadArcTestnetUsdcDomain();
+import { arcTestnetUsdcDomain } from './generated/arc-testnet-usdc-domain.js';
 
 if (Array.isArray(arcTestnetUsdcDomain.notes) && arcTestnetUsdcDomain.notes.length > 0) {
   // Surface T3 notes at module load so operators see them in their boot logs.
