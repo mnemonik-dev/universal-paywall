@@ -711,3 +711,30 @@ After the 3 reviewer rounds closed (round 1 only), the operator chose to skip th
 - Publish-success log (captured retroactively, includes `npm audit signatures` output): [logs/deploy/publish-0.0.1-success-20260626T165503Z.log](logs/deploy/publish-0.0.1-success-20260626T165503Z.log).
 - Git tag: `middleware-v0.0.1` (`7252b6a`).
 - Tarball URL: https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1.tgz.
+
+## Task 17: Post-deploy verification (Wave 13)
+
+**Status:** Done
+**Agent:** deployer (covered Task 17 inline after Task 16 finalize)
+**Date (UTC):** 2026-06-26T18:18Z
+**Commit at run:** `17af76e`
+**Verdict:** **PASS** — all three live checks (on-chain reads, live e2e, published-package HTTP smoke) succeed against the Arc Testnet factory + `@universal-paywall/middleware@0.0.1`.
+
+**Summary:** Verified live that the deployed factory `0x028442a366fd124a9e953c90dae58afb8b8db9d8` exposes the expected `feeBps=50` / `platformTreasury=0xBD84…C409` / `owner=0x1a06…5B72` / `paused=false`; that the `ARC_TESTNET_E2E=1` integration suite passes 8/8 with a real EIP-3009 settlement landing **+10 000 base units (= 0.01 USDC) into the developer's live vault `0xB949951a0AA8e84f90c538E81B7A67a7b7F89006`**; and that the public-npm-installed `@universal-paywall/middleware@0.0.1` package returns an x402-v1-schema-valid 402 challenge from a `withPaywall()`-wrapped Node http server in a clean directory.
+
+**Live setup performed for step 2:**
+- Operator (the deployer EOA `0x1a06116DA33b3e5c7a7f98bC8593Ef6506895B72`) ran `factory.register()` to mint themselves a vault; resulting vault address `0xB949951a0AA8e84f90c538E81B7A67a7b7F89006`. `register()` tx is a one-shot prerequisite for live e2e and is NOT part of Task 16's deploy scope (it would be performed by every onboarding developer in production).
+- Payer EOA `0x7aa689CbFf2d83014cf28911d5597974f5672C85` topped up to 60 USDC on Arc Testnet; relayer EOA `0x9551402B8809E16b753Bf617aFB089aA0935be14` topped up to 20 USDC.
+- Env wiring: `ARC_TESTNET_E2E=1`, `ARC_TESTNET_PAYER_PK=<payer key>`, `ARC_TESTNET_DEVELOPER_EOA=0x1a06…5B72`, `PAYMENT_SPLITTER_FACTORY_ADDRESS=0x028442a3…` exported. Payer key never logged.
+
+**Deferred-AC closure (from pre-deploy QA `qa-report.md`):**
+- F-11 — Contract verified on `https://testnet.arcscan.app`. Closed: both factory and vaultImpl `is_verified: true` (verified at Task 16; cross-checked here via arcscan URLs).
+- T-07 — Deploy script outputs factory address; verifiable on arcscan. Closed.
+- D-04 / T-06 — Live Arc Testnet e2e (`ARC_TESTNET_E2E=1`). **Closed by Step 2 above** — 8/8 tests pass with a confirmed on-chain settlement (`vault.balanceOf == 10000` base units == 0.01 USDC).
+- T-11 — README user walk-through. Out of band; not a Task 17 deliverable per spec.
+
+**Verification:**
+- Full markdown report: [post-deploy-report.md](post-deploy-report.md).
+- Live e2e raw log: [logs/deploy/task-17/live-e2e-20260626T181746Z.log](logs/deploy/task-17/live-e2e-20260626T181746Z.log).
+- 402 body smoke capture: [logs/deploy/task-17/smoke-402-body.json](logs/deploy/task-17/smoke-402-body.json).
+- Developer vault on arcscan: https://testnet.arcscan.app/address/0xB949951a0AA8e84f90c538E81B7A67a7b7F89006.

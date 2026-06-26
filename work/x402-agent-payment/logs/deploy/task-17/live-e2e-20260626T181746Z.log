@@ -1,0 +1,21 @@
+Running live e2e at 2026-06-26T18:17:46Z
+FACTORY=0x028442a366fd124a9e953c90dae58afb8b8db9d8
+DEVELOPER_EOA=0x1a06116DA33b3e5c7a7f98bC8593Ef6506895B72
+PAYER=0x7aa689CbFf2d83014cf28911d5597974f5672C85
+RELAYER=0x9551402B8809E16b753Bf617aFB089aA0935be14
+--- starting test:e2e ---
+
+> @universal-paywall/middleware@0.0.1 test:e2e
+> UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests
+
+
+ RUN  v1.6.1 /Users/syi/src/universal-paywall/packages/middleware
+
+ ✓ src/__tests__/integration/arc-testnet-e2e.test.ts  (3 tests) 5884ms
+ ✓ src/__tests__/integration/forked-e2e.test.ts  (5 tests) 10202ms
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  21:17:47
+   Duration  10.58s (transform 65ms, setup 0ms, collect 369ms, tests 16.09s, environment 0ms, prepare 91ms)
+
