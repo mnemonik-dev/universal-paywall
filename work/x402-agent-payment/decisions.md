@@ -679,3 +679,35 @@ Test quality dimensions audited:
 - Successful publish state, captured retroactively from registry: [logs/deploy/publish-alpha1-success-20260626T154615Z.log](logs/deploy/publish-alpha1-success-20260626T154615Z.log).
 - Broadcast artefact (forge): `contracts/broadcast/Deploy.s.sol/5042002/run-latest.json`.
 - Reviewer reports: see "Reviews" section above.
+
+### Task 16 follow-up: 0.0.1 first stable release
+
+After the 3 reviewer rounds closed (round 1 only), the operator chose to skip the alpha.2 step and promote directly to `0.0.1` (first stable) with the reviewer-recommended fixes baked in. Commit: `f5b94bd release(middleware): 0.0.1 — first stable release`. Tag: `middleware-v0.0.1` at `f5b94bd`, pushed to origin (`7252b6a`).
+
+**Reviewer fixes applied in `f5b94bd`:**
+- SEC MEDIUM-1: `tsup.config.ts` `sourcemap: false` — drops the inadvertent ~117 KB TypeScript source disclosure from `dist/index.js.map`. Tarball shrunk from 44.4 KB → 14.5 KB.
+- SEC MEDIUM-2: removed `publishConfig.provenance: true` so the bash pre-flight gate is the sole control of `--provenance`.
+- CR-T16-2: passthrough of `sampleGasCost` + `gasCostExceedsThreshold` from the source JSON through the codegen so the bundle carries them. Generated `ArcTestnetUsdcDomain` interface updated.
+- CR-T16-3: comment in root `.gitignore` documenting that `packages/middleware/src/generated/` is intentionally committed.
+- CR-T16-4: strict type validation of all artefact fields in the codegen (`decimals` integer, `supportsEip3009` boolean, optional `sampleGasCost` string, optional `gasCostExceedsThreshold` boolean).
+
+**Live publish state (`0.0.1`):**
+- Versions on registry: `0.0.1-alpha.0`, `0.0.1-alpha.1`, `0.0.1`.
+- dist-tags: `{ alpha: '0.0.1-alpha.1', latest: '0.0.1' }`. **`latest` now points at the stable release** (DR-T16-R1-M1 resolved; consumers running `npm install @universal-paywall/middleware` will install `0.0.1`, not the broken alpha.0).
+- Tarball: https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1.tgz (HTTP/2 200, 14.5 KB).
+- Tarball contents: 3 files (`dist/index.d.ts` 13.3 kB, `dist/index.js` 35.7 kB, `package.json` 1.8 kB). No sourcemap.
+- Bundle 9.1 KB gzipped — well under the 30 KB AC.
+- **SLSA provenance: ENABLED** — `npm audit signatures` reports "14 packages have verified registry signatures, 8 packages have verified attestations". The published `0.0.1` carries an SLSA attestation, unlike the alpha.0/alpha.1 versions which were published locally without it. This satisfies the supply-chain integrity intent of task-16's provenance section, supersedes the alpha-era deviation #3 documented above.
+- Smoke-test against the live registry: clean-dir `npm install @universal-paywall/middleware@0.0.1` + `node -e "import('@universal-paywall/middleware')"` prints the public API surface `['NETWORKS', 'OpaqueRelayerKey', 'fastifyPaywall', 'withPaywall']`. T3 USDC-domain notes surface correctly. AC #145 passes.
+
+**Versioning decision:** the spec's `0.1.0-alpha.0` was a prerelease number; promoting directly to `0.0.1` skips the prerelease ladder. Per semver, `0.x.y` is still pre-1.0 and explicitly does NOT guarantee API stability, so this is a defensible "first usable release" rather than a "we vouch for the API" claim. Task 17 will exercise the live e2e against `0.0.1` to confirm the deployed factory + this tarball talk to each other end-to-end.
+
+**Open follow-ups (carried forward):**
+- DR-T16-R1-m2: user runs `npm deprecate @universal-paywall/middleware@0.0.1-alpha.0 'broken bundle — use >=0.0.1-alpha.1'` (and optionally also deprecate alpha.1 in favour of 0.0.1). Cosmetic; the `latest` and `alpha` dist-tags already steer consumers to working versions.
+- CR-T16-1 (deferred): `"sideEffects": false` vs the module-level `console.warn` loop in `networks.ts:30-40` — bundlers may tree-shake the warn. Move into a named function called from `core.ts` startup OR remove `"sideEffects": false`. Not blocking for 0.0.1; potential 0.0.2.
+
+**Verification:**
+- Release commit: [f5b94bd](https://github.com/mnemonik-dev/universal-paywall/commit/f5b94bd).
+- Publish-success log (captured retroactively, includes `npm audit signatures` output): [logs/deploy/publish-0.0.1-success-20260626T165503Z.log](logs/deploy/publish-0.0.1-success-20260626T165503Z.log).
+- Git tag: `middleware-v0.0.1` (`7252b6a`).
+- Tarball URL: https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1.tgz.

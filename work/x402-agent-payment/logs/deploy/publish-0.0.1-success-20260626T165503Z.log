@@ -1,0 +1,146 @@
+Publish artefact for @universal-paywall/middleware@0.0.1 (first stable release)
+Date (UTC): 2026-06-26T16:55:03Z
+Operator: published manually via npm publish (with provenance enabled).
+
+--- npm view @universal-paywall/middleware@0.0.1 ---
+{
+  "_id": "@universal-paywall/middleware@0.0.1",
+  "_rev": "5-a2ec8f1eb8248dc9fad9c68cf500b0b2",
+  "name": "@universal-paywall/middleware",
+  "dist-tags": {
+    "alpha": "0.0.1-alpha.1",
+    "latest": "0.0.1"
+  },
+  "versions": [
+    "0.0.1-alpha.0",
+    "0.0.1-alpha.1",
+    "0.0.1"
+  ],
+  "time": {
+    "created": "2026-06-26T12:40:43.971Z",
+    "modified": "2026-06-26T16:53:46.207Z",
+    "0.0.1-alpha.0": "2026-06-26T12:40:44.242Z",
+    "0.0.1-alpha.1": "2026-06-26T13:40:05.042Z",
+    "0.0.1": "2026-06-26T16:53:46.064Z"
+  },
+  "maintainers": [
+    "mnemonik-dev <dev@mnemonik.xyz>"
+  ],
+  "readmeFilename": "",
+  "_contentLength": 7923,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "//test": "keep --passWithNoTests until T6 lands first vitest test; do not remove",
+    "//test-env": "UP_SUPPRESS_T3_NOTES=1 silences the T3 USDC-domain boot warnings (gas-fallback / arc-dual-decimal) that fire on every networks.ts module load. Operators still see them outside the test runner.",
+    "test": "UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests",
+    "test:coverage": "UP_SUPPRESS_T3_NOTES=1 vitest run --coverage",
+    "test:e2e": "UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests",
+    "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "dependencies": {
+    "viem": "^2.52.0"
+  },
+  "peerDependencies": {
+    "fastify": "^4.0.0 || ^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.1",
+    "ajv": "^8.12.0",
+    "fastify": "^4.28.0",
+    "pino": "^9.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0",
+    "winston": "^3.11.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "f5b94bd1e0e29e38f5d0eaf6faa3c39c10427d6a",
+  "_nodeVersion": "20.19.1",
+  "_npmVersion": "10.8.2",
+  "dist": {
+    "integrity": "sha512-qXjFauOJU7Y8tqiGXcDPp5+nJhtGKlchFo1xjkA1/6ZQ1YLAgKaF1z0o0KpKqfaz2jBombV3DpflD48JDGNsNw==",
+    "shasum": "b7c611ff49a0c638973ad7c88fe63f0a1b2cb557",
+    "tarball": "https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1.tgz",
+    "fileCount": 3,
+    "unpackedSize": 50787,
+    "signatures": [
+      {
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+        "sig": "MEUCIHWv7V1rUPrsaXYBhypQ07i8OK/iTAumgRpID+nD02CMAiEAyRyX8cfpwNBoE/LlvQJ0OJSsk+DILoqINaxuxGpgV0I="
+      }
+    ]
+  },
+  "_npmUser": "mnemonik-dev <dev@mnemonik.xyz>",
+  "directories": {},
+  "_npmOperationalInternal": {
+    "host": "s3://npm-registry-packages-npm-production",
+    "tmp": "tmp/middleware_0.0.1_1782492825902_0.009403431900702586"
+  },
+  "_hasShrinkwrap": false
+}
+
+--- dist-tags ---
+{
+  "alpha": "0.0.1-alpha.1",
+  "latest": "0.0.1"
+}
+
+--- tarball HEAD ---
+HTTP/2 200 
+date: Fri, 26 Jun 2026 16:55:05 GMT
+content-type: application/octet-stream
+cf-ray: a11dbcd00918d371-FRA
+cf-cache-status: HIT
+accept-ranges: bytes
+access-control-allow-origin: *
+age: 77
+cache-control: public, must-revalidate, max-age=31557600
+etag: "e3a29ae466b15b25af2e3aea6e4b32f8"
+
+--- clean-dir install smoke ---
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+--- import test ---
+[universal-paywall] arc-testnet USDC note: gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)
+[universal-paywall] arc-testnet USDC note: arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6
+PUBLIC_API_KEYS=["NETWORKS","OpaqueRelayerKey","fastifyPaywall","withPaywall"]
+
+--- npm audit signatures ---
+audited 14 packages in 0s
+
+14 packages have verified registry signatures
+
+8 packages have verified attestations
+
+
+--- git tag ---
+7252b6a591400684b57b05178d2a590b5722ab7d	refs/tags/middleware-v0.0.1
