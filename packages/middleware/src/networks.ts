@@ -86,10 +86,10 @@ const arcTestnet: NetworkConfig = {
   usdcAddress: '0x3600000000000000000000000000000000000000',
   usdcEip712Name: arcTestnetUsdcDomain.name,
   usdcEip712Version: arcTestnetUsdcDomain.version,
-  factoryAddress: '0x0000000000000000000000000000000000000000' /* deploy-script:factoryAddress */,
+  factoryAddress: '0x028442a366fd124a9e953c90dae58afb8b8db9d8' /* deploy-script:factoryAddress */,
   vaultImplAddress:
-    '0x0000000000000000000000000000000000000000' /* deploy-script:vaultImplAddress */,
-  enabled: false,
+    '0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45' /* deploy-script:vaultImplAddress */,
+  enabled: true,
 };
 
 // TODO(arc-mainnet-release): set canonical CAIP-2 + chainId + addresses when Circle ships.
