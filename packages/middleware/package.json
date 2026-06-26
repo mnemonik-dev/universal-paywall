@@ -1,6 +1,6 @@
 {
   "name": "@universal-paywall/middleware",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1",
   "type": "module",
   "exports": {
     ".": {
@@ -54,7 +54,6 @@
     "winston": "^3.11.0"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }
