@@ -30,6 +30,8 @@ interface ArcTestnetUsdcDomain {
   version: string;
   decimals: number;
   supportsEip3009: boolean;
+  sampleGasCost?: string;
+  gasCostExceedsThreshold?: boolean;
   notes?: string[];
 }
 
@@ -46,12 +48,37 @@ function main(): void {
       `T3 USDC domain artefact at ${JSON_PATH} is missing required fields (name, version).`,
     );
   }
+  if (typeof parsed.decimals !== 'number' || !Number.isInteger(parsed.decimals)) {
+    throw new Error(
+      `T3 USDC domain artefact at ${JSON_PATH} has invalid decimals (expected integer, got ${typeof parsed.decimals}).`,
+    );
+  }
+  if (typeof parsed.supportsEip3009 !== 'boolean') {
+    throw new Error(
+      `T3 USDC domain artefact at ${JSON_PATH} has invalid supportsEip3009 (expected boolean, got ${typeof parsed.supportsEip3009}).`,
+    );
+  }
+  if (parsed.sampleGasCost !== undefined && typeof parsed.sampleGasCost !== 'string') {
+    throw new Error(
+      `T3 USDC domain artefact at ${JSON_PATH} has invalid sampleGasCost (expected string or absent).`,
+    );
+  }
+  if (
+    parsed.gasCostExceedsThreshold !== undefined &&
+    typeof parsed.gasCostExceedsThreshold !== 'boolean'
+  ) {
+    throw new Error(
+      `T3 USDC domain artefact at ${JSON_PATH} has invalid gasCostExceedsThreshold (expected boolean or absent).`,
+    );
+  }
 
   const emitted = {
     name: parsed.name,
     version: parsed.version,
     decimals: parsed.decimals,
     supportsEip3009: parsed.supportsEip3009,
+    sampleGasCost: parsed.sampleGasCost ?? null,
+    gasCostExceedsThreshold: parsed.gasCostExceedsThreshold ?? false,
     notes: Array.isArray(parsed.notes) ? parsed.notes : [],
   };
 
@@ -65,6 +92,8 @@ function main(): void {
     '  version: string;',
     '  decimals: number;',
     '  supportsEip3009: boolean;',
+    '  sampleGasCost: string | null;',
+    '  gasCostExceedsThreshold: boolean;',
     '  notes: string[];',
     '}',
     '',

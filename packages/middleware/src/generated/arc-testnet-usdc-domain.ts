@@ -7,6 +7,8 @@ export interface ArcTestnetUsdcDomain {
   version: string;
   decimals: number;
   supportsEip3009: boolean;
+  sampleGasCost: string | null;
+  gasCostExceedsThreshold: boolean;
   notes: string[];
 }
 
@@ -15,6 +17,8 @@ export const arcTestnetUsdcDomain: ArcTestnetUsdcDomain = {
   "version": "2",
   "decimals": 6,
   "supportsEip3009": true,
+  "sampleGasCost": "1260 micro-USDC",
+  "gasCostExceedsThreshold": true,
   "notes": [
     "gas estimation fallback applied: assumed 60000 gas (node refused estimate for reverting call)",
     "arc-dual-decimal: native gas is 18-decimal but ERC-20 view is 6"

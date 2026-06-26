@@ -1,6 +1,14 @@
 node_modules/
 dist/
 build/
+
+# packages/middleware/src/generated/ is INTENTIONALLY committed: it is
+# produced by `scripts/generate-arc-testnet-usdc-domain.ts` during prebuild
+# and mirrors values from contracts/scripts/arc-testnet-usdc-domain.json so
+# the published bundle does not depend on a monorepo-relative runtime path.
+# Do NOT add packages/middleware/src/generated/ to this file or to a clean
+# step — the commit must survive CI / git clean.
+
 .env
 .env.local
 .env.*.local
