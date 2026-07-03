@@ -47,8 +47,10 @@ Two supported models, wired in `config.js#buildAccount`:
 ## Test
 
 ```bash
-npm test         # node test.mjs — handler routing + bridge (13 assertions)
-npm run e2e:anvil  # node e2e-anvil.mjs — full payer loop on anvil (needs anvil :8545)
+npm test           # node test.mjs — handler routing + bridge (13 assertions)
+npm run build      # node build.mjs — esbuild self-contained MV3 bundle into dist/
+npm run e2e:anvil  # node e2e-anvil.mjs — full payer loop on anvil (node; needs anvil :8545)
+npm run e2e:browser # node e2e-browser.mjs — REAL MV3 runtime in headless Chromium (Playwright)
 ```
 
 Unit (`test.mjs`): `up:status`/`up:ensureGrant`/`up:fetch` routing, response
@@ -61,3 +63,9 @@ abstraction), driven through the handler + bridge against a real x402 resource
 (`@universal-paywall/resource-adapter`): `bridge.upFetch` -> `up:fetch` ->
 `fetchWithPaywall` -> 402 -> auto vault/deposit/grant -> 200 served -> facilitator
 settles -> **creator paid on-chain**. PASS.
+
+Browser E2E (`e2e-browser.mjs`): loads the **bundled extension as an unpacked MV3
+add-on in real headless Chromium** (Playwright). The in-browser service worker
+builds the agent (bundled viem) from a **managed session account** and auto-pays
+the x402 resource on-chain. Proves the shipped bundle runs in a browser — viem +
+agent + on-chain signing + fetch all work in the SW sandbox. PASS.

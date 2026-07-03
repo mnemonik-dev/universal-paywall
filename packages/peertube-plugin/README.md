@@ -47,5 +47,7 @@ redis): the plugin **installs, registers the `action:api.video.viewed` hook + it
 settings, and is enabled** (confirmed via logs + the `/api/v1/plugins` API), and is
 configurable through `PUT /api/v1/plugins/.../settings`. Note: the hook fires only
 on a PeerTube *counted* view (its anti-fraud watch-time threshold + viewer-stats
-processing), which a real player session drives; the per-view charge behavior
-itself is proven by `test.mjs`. See the testing plan (PeerTube row).
+processing), which a real player session drives. **Verified end-to-end** via `e2e-player-docker.mjs`
+(real headless-browser player -> counted view -> hook -> on-chain settle). That run
+also surfaced + fixed a real bug: the hook's `video` is an MVideoImmutable with no
+`channelId`, so the plugin keys the creator on `video.channelId ?? video.id`.

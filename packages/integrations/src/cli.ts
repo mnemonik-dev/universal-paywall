@@ -3,6 +3,7 @@ import { createReporter, mapResolver, type Hex, type Reporter, type Resolve } fr
 import { OwncastPresenceMeter } from './owncast.js';
 import { createMusicBrainzResolver } from './musicbrainz.js';
 import { createImmichProxy } from './immich-proxy.js';
+import { createSubsonicProxy } from './subsonic-proxy.js';
 import type { CampaignAmounts, CampaignTemplate } from './mastodon.js';
 import {
   citationRoute,
@@ -90,6 +91,14 @@ function main(): void {
     proxy.listen(port, () => {
       // eslint-disable-next-line no-console
       console.log(`up-integration [immich-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`);
+    });
+    return;
+  }
+  if (platform === 'subsonic-proxy') {
+    const proxy = createServer(createSubsonicProxy({ upstreamUrl: env('UPSTREAM_URL'), reporter: reporter(musicCreatorResolver()), ratePerPlay: rate() }));
+    proxy.listen(port, () => {
+      // eslint-disable-next-line no-console
+      console.log(`up-integration [subsonic-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`);
     });
     return;
   }

@@ -57,9 +57,15 @@ async function register({ registerHook, registerSetting, settingsManager }) {
       const header = req && req.headers && req.headers['x-payer-user'];
       const payerKey = (Array.isArray(header) ? header[0] : header) || 'anonymous';
 
+      // The hook's `video` is an MVideoImmutable (id, url, uuid, remote, isLocal) —
+      // it does NOT carry channelId. Key the creator on channelId when present,
+      // else the video id (map it in channel-wallets, or via a video->channel
+      // resolver for channel-level payout).
+      const creatorKey = String(video.channelId != null ? video.channelId : video.id);
+
       await reporter.report({
         payerKey,
-        creatorKey: String(video.channelId),
+        creatorKey,
         amount: BigInt((await get('price-micro-usdc')) || '1000'),
         ref: `peertube:${video.uuid}:${Date.now()}`,
       });
