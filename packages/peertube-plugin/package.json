@@ -12,17 +12,19 @@
     "x402",
     "payments"
   ],
-  "library": "./main.js",
+  "library": "./dist/main.js",
   "staticDirs": {},
   "css": [],
   "clientScripts": [],
   "translations": {},
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "esbuild main.js --bundle --platform=node --format=cjs --target=node18 --outfile=dist/main.js",
+    "prepublishOnly": "npm run build",
     "test": "node test.mjs"
-  },
-  "dependencies": {
-    "@universal-paywall/integrations": "*"
   },
   "devDependencies": {
     "esbuild": "^0.20.0"
