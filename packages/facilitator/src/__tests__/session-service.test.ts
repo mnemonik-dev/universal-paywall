@@ -1,0 +1,292 @@
+import { generateKeyPairSync, verify } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { privateKeyToAccount } from 'viem/accounts';
+import { canonicalJson, sessionScopeHash } from '../canonical.js';
+import { FilePaymentStore } from '../payment-store.js';
+import { ReceiptSigner } from '../receipt.js';
+import { sessionTypedData } from '../session-auth.js';
+import { SessionPaymentService, type SessionPaymentServiceConfig } from '../session-service.js';
+import type {
+  ExactPaymentSettler,
+  OperationBinding,
+  RegisterSessionRequest,
+  SessionAuthorization,
+  SessionOperationSettler,
+  SessionPolicy,
+  SessionPolicyReader,
+  SettleRequest,
+} from '../session-types.js';
+import type { Hex } from '../types.js';
+
+const PAYER_KEY = `0x${'11'.repeat(32)}` as Hex;
+const payer = privateKeyToAccount(PAYER_KEY);
+const FACILITATOR = `0x${'22'.repeat(20)}` as Hex;
+const PAY_TO = `0x${'33'.repeat(20)}` as Hex;
+const ASSET = `0x${'44'.repeat(20)}` as Hex;
+const VAULT = `0x${'55'.repeat(20)}` as Hex;
+const WORKSPACE = `0x${'66'.repeat(32)}` as Hex;
+const NOW = new Date('2026-07-13T12:00:00.000Z');
+const VALID_UNTIL = '2026-07-20T12:00:00.000Z';
+const TX = `0x${'77'.repeat(32)}` as Hex;
+
+const config: SessionPaymentServiceConfig = {
+  serviceId: 'mnemonic',
+  network: 'eip155:5042002',
+  chainId: 5_042_002,
+  asset: ASSET,
+  facilitator: FACILITATOR,
+  payTo: PAY_TO,
+  quoteTtlSeconds: 600,
+};
+
+function authorization(): SessionAuthorization {
+  return {
+    version: 1,
+    service_id: 'mnemonic',
+    session_id: 'session-1',
+    payer_subject: 'subject-hash',
+    payer_wallet: payer.address,
+    vault: VAULT,
+    facilitator: FACILITATOR,
+    pay_to: PAY_TO,
+    cap: '5000000',
+    per_operation_ceiling: '50000',
+    valid_until: VALID_UNTIL,
+    network: config.network,
+    asset: ASSET,
+    policy_epoch: '1',
+    workspace_hash: WORKSPACE,
+    visibility: 'private',
+    allowed_actions: ['manual', 'pre_compaction'],
+    nonce: `0x${'88'.repeat(32)}`,
+  };
+}
+
+async function registration(auth = authorization()): Promise<RegisterSessionRequest> {
+  return {
+    authorization: auth,
+    signature: await payer.signTypedData(sessionTypedData(auth, config)),
+  };
+}
+
+function policy(auth = authorization()): SessionPolicy {
+  return {
+    facilitator: FACILITATOR,
+    pay_to: PAY_TO,
+    cap: BigInt(auth.cap),
+    spent: 0n,
+    per_operation_ceiling: BigInt(auth.per_operation_ceiling),
+    valid_until: BigInt(Math.floor(Date.parse(auth.valid_until) / 1000)),
+    epoch: BigInt(auth.policy_epoch),
+    scope_hash: sessionScopeHash(auth),
+    revoked: false,
+    funded_balance: BigInt(auth.cap),
+  };
+}
+
+function binding(operationId = 'operation-1'): OperationBinding {
+  return {
+    version: 1,
+    operation_id: operationId,
+    payer_subject: 'subject-hash',
+    payer_wallet: payer.address,
+    artifact_hash: 'blake3:artifact',
+    amount: '1000',
+    asset: ASSET,
+    network: config.network,
+    pay_to: PAY_TO,
+    expires_at: '2026-07-13T12:05:00.000Z',
+    nonce: `0x${'99'.repeat(32)}`,
+  };
+}
+
+function stakeRequest(operationId = 'operation-1'): SettleRequest {
+  return {
+    binding: binding(operationId),
+    payment: {
+      scheme: 'stake',
+      session_id: 'session-1',
+      payer_wallet: payer.address,
+      authorization: {
+        workspace_hash: WORKSPACE,
+        visibility: 'private',
+        action: 'manual',
+      },
+    },
+  };
+}
+
+function harness(
+  opts: { storePath?: string; uncertainOnce?: boolean; includeExact?: boolean } = {},
+) {
+  const dir = mkdtempSync(join(tmpdir(), 'up-session-test-'));
+  const storePath = opts.storePath ?? join(dir, 'payments.json');
+  const sessionPolicy = policy();
+  const policyReader: SessionPolicyReader = { read: vi.fn(async () => sessionPolicy) };
+  const settled = new Map<Hex, Hex>();
+  let uncertain = opts.uncertainOnce ?? false;
+  const sessionSettler: SessionOperationSettler = {
+    reconcile: vi.fn(async (input) => {
+      const tx = settled.get(input.operation_id);
+      return tx === undefined ? { settled: false } : { settled: true, tx_hash: tx };
+    }),
+    settle: vi.fn(async (input) => {
+      if (uncertain) {
+        uncertain = false;
+        settled.set(input.operation_id, TX);
+        return { status: 'uncertain' as const, reason: 'rpc_timeout' };
+      }
+      settled.set(input.operation_id, TX);
+      return { status: 'settled' as const, tx_hash: TX };
+    }),
+  };
+  const exactSettler: ExactPaymentSettler = {
+    reconcile: vi.fn(async () => ({ settled: false })),
+    settle: vi.fn(async () => ({ status: 'settled', tx_hash: TX })),
+  };
+  const keys = generateKeyPairSync('ed25519');
+  const privateKeyPem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const signer = new ReceiptSigner({ privateKeyPem, keyId: 'test-key-1' });
+  const service = new SessionPaymentService({
+    config,
+    store: new FilePaymentStore(storePath),
+    policyReader,
+    sessionSettler,
+    ...(opts.includeExact ? { exactSettler } : {}),
+    receiptSigner: signer,
+    now: () => NOW,
+  });
+  return { service, sessionPolicy, sessionSettler, exactSettler, signer, privateKeyPem, storePath };
+}
+
+describe('SessionPaymentService', () => {
+  it('validates a wallet-signed session against its funded on-chain policy', async () => {
+    const { service } = harness();
+    const session = await service.registerSession(await registration());
+    expect(session.status).toBe('active');
+    expect(session.remaining).toBe('5000000');
+    await expect(service.registerSession(await registration())).resolves.toEqual(session);
+  });
+
+  it('relays the same typed authorization when the on-chain policy is not installed yet', async () => {
+    const base = harness();
+    const expected = policy();
+    const current = { ...expected, facilitator: `0x${'00'.repeat(20)}` as Hex, epoch: 0n };
+    const registrar = {
+      register: vi.fn(async () => {
+        Object.assign(current, expected);
+        return { tx_hash: TX };
+      }),
+    };
+    const service = new SessionPaymentService({
+      config,
+      store: new FilePaymentStore(
+        join(mkdtempSync(join(tmpdir(), 'up-register-test-')), 'store.json'),
+      ),
+      policyReader: { read: async () => current },
+      sessionRegistrar: registrar,
+      sessionSettler: base.sessionSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: base.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    const session = await service.registerSession(await registration());
+    expect(session.status).toBe('active');
+    expect(registrar.register).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles fifty concurrent retries once and returns one signed receipt', async () => {
+    const { service, sessionSettler, signer } = harness();
+    await service.registerSession(await registration());
+    service.createQuote(stakeRequest().binding);
+    const receipts = await Promise.all(
+      Array.from({ length: 50 }, () => service.settle(stakeRequest())),
+    );
+    expect(sessionSettler.settle).toHaveBeenCalledTimes(1);
+    expect(new Set(receipts.map((receipt) => canonicalJson(receipt))).size).toBe(1);
+    const signed = receipts[0]!.receipt;
+    expect(
+      verify(
+        null,
+        Buffer.from(canonicalJson(signed.payload), 'utf8'),
+        signer.publicKeyPem(),
+        Buffer.from(signed.signature.value, 'base64url'),
+      ),
+    ).toBe(true);
+  });
+
+  it('returns the durable receipt after a provider restart', async () => {
+    const first = harness();
+    await first.service.registerSession(await registration());
+    first.service.createQuote(stakeRequest().binding);
+    const receipt = await first.service.settle(stakeRequest());
+
+    const second = new SessionPaymentService({
+      config,
+      store: new FilePaymentStore(first.storePath),
+      policyReader: { read: async () => first.sessionPolicy },
+      sessionSettler: first.sessionSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: first.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(second.settle(stakeRequest())).resolves.toEqual(receipt);
+    expect(first.sessionSettler.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles an uncertain transaction instead of charging again', async () => {
+    const { service, sessionSettler } = harness({ uncertainOnce: true });
+    await service.registerSession(await registration());
+    service.createQuote(stakeRequest().binding);
+    await expect(service.settle(stakeRequest())).rejects.toThrow('rpc_timeout');
+    const status = await service.getPaymentStatus('operation-1');
+    expect(status.status).toBe('settled');
+    expect(status.receipt?.status).toBe('settled');
+    expect(sessionSettler.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects scope changes and operation-id binding reuse', async () => {
+    const { service } = harness();
+    await service.registerSession(await registration());
+    const wrongScope = stakeRequest();
+    service.createQuote(wrongScope.binding);
+    if (wrongScope.payment.scheme !== 'stake') throw new Error('expected stake');
+    wrongScope.payment.authorization.workspace_hash = `0x${'aa'.repeat(32)}`;
+    await expect(service.settle(wrongScope)).rejects.toThrow('session_scope_violation');
+
+    service.createQuote(stakeRequest('other-operation').binding);
+    await service.settle(stakeRequest('other-operation'));
+    const changed = stakeRequest('other-operation');
+    changed.binding.artifact_hash = 'different';
+    await expect(service.settle(changed)).rejects.toThrow('quote_binding_mismatch');
+  });
+
+  it('uses the same binding and receipt shape for one-time exact x402', async () => {
+    const { service, exactSettler } = harness({ includeExact: true });
+    const exactBinding = binding('exact-operation');
+    const request: SettleRequest = {
+      binding: exactBinding,
+      payment: {
+        scheme: 'exact',
+        payer_wallet: payer.address,
+        authorization: {
+          signature: `0x${'ab'.repeat(65)}`,
+          authorization: {
+            from: payer.address,
+            to: PAY_TO,
+            value: exactBinding.amount,
+            validAfter: '0',
+            validBefore: '9999999999',
+            nonce: exactBinding.nonce as Hex,
+          },
+        },
+      },
+    };
+    service.createQuote(exactBinding);
+    const receipt = await service.settle(request);
+    expect(receipt.scheme).toBe('exact');
+    expect(receipt.receipt.payload.binding_digest).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(exactSettler.settle).toHaveBeenCalledTimes(1);
+  });
+});

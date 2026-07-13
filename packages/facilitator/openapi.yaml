@@ -1,0 +1,128 @@
+openapi: 3.1.0
+info:
+  title: Universal Paywall Synchronous Session API
+  version: 1.0.0
+  description: Fixed-payee synchronous session settlement with optional exact x402.
+servers:
+  - url: https://payments.example
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Binding:
+      $ref: ./schemas/operation-binding.v1.schema.json
+    SessionRegistration:
+      $ref: ./schemas/session-authorization.v1.schema.json
+    Receipt:
+      $ref: ./schemas/payment-receipt.v1.schema.json
+security:
+  - ApiKey: []
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Service is live.
+  /.well-known/payment-receipt-key:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Active Ed25519 receipt-verification key.
+  /v1/quotes:
+    post:
+      summary: Validate and identify an immutable operation quote.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [binding]
+              properties:
+                binding: { $ref: '#/components/schemas/Binding' }
+      responses:
+        '201': { description: Quote accepted. }
+        '422': { description: Invalid or expired binding. }
+  /v1/sessions:
+    post:
+      summary: Register or return a wallet-approved session and relay its policy grant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessionRegistration' }
+      responses:
+        '201': { description: Session active. }
+        '409': { description: Session identifier already has a different authorization. }
+        '422': { description: Signature, scope, funding, or policy is invalid. }
+  /v1/sessions/{session_id}:
+    get:
+      summary: Read current cap, balance, scope, expiry, and revoke status.
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Current session status. }
+        '404': { description: Session not found. }
+  /v1/payments/settle:
+    post:
+      summary: Synchronously settle one operation or return its existing receipt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [binding, payment]
+              properties:
+                binding: { $ref: '#/components/schemas/Binding' }
+                payment:
+                  oneOf:
+                    - type: object
+                      required: [scheme, session_id, payer_wallet, authorization]
+                      properties:
+                        scheme: { const: stake }
+                        session_id: { type: string }
+                        payer_wallet: { type: string }
+                        authorization:
+                          type: object
+                          required: [workspace_hash, visibility, action]
+                    - type: object
+                      required: [scheme, payer_wallet, authorization]
+                      properties:
+                        scheme: { const: exact }
+                        payer_wallet: { type: string }
+                        authorization: { type: object }
+      responses:
+        '200':
+          description: Settled receipt, including for an idempotent retry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+        '409': { description: Operation identifier conflicts with an immutable binding. }
+        '428': { description: The immutable quote must be created before wallet authorization. }
+        '422': { description: Session, scope, exact authorization, or policy rejected. }
+        '503': { description: Settlement outcome is uncertain; query payment status. }
+  /v1/payments/{operation_id}:
+    get:
+      summary: Recover durable payment status and receipt.
+      parameters:
+        - in: path
+          name: operation_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Durable state and optional receipt. }
+        '404': { description: Payment not found. }

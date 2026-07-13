@@ -1,6 +1,6 @@
 {
   "name": "@universal-paywall/facilitator",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
     ".": {
@@ -11,14 +11,19 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "DEPLOYMENT.md",
+    "openapi.yaml",
+    "schemas",
+    "fixtures"
   ],
   "engines": {
     "node": ">=20"
   },
   "sideEffects": false,
   "bin": {
-    "up-facilitator": "./dist/cli.js"
+    "up-facilitator": "./dist/cli.js",
+    "up-session-facilitator": "./dist/session-cli.js"
   },
   "scripts": {
     "build": "tsup",

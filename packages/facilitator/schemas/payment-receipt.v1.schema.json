@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-paywall.example/schemas/payment-receipt.v1.schema.json",
+  "title": "Universal Paywall Payment Receipt V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["operation_id", "scheme", "status", "settlement_tx", "settled_at", "receipt"],
+  "properties": {
+    "operation_id": { "type": "string", "minLength": 1 },
+    "scheme": { "enum": ["stake", "exact"] },
+    "status": { "const": "settled" },
+    "settlement_tx": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "settled_at": { "type": "string", "format": "date-time" },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "signature"],
+      "properties": {
+        "payload": { "type": "object" },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "key_id", "value"],
+          "properties": {
+            "algorithm": { "const": "Ed25519" },
+            "key_id": { "type": "string", "minLength": 1 },
+            "value": { "type": "string", "minLength": 80 }
+          }
+        }
+      }
+    }
+  }
+}

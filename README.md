@@ -42,14 +42,14 @@ run** (Owncast, Navidrome, Jellyfin, PeerTube, Mastodon, RSSHub, Immich, …).
 
 ```
 packages/agent/            # @universal-paywall/agent — payer: stake, grant policy, fetchWithPaywall
-packages/facilitator/      # @universal-paywall/facilitator — batches metered charges, settles on-chain (up-facilitator CLI)
+packages/facilitator/      # batching rail + synchronous paid-session API (up-session-facilitator)
 packages/integrations/     # @universal-paywall/integrations — creator-side sidecars/plugins/providers (up-integration CLI)
 packages/extension/        # @universal-paywall/extension — payer-side MV3 browser-extension adaptor
 packages/peertube-plugin/  # peertube-plugin-universal-paywall — published PeerTube view-hook plugin
 packages/sdk/              # @universal-paywall/sdk — shared client/types
 packages/resource-adapter/ # @universal-paywall/resource-adapter — x402 resource helper
 packages/middleware/       # @universal-paywall/middleware — legacy per-payment x402 middleware (see History)
-contracts/                 # Foundry: rail/ (StakeVault, StakeVaultFactory) + legacy PaymentVault/Factory
+contracts/                 # Foundry: streaming StakeVault + fixed-payee SessionStakeVault rails
 ```
 
 ## Key Commands
@@ -75,6 +75,9 @@ RATE=1000 npx up-integration
 
 # Run the facilitator
 FACILITATOR_KEY=0x... STAKE_VAULT_FACTORY=0x... npx up-facilitator
+
+# Run the synchronous session API (see packages/facilitator/README.md for env)
+npx up-session-facilitator
 
 # End-to-end on-chain money loops (need anvil :8545 + built contracts)
 npm run e2e:anvil    -w @universal-paywall/integrations   # full vertical: stake → event → settle
