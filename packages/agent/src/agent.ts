@@ -1,4 +1,12 @@
-import { createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Account, type Transport } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  erc20Abi,
+  http,
+  type Account,
+  type Transport,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { stakeVaultAbi, stakeVaultFactoryAbi } from './abi.js';
 import { parseGrantRequirements, type GrantRequirements } from './parse402.js';
@@ -67,7 +75,11 @@ export function createPayerAgent(config: PayerAgentConfig): PayerAgent {
           throw new Error('createPayerAgent requires `account` or `payerKey`');
         })());
   const pub = createPublicClient({ chain, transport: http(config.rpcUrl) });
-  const wallet = createWalletClient({ account, chain, transport: config.walletTransport ?? http(config.rpcUrl) });
+  const wallet = createWalletClient({
+    account,
+    chain,
+    transport: config.walletTransport ?? http(config.rpcUrl),
+  });
   const doFetch = config.fetchImpl ?? fetch;
   const payer = account.address;
 
@@ -157,7 +169,10 @@ export function createPayerAgent(config: PayerAgentConfig): PayerAgent {
 
   async function fetchWithPaywall(url: string, init: AgentRequestInit = {}): Promise<Response> {
     const proof = await signAccessProof();
-    const res = await doFetch(url, { ...init, headers: { ...init.headers, ...proofHeaders(proof) } });
+    const res = await doFetch(url, {
+      ...init,
+      headers: { ...init.headers, ...proofHeaders(proof) },
+    });
     if (res.status !== 402) return res;
 
     const body = await res.json().catch(() => null);

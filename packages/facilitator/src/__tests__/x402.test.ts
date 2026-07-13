@@ -68,7 +68,10 @@ describe('checkGrant', () => {
   });
 
   it('fails when remaining headroom is below the minimum', async () => {
-    const res = await checkGrant(reader({ cap: 1_000n, spent: 950n }), { ...base, minRemaining: 100n });
+    const res = await checkGrant(reader({ cap: 1_000n, spent: 950n }), {
+      ...base,
+      minRemaining: 100n,
+    });
     expect(res).toMatchObject({ ok: false, reason: 'insufficient_remaining', remaining: 50n });
   });
 });

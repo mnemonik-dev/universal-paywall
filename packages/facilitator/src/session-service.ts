@@ -51,6 +51,7 @@ export interface SessionPaymentServiceOptions {
   exactSettler?: ExactPaymentSettler;
   receiptSigner: ReceiptSigner;
   now?: () => Date;
+  logError?: (message: string, error?: unknown) => void;
 }
 
 function same(a: string, b: string): boolean {
@@ -79,7 +80,9 @@ export class SessionPaymentService {
   readonly #exactSettler: ExactPaymentSettler | undefined;
   readonly #receiptSigner: ReceiptSigner;
   readonly #now: () => Date;
+  readonly #logError: (message: string, error?: unknown) => void;
   readonly #inflight = new Map<string, { fingerprint: Hex; promise: Promise<PaymentReceipt> }>();
+  readonly #locks = new Map<string, Promise<unknown>>();
 
   constructor(opts: SessionPaymentServiceOptions) {
     this.#config = opts.config;
@@ -91,6 +94,29 @@ export class SessionPaymentService {
     this.#exactSettler = opts.exactSettler;
     this.#receiptSigner = opts.receiptSigner;
     this.#now = opts.now ?? (() => new Date());
+    this.#logError = opts.logError ?? ((message, error) => console.error(message, error));
+  }
+
+  async #withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.#locks.get(key);
+    const current = (async (): Promise<T> => {
+      if (previous !== undefined) {
+        try {
+          await previous;
+        } catch {
+          // proceed regardless of earlier failure on the same key
+        }
+      }
+      return fn();
+    })();
+    this.#locks.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (this.#locks.get(key) === current) {
+        this.#locks.delete(key);
+      }
+    }
   }
 
   receiptKey(): {
@@ -107,96 +133,101 @@ export class SessionPaymentService {
     };
   }
 
-  createQuote(binding: OperationBinding): {
+  async createQuote(binding: OperationBinding): Promise<{
     quote_id: string;
     binding: OperationBinding;
     binding_digest: Hex;
     accepts: Array<Record<string, unknown>>;
-  } {
-    this.#validateBinding(binding);
-    const digest = operationDigest(binding);
-    const existing = this.#store.getQuote(binding.operation_id);
-    if (existing !== undefined && existing.binding_digest !== digest) {
-      fail('operation_id_conflict', 409);
-    }
-    const quoteId = existing?.quote_id ?? `q_${digest.slice(2, 18)}`;
-    if (existing === undefined) {
-      this.#store.putQuote(binding.operation_id, {
+  }> {
+    return this.#withLock(`quote:${binding.operation_id}`, async () => {
+      this.#validateBinding(binding);
+      const digest = operationDigest(binding);
+      const existing = this.#store.getQuote(binding.operation_id);
+      if (existing !== undefined && existing.binding_digest !== digest) {
+        fail('operation_id_conflict', 409);
+      }
+      const quoteId = existing?.quote_id ?? `q_${digest.slice(2, 18)}`;
+      if (existing === undefined) {
+        this.#store.putQuote(binding.operation_id, {
+          quote_id: quoteId,
+          binding,
+          binding_digest: digest,
+          created_at: this.#now().toISOString(),
+        });
+      }
+      return {
         quote_id: quoteId,
         binding,
         binding_digest: digest,
-        created_at: this.#now().toISOString(),
-      });
-    }
-    return {
-      quote_id: quoteId,
-      binding,
-      binding_digest: digest,
-      accepts: [
-        {
-          scheme: 'stake',
-          protocol: 'universal-paywall-session-v1',
-          network: this.#config.network,
-          asset: this.#config.asset,
-          pay_to: this.#config.payTo,
-          facilitator: this.#config.facilitator,
-          factory: this.#config.factory,
-          max_valid_for_seconds: this.#config.maxSessionSeconds,
-        },
-        ...(this.#exactSettler === undefined
-          ? []
-          : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
-      ],
-    };
+        accepts: [
+          {
+            scheme: 'stake',
+            protocol: 'universal-paywall-session-v1',
+            network: this.#config.network,
+            asset: this.#config.asset,
+            pay_to: this.#config.payTo,
+            facilitator: this.#config.facilitator,
+            factory: this.#config.factory,
+            max_valid_for_seconds: this.#config.maxSessionSeconds,
+          },
+          ...(this.#exactSettler === undefined
+            ? []
+            : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
+        ],
+      };
+    });
   }
 
   async registerSession(request: RegisterSessionRequest): Promise<PaidSession> {
-    let verified: Awaited<ReturnType<typeof verifySessionAuthorization>>;
-    try {
-      verified = await verifySessionAuthorization(request, this.#config);
-    } catch (error) {
-      fail(error instanceof Error ? error.message : 'invalid_session_authorization', 422);
-    }
     const auth = request.authorization;
-    if (verified.validUntil <= BigInt(Math.floor(this.#now().getTime() / 1000))) {
-      fail('session_expired', 422);
-    }
-    const now = BigInt(Math.floor(this.#now().getTime() / 1000));
-    if (verified.validUntil - now > BigInt(this.#config.maxSessionSeconds)) {
-      fail('session_expiry_too_long', 422);
-    }
-    if (!(await this.#vaultVerifier.isTrustedVault(auth.vault, auth.payer_wallet))) {
-      fail('untrusted_session_vault', 422);
-    }
-    let policy = await this.#policyReader.read(auth.vault);
-    try {
-      this.#assertPolicy(auth, policy, verified.scopeHash, verified.validUntil);
-    } catch (error) {
-      if (
-        !(error instanceof PaymentServiceError) ||
-        error.code !== 'onchain_policy_mismatch' ||
-        this.#sessionRegistrar === undefined
-      ) {
-        throw error;
-      }
+    return this.#withLock(`session:${auth.session_id}`, async () => {
+      let verified: Awaited<ReturnType<typeof verifySessionAuthorization>>;
       try {
-        await this.#sessionRegistrar.register(request);
-      } catch {
-        fail('session_registration_failed', 503);
+        verified = await verifySessionAuthorization(request, this.#config);
+      } catch (error) {
+        this.#logError('session authorization verification failed', error);
+        fail('invalid_session_authorization', 422);
       }
-      policy = await this.#policyReader.read(auth.vault);
-      this.#assertPolicy(auth, policy, verified.scopeHash, verified.validUntil);
-    }
+      if (verified.validUntil <= BigInt(Math.floor(this.#now().getTime() / 1000))) {
+        fail('session_expired', 422);
+      }
+      const now = BigInt(Math.floor(this.#now().getTime() / 1000));
+      if (verified.validUntil - now > BigInt(this.#config.maxSessionSeconds)) {
+        fail('session_expiry_too_long', 422);
+      }
+      if (!(await this.#vaultVerifier.isTrustedVault(auth.vault, auth.payer_wallet))) {
+        fail('untrusted_session_vault', 422);
+      }
+      let policy = await this.#policyReader.read(auth.vault);
+      try {
+        this.#assertPolicy(auth, policy, verified.scopeHash, verified.validUntil);
+      } catch (error) {
+        if (
+          !(error instanceof PaymentServiceError) ||
+          error.code !== 'onchain_policy_mismatch' ||
+          this.#sessionRegistrar === undefined
+        ) {
+          throw error;
+        }
+        try {
+          await this.#sessionRegistrar.register(request);
+        } catch {
+          fail('session_registration_failed', 503);
+        }
+        policy = await this.#policyReader.read(auth.vault);
+        this.#assertPolicy(auth, policy, verified.scopeHash, verified.validUntil);
+      }
 
-    const digest = sha256Digest(request);
-    const existing = this.#store.getSession(auth.session_id);
-    if (existing !== undefined) {
-      if (existing.digest !== digest) fail('session_id_conflict', 409);
-      return this.#sessionView(existing.request, policy, existing.created_at);
-    }
-    const createdAt = this.#now().toISOString();
-    this.#store.putSession(auth.session_id, { request, digest, created_at: createdAt });
-    return this.#sessionView(request, policy, createdAt);
+      const digest = sha256Digest(request);
+      const existing = this.#store.getSession(auth.session_id);
+      if (existing !== undefined) {
+        if (existing.digest !== digest) fail('session_id_conflict', 409);
+        return this.#sessionView(existing.request, policy, existing.created_at);
+      }
+      const createdAt = this.#now().toISOString();
+      this.#store.putSession(auth.session_id, { request, digest, created_at: createdAt });
+      return this.#sessionView(request, policy, createdAt);
+    });
   }
 
   async getSession(sessionId: string): Promise<PaidSession> {

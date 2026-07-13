@@ -11,7 +11,13 @@ function spyReporter() {
   const reporter: Reporter = {
     async report(input: ReportInput): Promise<ReportOutcome> {
       calls.push(input);
-      return { status: 'charged', id: `c_${calls.length}`, payer: '0x1' as never, creator: '0x2' as never, amount: input.amount };
+      return {
+        status: 'charged',
+        id: `c_${calls.length}`,
+        payer: '0x1' as never,
+        creator: '0x2' as never,
+        amount: input.amount,
+      };
     },
   };
   return { calls, reporter };
@@ -23,7 +29,12 @@ function fakeImmich(opts: { artist?: string }): Promise<{ url: string; server: S
     const url = new URL(req.url ?? '/', 'http://x');
     if (url.pathname === `/api/assets/${ASSET}` && url.searchParams.get('key')) {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ownerId: 'owner-1', exifInfo: opts.artist ? { artist: opts.artist } : {} }));
+      res.end(
+        JSON.stringify({
+          ownerId: 'owner-1',
+          exifInfo: opts.artist ? { artist: opts.artist } : {},
+        }),
+      );
       return;
     }
     if (url.pathname.startsWith(`/api/assets/${ASSET}/`)) {
@@ -33,11 +44,21 @@ function fakeImmich(opts: { artist?: string }): Promise<{ url: string; server: S
     }
     res.writeHead(404).end();
   });
-  return new Promise((resolve) => server.listen(0, () => resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server })));
+  return new Promise((resolve) =>
+    server.listen(0, () =>
+      resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server }),
+    ),
+  );
 }
 
-async function withProxy(upstreamUrl: string, reporter: Reporter, fn: (base: string) => Promise<void>) {
-  const proxy = createServer(createImmichProxy({ upstreamUrl, reporter, licenseFee: 7n, dedupeMs: 60_000 }));
+async function withProxy(
+  upstreamUrl: string,
+  reporter: Reporter,
+  fn: (base: string) => Promise<void>,
+) {
+  const proxy = createServer(
+    createImmichProxy({ upstreamUrl, reporter, licenseFee: 7n, dedupeMs: 60_000 }),
+  );
   await new Promise<void>((r) => proxy.listen(0, r));
   const base = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
   try {
@@ -50,10 +71,16 @@ const tick = () => new Promise((r) => setTimeout(r, 80));
 
 describe('parseAssetResolve', () => {
   it('matches a shared-asset GET with key/slug only', () => {
-    expect(parseAssetResolve('GET', new URL(`http://x/api/assets/${ASSET}/original?key=share1`))).toEqual({ assetId: ASSET, share: 'share1' });
-    expect(parseAssetResolve('GET', new URL(`http://x/api/assets/${ASSET}/thumbnail?slug=my-album`))).toEqual({ assetId: ASSET, share: 'my-album' });
+    expect(
+      parseAssetResolve('GET', new URL(`http://x/api/assets/${ASSET}/original?key=share1`)),
+    ).toEqual({ assetId: ASSET, share: 'share1' });
+    expect(
+      parseAssetResolve('GET', new URL(`http://x/api/assets/${ASSET}/thumbnail?slug=my-album`)),
+    ).toEqual({ assetId: ASSET, share: 'my-album' });
     expect(parseAssetResolve('GET', new URL(`http://x/api/assets/${ASSET}/original`))).toBeNull(); // no share key -> owner's own view
-    expect(parseAssetResolve('POST', new URL(`http://x/api/assets/${ASSET}/original?key=s`))).toBeNull();
+    expect(
+      parseAssetResolve('POST', new URL(`http://x/api/assets/${ASSET}/original?key=s`)),
+    ).toBeNull();
     expect(parseAssetResolve('GET', new URL('http://x/api/albums?key=s'))).toBeNull();
   });
 });
@@ -64,7 +91,9 @@ describe('createImmichProxy', () => {
     const { calls, reporter } = spyReporter();
     try {
       await withProxy(url, reporter, async (base) => {
-        const res = await fetch(`${base}/api/assets/${ASSET}/original?key=share1`, { headers: { 'x-resolver-id': 'agent-9' } });
+        const res = await fetch(`${base}/api/assets/${ASSET}/original?key=share1`, {
+          headers: { 'x-resolver-id': 'agent-9' },
+        });
         expect(res.status).toBe(200);
         expect(await res.text()).toBe('JPEGBYTES'); // bytes proxied through
         await tick();

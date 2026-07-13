@@ -4,25 +4,25 @@ These decisions are authoritative for fix-mode iteration 2. Every task-creator M
 
 ## 1. Wave renumbering (strict: depends_on tasks must be in strictly earlier wave)
 
-| Task | Wave | depends_on |
-|---|---|---|
-| T1 — Monorepo scaffolding | 1 | [] |
-| T2 — Hardhat setup | 1 | [] |
-| T3 — USDC spike + gas measurement | 2 | [2] |
-| T4 — Factory + Vault contracts | 3 | [1, 2] (NO T3 — independent) |
-| T5 — Contract tests | 4 | [4] |
-| T6 — Middleware pure modules | 5 | [1, 3] (T3 adds JSON-artifact handoff) |
-| T7 — Verify + Settle | 6 | [4, 6] |
-| T8 — Core orchestrator + adapters | 7 | [6, 7] |
-| T9 — Middleware unit tests | 8 | [6, 7, 8] |
-| T11 — Deploy + register + README | 8 | [4, 8] |
-| T10 — Forked + Arc Testnet e2e | 9 | [5, 8, 9] |
-| T12 — Code Audit | 10 | [9, 10, 11] |
-| T13 — Security Audit | 10 | [9, 10, 11] |
-| T14 — Test Audit | 10 | [9, 10, 11] |
-| T15 — Pre-deploy QA | 11 | [12, 13, 14] |
-| T16 — Deploy + npm publish | 12 | [15] |
-| T17 — Post-deploy verification | 13 | [16] |
+| Task                              | Wave | depends_on                             |
+| --------------------------------- | ---- | -------------------------------------- |
+| T1 — Monorepo scaffolding         | 1    | []                                     |
+| T2 — Hardhat setup                | 1    | []                                     |
+| T3 — USDC spike + gas measurement | 2    | [2]                                    |
+| T4 — Factory + Vault contracts    | 3    | [1, 2] (NO T3 — independent)           |
+| T5 — Contract tests               | 4    | [4]                                    |
+| T6 — Middleware pure modules      | 5    | [1, 3] (T3 adds JSON-artifact handoff) |
+| T7 — Verify + Settle              | 6    | [4, 6]                                 |
+| T8 — Core orchestrator + adapters | 7    | [6, 7]                                 |
+| T9 — Middleware unit tests        | 8    | [6, 7, 8]                              |
+| T11 — Deploy + register + README  | 8    | [4, 8]                                 |
+| T10 — Forked + Arc Testnet e2e    | 9    | [5, 8, 9]                              |
+| T12 — Code Audit                  | 10   | [9, 10, 11]                            |
+| T13 — Security Audit              | 10   | [9, 10, 11]                            |
+| T14 — Test Audit                  | 10   | [9, 10, 11]                            |
+| T15 — Pre-deploy QA               | 11   | [12, 13, 14]                           |
+| T16 — Deploy + npm publish        | 12   | [15]                                   |
+| T17 — Post-deploy verification    | 13   | [16]                                   |
 
 T9 and T11 are parallel in Wave 8; T9 owns the x402 schema fixture, T10 consumes it (so T10 lands one wave later).
 
@@ -36,15 +36,15 @@ Tech-spec section "What we're building" already shows `__tests__/` under `src/`;
 
 From `deployment.md`:
 
-| Variable | Used by | Default |
-|---|---|---|
-| `ARC_RPC_URL` | T2, T3, T6, T11 — Arc Testnet RPC | `https://rpc.testnet.arc.network` |
-| `DEPLOYER_KEY` | T2 (Hardhat accounts), T11 (deploy) | none |
-| `PAYWALL_RELAYER_KEY` | T9, T10, T11, T16 — facilitator relayer signer | none |
-| `PLATFORM_TREASURY_ADDRESS` | T11 (constructor arg) | none |
-| `PAYMENT_SPLITTER_FACTORY_ADDRESS` | T17 — read after deploy | populated by T11 patch |
-| `REGISTER_KEY` | scripts/register.ts — developer EOA signer | none |
-| `ARC_TESTNET_E2E` | T10 — flag to enable live e2e | `0` |
+| Variable                           | Used by                                        | Default                           |
+| ---------------------------------- | ---------------------------------------------- | --------------------------------- |
+| `ARC_RPC_URL`                      | T2, T3, T6, T11 — Arc Testnet RPC              | `https://rpc.testnet.arc.network` |
+| `DEPLOYER_KEY`                     | T2 (Hardhat accounts), T11 (deploy)            | none                              |
+| `PAYWALL_RELAYER_KEY`              | T9, T10, T11, T16 — facilitator relayer signer | none                              |
+| `PLATFORM_TREASURY_ADDRESS`        | T11 (constructor arg)                          | none                              |
+| `PAYMENT_SPLITTER_FACTORY_ADDRESS` | T17 — read after deploy                        | populated by T11 patch            |
+| `REGISTER_KEY`                     | scripts/register.ts — developer EOA signer     | none                              |
+| `ARC_TESTNET_E2E`                  | T10 — flag to enable live e2e                  | `0`                               |
 
 T3 must NOT introduce `ARC_TESTNET_RPC_URL` / `ARC_TESTNET_PRIVATE_KEY`. Use canonical names above.
 
@@ -70,14 +70,14 @@ These ARE the canonical wire-format codes. T7 implementation and T9 tests both m
 
 ## 5. Shared resources ownership (per D13 + Solution)
 
-| Resource | Owner | Consumers |
-|---|---|---|
-| viem `PublicClient` (Arc RPC reader) | `core.ts` (lazy-init per network, cached across requests) | `verify.ts` reads, `settle.ts` reads receipt/balance |
-| viem `WalletClient` (relayer signer) | **`settle.ts`** (it owns the OpaqueRelayerKey extract symbol per D13) | only `settle.ts` itself |
-| `NonceStore` | `core.ts` (process-singleton) | `verify.ts` |
-| `factory.paused()` / `factory.vaults` cache (TTL 5s) | `core.ts` | `core.ts` only (it's the policy enforcement point) |
-| `NETWORKS` registry | `networks.ts` (module const) | all consumers |
-| `OpaqueRelayerKey` instance | passed through `PaywallConfig` → `core.ts` (held opaque) → `settle.ts` (only extractor) | never JSON-stringified |
+| Resource                                             | Owner                                                                                   | Consumers                                            |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| viem `PublicClient` (Arc RPC reader)                 | `core.ts` (lazy-init per network, cached across requests)                               | `verify.ts` reads, `settle.ts` reads receipt/balance |
+| viem `WalletClient` (relayer signer)                 | **`settle.ts`** (it owns the OpaqueRelayerKey extract symbol per D13)                   | only `settle.ts` itself                              |
+| `NonceStore`                                         | `core.ts` (process-singleton)                                                           | `verify.ts`                                          |
+| `factory.paused()` / `factory.vaults` cache (TTL 5s) | `core.ts`                                                                               | `core.ts` only (it's the policy enforcement point)   |
+| `NETWORKS` registry                                  | `networks.ts` (module const)                                                            | all consumers                                        |
+| `OpaqueRelayerKey` instance                          | passed through `PaywallConfig` → `core.ts` (held opaque) → `settle.ts` (only extractor) | never JSON-stringified                               |
 
 **Conflict resolution:** T7 (settle.ts) creates and owns WalletClient. T7 also owns chainId pin check (since it's the first writeContract caller per request). T8 (core.ts) passes the OpaqueRelayerKey instance to settle.ts; core never extracts.
 

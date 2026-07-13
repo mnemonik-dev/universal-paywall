@@ -72,6 +72,7 @@ No `packages/`, `apps/`, `contracts/` directories exist yet. **All implementatio
 Earlier draft proposed a shared `PaymentSplitter.payWithAuthorization(developerId, …)`. Multiple validators independently flagged that this design has a cross-developer payment-attribution attack: when a single shared splitter is the `payTo` address, an adversary intercepting a signed X-PAYMENT can race-submit it to a different developer's middleware (with a different `developerId` argument) and credit the wrong developer.
 
 **Fix:** per-developer vault model. Each developer's `payTo` is a unique address (deterministic clone), so the EIP-3009 `to` field cryptographically binds the payment to the correct recipient. No `developerId` argument is needed anywhere because the address itself encodes it. As a side benefit:
+
 - Open-registration griefing dissolved — vaults are deployed with `msg.sender` as the immutable developer; an attacker pre-registering someone else's address yields a vault they cannot withdraw from.
 - The `usedTxSigs` / `payWithAuthorization` wrapper contract calls go away — middleware calls `USDC.transferWithAuthorization` directly.
 

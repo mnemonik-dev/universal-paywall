@@ -13,21 +13,25 @@
       "command": "npm test --workspace=@universal-paywall/middleware -- --coverage",
       "lines_pct": 96.87,
       "branches_pct": 89.18,
-      "functions_pct": 100.00,
+      "functions_pct": 100.0,
       "statements_pct": 96.87,
       "target_lines_pct": 85,
       "verdict": "PASS",
       "per_file": {
-        "errors.ts": {"lines": 100, "branches": 100},
-        "replay-store.ts": {"lines": 100, "branches": 100},
-        "relayer-key.ts": {"lines": 100, "branches": 100},
-        "verify.ts": {"lines": 100, "branches": 100},
-        "adapters/fastify.ts": {"lines": 100, "branches": 100},
-        "adapters/node-http.ts": {"lines": 100, "branches": 100},
-        "core.ts": {"lines": 96.5, "branches": 86.02},
-        "settle.ts": {"lines": 95.89, "branches": 84.48},
-        "x402.ts": {"lines": 95.76, "branches": 86.48},
-        "networks.ts": {"lines": 86.5, "branches": 42.85, "note": "uncovered branches are T3-artefact BLOCKER path + boot-warning notes[] loop (defensive paths suppressed under UP_SUPPRESS_T3_NOTES=1)"}
+        "errors.ts": { "lines": 100, "branches": 100 },
+        "replay-store.ts": { "lines": 100, "branches": 100 },
+        "relayer-key.ts": { "lines": 100, "branches": 100 },
+        "verify.ts": { "lines": 100, "branches": 100 },
+        "adapters/fastify.ts": { "lines": 100, "branches": 100 },
+        "adapters/node-http.ts": { "lines": 100, "branches": 100 },
+        "core.ts": { "lines": 96.5, "branches": 86.02 },
+        "settle.ts": { "lines": 95.89, "branches": 84.48 },
+        "x402.ts": { "lines": 95.76, "branches": 86.48 },
+        "networks.ts": {
+          "lines": 86.5,
+          "branches": 42.85,
+          "note": "uncovered branches are T3-artefact BLOCKER path + boot-warning notes[] loop (defensive paths suppressed under UP_SUPPRESS_T3_NOTES=1)"
+        }
       },
       "test_count": "253 passed, 2 skipped (skips are gated arc-testnet-e2e live calls)"
     },
@@ -65,9 +69,17 @@
       "file": "contracts/test/invariants/VaultInvariants.t.sol",
       "invariant_count": 3,
       "invariants": [
-        {"name": "invariant_VaultBalanceIntegrity", "line": 104, "property": "mockUsdc.balanceOf(vault) == handler.totalMinted() - handler.totalWithdrawn()"},
-        {"name": "invariant_FeeBpsBounded", "line": 113, "property": "factory.feeBps() <= 1000"},
-        {"name": "invariant_DeveloperNonZero", "line": 118, "property": "vault.developer() != address(0)"}
+        {
+          "name": "invariant_VaultBalanceIntegrity",
+          "line": 104,
+          "property": "mockUsdc.balanceOf(vault) == handler.totalMinted() - handler.totalWithdrawn()"
+        },
+        { "name": "invariant_FeeBpsBounded", "line": 113, "property": "factory.feeBps() <= 1000" },
+        {
+          "name": "invariant_DeveloperNonZero",
+          "line": 118,
+          "property": "vault.developer() != address(0)"
+        }
       ],
       "runs": 256,
       "calls_per_run": "16384 (default) / 128000 (standard profile)",
@@ -121,8 +133,14 @@
       "status": "PRESENT",
       "file": "packages/middleware/src/__tests__/register-cli.test.ts",
       "tests": [
-        {"line": 332, "name": "register_never_prints_key — no 32-byte hex appears in stdout or stderr"},
-        {"line": 455, "name": "register_never_prints_key_on_rpc_failure — error classification path scrubs hex keys"}
+        {
+          "line": 332,
+          "name": "register_never_prints_key — no 32-byte hex appears in stdout or stderr"
+        },
+        {
+          "line": 455,
+          "name": "register_never_prints_key_on_rpc_failure — error classification path scrubs hex keys"
+        }
       ]
     },
     "seven_settle_reasons_separate_tests": {
@@ -272,7 +290,9 @@
       "severity": "low",
       "id": "T14-L2",
       "title": "Document mock-vs-live USDC name divergence with a single shared constant",
-      "files": ["packages/middleware/src/__tests__/integration/forked-e2e.test.ts:358,664,725,782,815,872"],
+      "files": [
+        "packages/middleware/src/__tests__/integration/forked-e2e.test.ts:358,664,725,782,815,872"
+      ],
       "rationale": "Mock USDC uses 'USD Coin' (matches Circle FiatTokenV2_2 reference) while live Arc Testnet returns 'USDC' (T3 spike). The divergence is intentional and documented in decisions.md, but a single shared constant (MOCK_USDC_NAME = 'USD Coin', LIVE_USDC_NAME = 'USDC') would make a future Circle name change easier to absorb.",
       "blocking": false
     },

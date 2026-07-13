@@ -89,9 +89,7 @@
     },
     "vault_not_deployed_before_verify": {
       "status": "PARTIALLY_COVERED",
-      "tests": [
-        "core.test.ts::vault_not_deployed short-circuits BEFORE verify is called"
-      ],
+      "tests": ["core.test.ts::vault_not_deployed short-circuits BEFORE verify is called"],
       "notes": "Covers the non-stale path. Missing: stale-cache + successful refresh + zero-vault path (SEC-T9-03)."
     },
     "relayer_key_opacity": {

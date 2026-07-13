@@ -74,8 +74,7 @@ export type VerifyReason =
   | 'nonce_already_used';
 
 export type VerifyResult =
-  | { ok: true; recoveredFrom: `0x${string}` }
-  | { ok: false; reason: VerifyReason };
+  { ok: true; recoveredFrom: `0x${string}` } | { ok: false; reason: VerifyReason };
 
 export interface VerifyOptions {
   expectedVaultAddress: `0x${string}`;

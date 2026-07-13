@@ -21,17 +21,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t1: approved_with_minors (2 minor findings) → [logs/working/task-1/code-reviewer-t1-round1.json](logs/working/task-1/code-reviewer-t1-round1.json)
 - security-auditor-t1: conditional_pass (2 medium, 2 low, 2 info findings) → [logs/working/task-1/security-auditor-round1.json](logs/working/task-1/security-auditor-round1.json)
 - infrastructure-reviewer-t1: APPROVED (1 advisory, no action) → [logs/working/task-1/infrastructure-reviewer-t1-round1.json](logs/working/task-1/infrastructure-reviewer-t1-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t1: approved (unconditional) → [logs/working/task-1/code-reviewer-t1-round2.json](logs/working/task-1/code-reviewer-t1-round2.json)
 - security-auditor-t1: pass → [logs/working/task-1/security-auditor-round2.json](logs/working/task-1/security-auditor-round2.json)
 - infrastructure-reviewer-t1: no new findings, round 1 APPROVED stands (no round 2 report file written by reviewer per their preference)
 
 **Verification:**
+
 - `npm install` → success (node 20.19.1, npm 10.8.2); lockfile created
 - `npm run lint` → exit 0
 - `npm run --workspace=packages/middleware typecheck` → exit 0
@@ -42,6 +45,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks PEM-key surrogate test → exit 1 (hook blocks correctly)
 
 **Open items for future tasks:**
+
 - T6 implementer: if `ajv` is used in production `src/` code (not just tests), promote from devDependencies to dependencies (code-reviewer T1-M2).
 - Pre-MVP: upgrade vitest to ^3.2.6 to clear GHSA-5xrq-8626-4rwp; until then, no `vitest --ui` invocations (enforced by `//audit-vitest` sibling key).
 - CI task (separate from T1): add gitleaks as a server-side gate to defend against local `HUSKY=0` / `--no-verify` bypass (security-auditor SA-T1-06).
@@ -56,17 +60,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t2: approve_with_minor (2 minor findings T2-C1, T2-C2) → [logs/working/task-2/code-reviewer-t2-round1.json](logs/working/task-2/code-reviewer-t2-round1.json)
 - security-auditor-t2: PASS (2 low advisories T2-SEC-01, T2-SEC-02) → [logs/working/task-2/security-auditor-t2-round1.json](logs/working/task-2/security-auditor-t2-round1.json)
 - infrastructure-reviewer-t2: APPROVED (1 informational INF-T2-001, non-blocking) → [logs/working/task-2/infrastructure-reviewer-t2-round1.json](logs/working/task-2/infrastructure-reviewer-t2-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t2: approved (no remaining findings) → [logs/working/task-2/code-reviewer-t2-round2.json](logs/working/task-2/code-reviewer-t2-round2.json)
 - security-auditor-t2: PASS / APPROVE (no remaining findings) → [logs/working/task-2/security-auditor-t2-round2.json](logs/working/task-2/security-auditor-t2-round2.json)
 - infrastructure-reviewer-t2: approved (no remaining findings) → [logs/working/task-2/infrastructure-reviewer-t2-round2.json](logs/working/task-2/infrastructure-reviewer-t2-round2.json)
 
 **Verification:**
+
 - `cd contracts && forge build` → exit 0 ("Nothing to compile")
 - `cd contracts && npm run build` → exit 0 (forge no-op + tsx export-abi clean skip)
 - `cd contracts && npx tsc --noEmit -p tsconfig.json` → exit 0
@@ -78,6 +85,7 @@ post-completion entries here following the `do-task` skill template.
 - Forbidden legacy env-var names (`ARC_TESTNET_RPC_URL`, `ARC_TESTNET_PRIVATE_KEY`) absent across `contracts/` (excluding `lib/` submodule)
 
 **Open items for future tasks:**
+
 - T3 (USDC EIP-3009 spike) will write `contracts/scripts/verify-usdc-eip3009.ts` and `arc-testnet-usdc-domain.json` here, consuming the viem devDep already in place.
 - T4 (PaymentSplitterFactory.sol + PaymentVaultImpl.sol) consumes the OZ v5.0.2 submodule + remappings; once Solidity sources land, `npm run build` will populate `packages/middleware/src/abi/{PaymentSplitterFactory,PaymentVaultImpl}.json` automatically via the export-abi hook.
 - T5 (Solidity tests) consumes forge-std v1.16.1 already installed under `lib/forge-std/`.
@@ -92,6 +100,7 @@ post-completion entries here following the `do-task` skill template.
 **Deviations:** None from spec contract. Empirical surprise: chain reports `name="USDC"` (not `"USD Coin"`); recorded here so T6 picks up the correct value from the artifact rather than hardcoding the spec example.
 
 **Spike measurements (literal artifact payload, last run):**
+
 ```json
 {
   "name": "USDC",
@@ -111,23 +120,27 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t3: approved_with_minors (3 minor: EH-01 empty-catch comments, CF-01 nativeCurrency.name mismatch, DOC-01 decisions.md entry missing) → [logs/working/task-3/code-reviewer-t3-round1.json](logs/working/task-3/code-reviewer-t3-round1.json)
 - security-auditor-t3: approve_with_notes (2 low: SEC-T3-01 / SEC-T3-02 RPC URL leakage via err.message in notes[] / stderr; 1 info: SEC-T3-INFO-01 no URL-scheme pre-validation) → [logs/working/task-3/security-auditor-t3-round1.json](logs/working/task-3/security-auditor-t3-round1.json)
 - test-reviewer-t3: needs_improvement (0 critical/high, 2 medium: T3-M1 hard-blocker ordering, T3-M2 gas-unavailable sentinel; 3 low: T3-L1 probe note text, T3-L2 selector exit order [accepted], T3-L3 sanity-band comment) → [logs/working/task-3/test-reviewer-t3-round1.json](logs/working/task-3/test-reviewer-t3-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t3: closed approved on round 1 (verbal confirmation after fix commit 46600be; no round-2 report file written by reviewer preference)
 - security-auditor-t3: APPROVED — all round-1 findings resolved, no new issues → [logs/working/task-3/security-auditor-t3-round2.json](logs/working/task-3/security-auditor-t3-round2.json)
 - test-reviewer-t3: passed (0 findings at any severity) — all round-1 mediums + lows resolved → [logs/working/task-3/test-reviewer-t3-round2.json](logs/working/task-3/test-reviewer-t3-round2.json)
 
 **Verification:**
+
 - `cd contracts && npx tsx scripts/verify-usdc-eip3009.ts` → exit 0; JSON output matches artifact byte-for-byte (same `out` object); deterministic shape across 3 consecutive runs.
 - `cd contracts && npm run lint` (tsc --noEmit) → exit 0.
 - gitleaks pre-commit hook → 0 leaks.
 - Selector self-check `toFunctionSelector('transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)') === 0xe3ee160e` → pass.
 
 **Open items for future tasks:**
+
 - T6 (Wave 5, `networks.ts` author): consume `contracts/scripts/arc-testnet-usdc-domain.json` to populate `NETWORKS['arc-testnet'].usdcEip712Name = "USDC"` (NOT "USD Coin") and `usdcEip712Version = "2"`, and surface every `notes[]` entry at module load via warn-level log (informational only, never blocking).
 - Post-MVP `x402-batched-settlement` feature: gas-cost spike (1212–1290 micro-USDC ≈ 12–13% of a 0.01 USDC payment) exceeds the 5% per-payment-economics threshold; defer batched-settlement work per Risks row 4. MVP per-payment settlement remains acceptable for low/mid-volume APIs per the same row's documented limitation.
 - T6 must also document the gas estimation fallback (60000 gas constant) the artifact records — downstream callers should not assume the published gas cost is RPC-measured.
@@ -142,20 +155,24 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t4: request_changes (2 major event-indexing deviations, 4 minor) → [logs/working/task-4/code-reviewer-t4-round1.json](logs/working/task-4/code-reviewer-t4-round1.json)
 - security-auditor-t4: PASS_WITH_NOTES (1 medium operator-DoS doc, 3 low, 3 info) → [logs/working/task-4/security-auditor-t4-round1.json](logs/working/task-4/security-auditor-t4-round1.json)
 - test-reviewer-t4: needs_improvement (2 medium, 3 low) → [logs/working/task-4/test-reviewer-t4-round1.json](logs/working/task-4/test-reviewer-t4-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t4: approved_with_minor_notes (1 minor — comment constants imprecision T4-R2-01) → [logs/working/task-4/code-reviewer-t4-round2.json](logs/working/task-4/code-reviewer-t4-round2.json)
 - security-auditor-t4: PASS (all round-1 findings resolved; SA-T4-03 retracted as false positive on author pushback) → [logs/working/task-4/security-auditor-t4-round2.json](logs/working/task-4/security-auditor-t4-round2.json)
 - test-reviewer-t4: passed (T4-TRV1-002 retracted on author pushback — current `<= validAfter` matches Circle's `require(now > validAfter)`) → [logs/working/task-4/test-reviewer-t4-round2.json](logs/working/task-4/test-reviewer-t4-round2.json)
 
-*Round 3 (after T4-R2-01 fix):*
+_Round 3 (after T4-R2-01 fix):_
+
 - code-reviewer-t4: approved (final) → [logs/working/task-4/code-reviewer-t4-round3.json](logs/working/task-4/code-reviewer-t4-round3.json)
 
 **Verification:**
+
 - `cd contracts && forge build` → exit 0, no warnings (27 files compiled with solc 0.8.20).
 - D15 grep checks on `src/PaymentVaultImpl.sol` (selfdestruct/delegatecall/assembly executable lines) → empty.
 - D16/D17 grep (receive/fallback/setDeveloper/setFactory) → empty.
@@ -163,6 +180,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook → 0 leaks.
 
 **Open items for future tasks:**
+
 - T5 (Wave 3 contract tests, Foundry): implement the 16 TDD anchors listed in `tasks/4.md` lines 96–114; both `ZeroAddress` errors (defined in factory AND vault) must be qualified by contract in `vm.expectRevert(PaymentSplitterFactory.ZeroAddress.selector)` vs `PaymentVaultImpl.ZeroAddress.selector`. Add the security-auditor's suggested coverage: `MockRevertingTreasury` to verify withdraw DoSes (SA-T4-01) and `feeBps=0` workaround test.
 - T6 (Wave 5 middleware `networks.ts`): use `Clones.predictDeterministicAddress` math equivalent in JS — salt is `bytes32(uint256(uint160(developer)))` (left-padded address), deployer is factory address. Match the on-chain formula exactly or off-chain `payTo` will diverge.
 - Pre-deploy wave: README operational guide must document treasury-DoS risk (SA-T4-01) — `platformTreasury` MUST be plain EOA or audited multisig, never a contract with custom token-receive logic. Currently documented in `PaymentVaultImpl.withdraw()` NatSpec only.
@@ -177,16 +195,19 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t5: approve_with_minor_findings (R1-01 fuzz threshold, R1-02 informational, R1-03 reentryCount-observability claim [later retracted], R1-04 handler comment) → [logs/working/task-5/code-reviewer-t5-round1.json](logs/working/task-5/code-reviewer-t5-round1.json)
 - security-auditor-t5: APPROVE_WITH_NOTES (SA-T5-01 transfer order recorder LOW, SA-T5-02 missing test_Unpause_OwnerOnly LOW, SA-T5-03 INFO) → [logs/working/task-5/security-auditor-t5-round1.json](logs/working/task-5/security-auditor-t5-round1.json)
 - test-reviewer-t5: APPROVED (T5-R1-01 event-mirror comment, T5-R1-02 handler pause-exclusion comment, T5-R1-03 confirmed sound) → [logs/working/task-5/test-reviewer-t5-round1.json](logs/working/task-5/test-reviewer-t5-round1.json)
 
-*Round 2:*
+_Round 2:_
+
 - code-reviewer-t5: APPROVED — R1-01 + R1-04 fixed; R1-03 retracted on reviewer pushback after empirical verification (adding `assertEq(malicious.reentryCount(), 1)` after the expectRevert block fails with `0 != 1`, confirming cross-contract state writes inside the reverting call tree roll back) → [logs/working/task-5/code-reviewer-t5-round2.json](logs/working/task-5/code-reviewer-t5-round2.json)
 - security-auditor-t5 + test-reviewer-t5: no round-2 review file written (advisories accepted, original verdict stands)
 
 **Verification:**
+
 - `cd contracts && forge test` → 52 passed, 0 failed (29 factory + 20 vault + 3 invariant suites).
 - `cd contracts && forge coverage --report summary --ir-minimum` → `src/PaymentSplitterFactory.sol` **100% branches (6/6)**, `src/PaymentVaultImpl.sol` **100% branches (4/4)** — exceeds the 95% acceptance threshold on both.
 - `cd contracts && forge coverage --report lcov --ir-minimum` writes `contracts/lcov.info` (gitignored).
@@ -195,6 +216,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook → 0 leaks across all four commits.
 
 **Open items for future tasks:**
+
 - T10 (Wave 6 forked-e2e): the unit suite proves split math and reentrancy guard; forked-e2e should re-exercise the happy path against real Arc Testnet USDC (`0x3600000000000000000000000000000000000000`) to verify the EIP-3009 settlement path lands USDC into the vault and the withdraw split works against the production token contract.
 - T13 (security audit, Wave 7): the Foundry suite covers all 12 custom error selectors and the D15/D16/D17 invariants; auditor input may flag SA-T5-01 (TransferOrderRecorder mock) as a prereq for direct developer-first ordering assertion. Deferred from T5 with auditor concurrence.
 - CI workflow (separate task): the lcov-threshold check the addendum §4 T5 anticipates should grep `BRH:`/`BRF:` in `contracts/lcov.info` for `src/PaymentSplitterFactory.sol` and `src/PaymentVaultImpl.sol` against a 95% gate. Concrete grep command not written here per task-5 scope.
@@ -207,6 +229,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Implemented all six pure middleware modules per tech-spec D1/D5/D13/D14/D18. `types.ts` exposes the byte-for-byte interface surface from tech-spec lines 333–397. `networks.ts` reads `contracts/scripts/arc-testnet-usdc-domain.json` (T3 artefact) at module load — surfaces a blocker error if missing rather than ship silent stubs — and exports both alias (`arc-testnet`) and canonical CAIP-2 (`eip155:5042002`) keys pointing at the same `NetworkConfig` object reference; arc-mainnet placeholder uses `chainId: 0` + `id: 'eip155:0'` (NOT `eip155:42161`) per systemic-fix §8. `x402.ts` provides `build402Body` (pure), `parseUsdPrice` (strict — rejects zero, negatives, NaN, scientific notation, whitespace, >6 decimals per addendum §4), `decodeXPayment` (4 KB byte cap via `Buffer.byteLength`, exact-keys validation at every level, strict hex shapes), `encodeXPaymentResponse`. `errors.ts` uses CANONICAL reason strings (`to_mismatch`, `invalid_signature`, `insufficient_amount`) and splits HTTP 400/402 per the x402 v1 body schema. `relayer-key.ts` implements `OpaqueRelayerKey` with a module-private `WeakMap<OpaqueRelayerKey, string>` (no class member can extract the secret — strictly stronger than the spec's `#privateField` proposal), brand-stamped `is()` predicate via `Symbol.for('@universal-paywall/middleware/OpaqueRelayerKey')`, four-pattern + cycle-safe `scrubSecrets`. `replay-store.ts` provides `NonceStore` with synchronous `checkAndInsert` (no TOCTOU window), lazy per-`from` TTL eviction, 100k cap with oldest-`validBefore` FIFO eviction, address+nonce case normalization. 105 vitest tests pass; `tsc --noEmit` clean under strict; tsup build + ESLint clean.
 
 **Deviations:**
+
 - Secret-storage architecture for `OpaqueRelayerKey`: the spec proposed a `#privateField` (class-private). I shipped a module-private `WeakMap<OpaqueRelayerKey, string>` with the class carrying only the brand marker. This is strictly stronger — no class member, public or otherwise, can extract the key; the only path is via the module-private `getRelayerKeySecret(key)` function, which is intentionally NOT re-exported from `index.ts`. The structural `OpaqueRelayerKey` interface in `types.ts` remains empty (per tech-spec) so the WeakMap is invisible to the public type system. (Driven by code-reviewer T6-R1-02 + security-auditor SA-T6-03 — see [logs/working/task-6/code-reviewer-t6-round1.json](logs/working/task-6/code-reviewer-t6-round1.json) and [logs/working/task-6/security-auditor-t6-round1.json](logs/working/task-6/security-auditor-t6-round1.json).)
 - `scrubSecrets` cycle handling: switched from `WeakSet<object>` (which leaked the secret through cycle back-edges) to `Map<original, scrubbed_copy>`, registering output containers in `seen` BEFORE walking children so back-edges resolve to the partial scrubbed copy. (Driven by security-auditor SA-T6-01.)
 - Vitest test scripts in `packages/middleware/package.json` prefix `UP_SUPPRESS_T3_NOTES=1` to silence the T3 USDC-domain boot warnings (gas-fallback + arc-dual-decimal) inside the runner. Outside the test runner, the notes still fire on module load so operators see them in boot logs.
@@ -214,17 +237,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t6: approved_with_issues — 2 major (T6-R1-01 public `getRelayerKeySecret` re-export, T6-R1-02 public `OpaqueRelayerKey._extract`), 5 minor (T6-R1-03 leading-zero accept [deferred], T6-R1-04 boot-warning noise, T6-R1-05 `insert()` TTL gap, T6-R1-06 cycle handling, T6-R1-07 dead `static [BRAND]` field) → [logs/working/task-6/code-reviewer-t6-round1.json](logs/working/task-6/code-reviewer-t6-round1.json)
 - security-auditor-t6: REQUEST_CHANGES — SA-T6-01 medium (scrubSecrets cycle bug — raw secret leaked through back-edge), SA-T6-02 medium (`getRelayerKeySecret` on public surface), SA-T6-03 low (`_extract` callable through exported class); 2 informational deferred → [logs/working/task-6/security-auditor-t6-round1.json](logs/working/task-6/security-auditor-t6-round1.json)
 - test-reviewer-t6: PASSED — 4 medium (M1 silent try/catch in zero-rejection test, M2 structuredClone test optional, M3 missing size() assertion in TTL test, M4 missing 'payload' top-level leaf row); 3 low optional → [logs/working/task-6/test-reviewer-t6-round1.json](logs/working/task-6/test-reviewer-t6-round1.json)
 
-*Round 2:*
+_Round 2:_
+
 - code-reviewer-t6: APPROVED — all R1 findings resolved; T6-R1-02 fix went beyond scope (WeakMap is stronger than private `#extract`) → [logs/working/task-6/code-reviewer-t6-round2.json](logs/working/task-6/code-reviewer-t6-round2.json)
 - security-auditor-t6: APPROVED — all 3 required changes resolved; cycle fix traced through and verified → [logs/working/task-6/security-auditor-t6-round2.json](logs/working/task-6/security-auditor-t6-round2.json)
 - test-reviewer-t6: APPROVED — M1/M3/M4 resolved; 1 new low cosmetic (DAG test could add reference-identity assertion) not blocking → [logs/working/task-6/test-reviewer-t6-round2.json](logs/working/task-6/test-reviewer-t6-round2.json)
 
 **Verification:**
+
 - `test -f contracts/scripts/arc-testnet-usdc-domain.json` → present (T3 handoff confirmed).
 - `npm test --workspace=@universal-paywall/middleware` → 5 suites, 105 tests passed (35 x402 + 28 errors + 10 networks + 23 relayer-key + 9 replay-store).
 - `npx tsc --noEmit -p packages/middleware/tsconfig.json` → clean under `--strict` / `exactOptionalPropertyTypes` / `noUncheckedIndexedAccess`.
@@ -233,6 +259,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook on b5dfd2c + eb4b845 → 0 leaks.
 
 **Open items for future tasks:**
+
 - T7 (Wave 6 `verify.ts`): consumes `decodeXPayment`, `NETWORKS`, `normalizeNetworkId`, `NonceStore.checkAndInsert`, and the `MalformedPaymentHeaderError` / `buildErrorResponse` pair from this task. The 5-second safety margin (`validBefore > now + 5_000ms`) is enforced by verify.ts; `NonceStore.checkAndInsert` has its own `validBefore <= now → authorization_expired` safety net as a second line of defence.
 - T8 (Wave 6 `settle.ts`): imports `getRelayerKeySecret` from `./relayer-key.js` directly (NOT from `index.ts`). Security-auditor SA-T6-INFO-02 flagged that the T3 artefact's `gasCostExceedsThreshold: true` (1260 micro-USDC gas on a 10000 micro-USDC payment = 12.6%) should be surfaced as a startup warning here — track in T8.
 - T11 (Wave 7 deploy script): `sed`-anchored replacement of `factoryAddress` / `vaultImplAddress` placeholders in `networks.ts` keys on the sentinel comments `/* deploy-script:factoryAddress */` and `/* deploy-script:vaultImplAddress */`; verified present in this commit.
@@ -247,6 +274,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Implemented `packages/middleware/src/verify.ts` (EIP-712 recovery via viem.recoverTypedDataAddress against `NETWORKS`-derived domain, seven Solution-7c checks in canonical order, ms-throughout time math with `SAFETY_MARGIN_MS = 5_000`, `NonceStore.checkAndInsert` as the documented atomic primitive) and `packages/middleware/src/settle.ts` (sole owner of per-network `WalletClient` cache, sole call site of `getRelayerKeySecret` per D13, first-write chainId pin via core-owned `PublicClient` per D14, proactive `USDC.balanceOf` check against module-level constant `MIN_RELAYER_USDC_BALANCE = 1_000_000n` with strict less-than, seven-way classifier with case-insensitive `"authorization is used"` substring match — no 4-byte selector — and undecoded-revert fallback to `receipt_reverted`). Added `NetworkMismatchError` class (with `expectedChainId`/`observedChainId` fields) defined in settle.ts and re-exported from errors.ts + index.ts. Both modules: no `SecurityLogger` import, no `securityEvent` call. `settle.ts` does not touch the replay-store (structural retention on failure). 36 task-7 tests (15 verify + 21 settle); full middleware suite 141/141 green; tsc strict + tsup + ESLint clean. Added viem ^2.52.0 as a runtime dependency in packages/middleware/package.json.
 
 **Deviations:**
+
 - `verify.ts` switched from the spec's `nonceStore.has(...) → insert(...)` pair to `nonceStore.checkAndInsert(...)` per security-auditor SEC-T7-02 round 1. Rationale: replay-store.ts marks `insert` as "test-only primitive"; `checkAndInsert` is the documented production primitive and adds a defense-in-depth `validBefore <= now` safety net. Net behavior is unchanged; canonical reason strings (`nonce_already_used`, `authorization_expired`) flow through `checkAndInsert`'s return value.
 - HttpRequestError classification: any HttpRequestError (not only `status >= 500`) classifies as `rpc_5xx`. The task spec said `>= 500`, but security-auditor SEC-T7-03 round 1 flagged that 4xx (429 rate-limit, 401 auth) falling through to `rpc_timeout` was misleading for operators reading event logs. The 7-reason taxonomy has no 4xx slot; `rpc_5xx` is the closest bucket and is documented in the source comment.
 - Parsesignature v-fallback: when viem's `parseSignature` returns neither `yParity` nor `v` (pathological EIP-2098 compact-form edge case), the impl refuses to broadcast and returns `{ ok: false, reason: 'gas_estimate_revert' }` rather than silently defaulting `yParity = 0` and corrupting v (which would have produced an on-chain revert after off-chain verify already accepted). The `gas_estimate_revert` classification is semantically approximate (it's a pre-broadcast parse failure) but is the correct bucket within the constrained 7-reason taxonomy. Driven by security-auditor SEC-T7-01 round 1 (HIGH).
@@ -254,17 +282,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t7: approved_with_minors (3 minor — R1-M1 bigint cast, R1-M2 misleading NetworkMismatchError(0,0), R1-M3 sync-block test timing) → [logs/working/task-7/code-reviewer-t7-round1.json](logs/working/task-7/code-reviewer-t7-round1.json)
 - security-auditor-t7: conditional_pass (2 required — SEC-T7-01 HIGH v-fallback, SEC-T7-02 MED checkAndInsert; 3 recommended — SEC-T7-03/04/05) → [logs/working/task-7/security-auditor-t7-round1.json](logs/working/task-7/security-auditor-t7-round1.json)
 - test-reviewer-t7: needs_improvement (0 critical, 2 medium — T7-TEST-01 vacuous NonceStore spy + T7-TEST-02 superseded by checkAndInsert; 3 low — duplicate test, raw-key opts serialization, +5 boundary) → [logs/working/task-7/test-reviewer-t7-round1.json](logs/working/task-7/test-reviewer-t7-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t7: approved (one info note — verify.ts docblock update, fixed in e8ce2e0) → [logs/working/task-7/code-reviewer-t7-round2.json](logs/working/task-7/code-reviewer-t7-round2.json)
 - security-auditor-t7: PASS (one new info SEC-T7-R2-01 — defensive bigint guard untested, fixed in e8ce2e0) → [logs/working/task-7/security-auditor-t7-round2.json](logs/working/task-7/security-auditor-t7-round2.json)
 - test-reviewer-t7: passed (two new low — T7-R2-01 verify docblock + T7-R2-02 untested 429 → rpc_5xx, both fixed in e8ce2e0) → [logs/working/task-7/test-reviewer-t7-round2.json](logs/working/task-7/test-reviewer-t7-round2.json)
 
 **Verification:**
+
 - `npm test --workspace=@universal-paywall/middleware -- src/__tests__/verify.test.ts src/__tests__/settle.test.ts` → exit 0, 36 passed (15 verify + 21 settle).
 - `npm test --workspace=@universal-paywall/middleware` → exit 0, 141/141 across 7 suites.
 - `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0 (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax).
@@ -273,6 +304,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook on every commit → 0 leaks.
 
 **Open items for future tasks:**
+
 - T8 (Wave 6 `core.ts`): imports `verifyEip3009Authorization` from `./verify.js` and `settleOnChain` + `MIN_RELAYER_USDC_BALANCE` + `NetworkMismatchError` from `./settle.js`. `core.ts` owns the per-network `PublicClient` cache (per systemic-fixes §5) and passes it through `opts.publicClient` to both modules. `core.ts` is the sole owner of D18 `SecurityLogger` event emission and maps verify/settle return values to the typed event catalogue per systemic-fixes-3 §2. The proactive `relayer_no_balance` result returned by settle.ts surfaces the bigint `balance` in `details.balance` — `core.ts` should emit a D18 `relayer_low_balance` event when this fires (per SA-T6-INFO-02 round-1 follow-up, also relevant here because the T3 spike showed 12.6% gas-on-payment ratio on Arc Testnet).
 - T8 must also handle the `NetworkMismatchError` throw from settle.ts: catch it and emit D18 `chain_id_mismatch` with the `expectedChainId`/`observedChainId` fields the error carries.
 - T9 (Wave 6 vault-state checks): `factory.paused()` and `factory.vaults(developer)` cached reads happen in core.ts BETWEEN verify and settle. settle.ts already does the proactive USDC balance check; the factory-state checks are core.ts's responsibility per the architecture table.
@@ -287,6 +319,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Wired the middleware request-time pipeline end-to-end. `core.ts` is the framework-agnostic orchestrator — owns the per-network lazy `PublicClient` cache (concurrency-safe via in-flight Promise dedup), the process-singleton `NonceStore` (module-scope per addendum §2 cross-adapter requirement), and the per-network `FactoryStateCache` (5s TTL with stampede-safe refresh dedup). It is the SINGLE owner of `logger.securityEvent` emission per addendum §2 — `verify.ts` and `settle.ts` return classified results only. `paywall(req, opts)` implements Solution steps 7a–7g; factory-state checks (paused / vault_not_deployed) were moved BEFORE EIP-712 recovery per SEC-T8-05 so verify never receives `expectedVaultAddress=ZERO_ADDRESS`. `withPaywall` (Node http) and `fastifyPaywall` (Fastify preHandler hook, stamped with `Symbol.for('skip-override')` so the hook bubbles out of the plugin's child encapsulation) translate the discriminated `PaywallResult` to HTTP. `index.ts` exposes exactly `withPaywall`, `fastifyPaywall`, `NETWORKS`, `OpaqueRelayerKey` as value exports plus the public types `SecurityLogger` / `SecurityEventCatalog` / `SecurityEventName` / `PaywallConfig` / `NetworkConfig` / `PaymentRequirements` / `PaymentPayload` / `ExactEvmPayload` (moved into `types.ts` per code-reviewer R1-3). 202/202 middleware tests pass (52 new in T8 — 49 core + 4 node-http + 4 fastify + 4 index — minus the 9 already from earlier suites that shifted); `npm run typecheck` + `npm run lint` + `npm run build` clean. Build smoke `node -e "import('@universal-paywall/middleware').then(m=>console.log(Object.keys(m).sort()))"` prints exactly `["NETWORKS","OpaqueRelayerKey","fastifyPaywall","withPaywall"]`. Added `fastify` as an optional peer-dep + dev-dep so the type-only import in `adapters/fastify.ts` resolves.
 
 **Deviations:**
+
 - `chain_id_mismatch` event payload uses tech-spec D18 canonical names `expectedChainId` / `observedChainId` plus an additional `network` field for context (driven by SEC-T8-04). The task-8 spec text used `expected` / `actual`; D18 is the binding contract per addendum §2 numbering.
 - `relayer_low_balance` event added to `SecurityEventCatalog` with payload `{ balanceUsdc: string }` (driven by SEC-T8-03). When settle returns `relayer_no_balance` with `details.balance`, core emits BOTH `relayer_low_balance` and `settlement_failed` — backwards compatible with catch-all monitoring AND adds the dedicated typed signal with the balance value.
 - SecurityLogger emit helper carves out a known-safe-hex-field list (`SAFE_HEX_FIELDS = ['txHash']`) BEFORE running `scrubSecrets`, then re-attaches the preserved fields (driven by SEC-T8-02). Without this, a 32-byte tx hash matches `scrubSecrets`' `0x+64hex` private-key pattern and is redacted, destroying forensic correlation between `settlement_failed` events and on-chain transactions.
@@ -296,17 +329,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t8: changes_required (R1-1 critical settle arg, R1-2 major price-parse duplicate, R1-3 major index public surface, 2 minor, 1 info) → [logs/working/task-8/code-reviewer-t8-round1.json](logs/working/task-8/code-reviewer-t8-round1.json)
 - security-auditor-t8: CONDITIONAL_PASS (SEC-T8-01 medium servedStale, SEC-T8-02 medium txHash redaction, 3 low SEC-T8-03/04/05, 1 info) → [logs/working/task-8/security-auditor-t8-round1.json](logs/working/task-8/security-auditor-t8-round1.json)
 - test-reviewer-t8: needs_improvement (T8-01 high non-stale-cache test, T8-02 high replay-store retention, T8-03 medium AJV deferred to T9, T8-04 medium verify mapping body assertion, 3 low) → [logs/working/task-8/test-reviewer-t8-round1.json](logs/working/task-8/test-reviewer-t8-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t8: APPROVED (all R1 findings correctly resolved, no new findings) → [logs/working/task-8/code-reviewer-t8-round2.json](logs/working/task-8/code-reviewer-t8-round2.json)
 - security-auditor-t8: PASS (all 5 R1 findings resolved, one info observation about payerHash-provenance documented in types.ts) → [logs/working/task-8/security-auditor-t8-round2.json](logs/working/task-8/security-auditor-t8-round2.json)
 - test-reviewer-t8: PASSED (all 7 R1 findings resolved; T8-03 AJV correctly deferred to T9) → [logs/working/task-8/test-reviewer-t8-round2.json](logs/working/task-8/test-reviewer-t8-round2.json)
 
 **Verification:**
+
 - `npm test --workspace=@universal-paywall/middleware` → exit 0, 202/202 across 11 suites.
 - `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0 (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax).
 - `npm run build --workspace=@universal-paywall/middleware` → tsup ESM + dts emit clean.
@@ -315,6 +351,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook on every commit → 0 leaks.
 
 **Open items for future tasks:**
+
 - T9 (Wave 7 vendored x402 schema fixture): per tasks/9.md lines 24, 28, 56, 138–150, 195, vendor `packages/middleware/src/__tests__/fixtures/x402-v1.schema.json` and add AJV validation to `build402Body` + `buildErrorResponse` outputs. Deferred from T8 (test-reviewer T8-03) — fixture vendoring belongs to T9's canonical location to avoid drift.
 - T10 (Wave 7 forked-e2e): the cross-adapter NonceStore singleton claim is verified at the unit level here (`NonceStore module-scope singleton — verify receives the same instance across calls`). T10's forked-e2e test should still exercise the same NonceStore through BOTH adapters in a single process (pay via withPaywall, retry the same X-PAYMENT on fastifyPaywall → assert 402 `nonce_already_used`) to lock in cross-adapter behavior against real network traffic.
 - README operational guide (pre-deploy): the `relayer_low_balance` event with `balanceUsdc` is now a dedicated D18 channel. Operational alerting should subscribe to `relayer_low_balance` (with a configurable threshold above `MIN_RELAYER_USDC_BALANCE = 1_000_000n`) rather than parsing the generic `settlement_failed` reason field. Document the alerting recipe.
@@ -328,6 +365,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Wired the two-step deploy pipeline + developer CLI + README onboarding per iter-4 §4 T11. `contracts/script/Deploy.s.sol` is a Foundry script that broadcasts a single `new PaymentSplitterFactory(IERC20(usdc), treasury, uint16(feeBps))` deploy (3-arg canonical constructor per iter-3 §1) — the inner `PaymentVaultImpl` CREATE surfaces in `additionalContracts[0]` of the broadcast artifact. `contracts/scripts/post-deploy.ts` reads `broadcast/Deploy.s.sol/<chainId>/run-latest.json`, extracts both addresses, and patches `packages/middleware/src/networks.ts` via sentinel-anchored regex (per systemic-fix §13 — T6 owns the sentinels; this script only substitutes). Idempotent; refuses to overwrite already-populated `arc-testnet` without `--force` (exit 4). `scripts/register.ts` is the tsx-executable developer CLI: wraps `REGISTER_KEY` in `OpaqueRelayerKey` at the env-read line (D13), imports `getRelayerKeySecret` from the internal `../packages/middleware/src/relayer-key.js` path (iter-3 §12, NOT from the public entry point), runs a pre-flight `factory.vaults(eoa)` check for idempotency, calls `factory.register()` via viem on first run. `packages/middleware/src/__tests__/register-cli.test.ts` is 8 spawn-based tests against a local anvil node with the factory deployed programmatically via viem reading the forge artifact at `contracts/out/PaymentSplitterFactory.sol/PaymentSplitterFactory.json`. README documents the four-step developer onboarding (faucet → register → install → run) plus a maintainer-only forge-script + post-deploy.ts callout; no Hardhat references anywhere; canonical env-var names only.
 
 **Deviations:**
+
 - Test file uses NODE_ENV='test' guarded `test-anvil` branch in register.ts that reads `TEST_FACTORY_ADDRESS` + `TEST_RPC_URL` from env, bypassing the production `NETWORKS` lookup so the test does not need to mutate `networks.ts`. Per security-auditor SA-T11-02 round 1, the original `--allow-test-network` flag was REMOVED — gate is now exclusively `process.env.NODE_ENV === 'test'`.
 - `classifyError()` in register.ts scrubs `err.message` via `scrubSecrets()` BEFORE pattern matching (security-auditor SA-T11-01 defense-in-depth) so a future maintainer adding stderr forwarding cannot leak a hex key through the message path.
 - `post-deploy.ts` parser tolerates BOTH single and double quotes around the address literal in the sentinel match (T6 currently ships single-quoted; a future prettier change to double-quote does not break the substitution).
@@ -336,17 +374,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t11: approve_with_minor_fixes (4 minor — T11-01 missing tx receipt timeout, T11-02 dead createServer in waitForPort, T11-03 arcscan URL, T11-04 USDC name) → [logs/working/task-11/code-reviewer-t11-round1.json](logs/working/task-11/code-reviewer-t11-round1.json)
 - security-auditor-t11: conditional_pass (2 medium SA-T11-01/02, 2 low SA-T11-03/04, 1 info SA-T11-05) → [logs/working/task-11/security-auditor-round1.json](logs/working/task-11/security-auditor-round1.json)
 - test-reviewer-t11: needs_improvement (3 medium M1/M2/M3, 3 low L1/L2/L3) → [logs/working/task-11/test-reviewer-t11-round1.json](logs/working/task-11/test-reviewer-t11-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t11: approved (all 4 round-1 findings verified; T11-04 decline accepted) → [logs/working/task-11/code-reviewer-t11-round2.json](logs/working/task-11/code-reviewer-t11-round2.json)
 - security-auditor-t11: PASS — cleared to ship (1 advisory OBS-R2-01 non-blocking: HttpRequestError branch returns rpc_5xx for ALL HTTP status codes including 4xx; consider follow-up post-ship) → [logs/working/task-11/security-auditor-round2.json](logs/working/task-11/security-auditor-round2.json)
 - test-reviewer-t11: passed (all 3 medium + 2 low resolved; L3 decline accepted on T3-artifact grounds) → [logs/working/task-11/test-reviewer-t11-round2.json](logs/working/task-11/test-reviewer-t11-round2.json)
 
 **Verification:**
+
 - `cd contracts && forge build` → exit 0, no warnings (54 files compiled with solc 0.8.20).
 - `cd contracts && anvil --chain-id 31337 --port 8545` + `DEPLOYER_KEY=0xac09… PLATFORM_TREASURY_ADDRESS=0x70997… USDC_ADDRESS=0x70997… forge script script/Deploy.s.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast` → exit 0, wrote `broadcast/Deploy.s.sol/31337/run-latest.json`, console2 logged FACTORY_ADDRESS=0x5fbdb… and VAULT_IMPL_ADDRESS=0xa16e0… in stdout.
 - `npx tsx contracts/scripts/post-deploy.ts --chain-id 31337` → exit 0, printed FACTORY_ADDRESS=… and VAULT_IMPL_ADDRESS=… on stdout, patched networks.ts at the two sentinel positions; subsequent `git diff packages/middleware/src/networks.ts` shows ONLY the two address literals changed (sentinels untouched, no other lines).
@@ -362,6 +403,7 @@ post-completion entries here following the `do-task` skill template.
 - Circle faucet URL `https://faucet.circle.com` returns HTTP 200; verified the URL is reachable. README also documents the thirdweb fallback per task hints.
 
 **Open items for future tasks:**
+
 - T16 (Wave 12 deploy + npm publish): runs the same `forge script script/Deploy.s.sol:Deploy --rpc-url $ARC_RPC_URL --broadcast --verify` + `npx tsx contracts/scripts/post-deploy.ts` chain against Arc Testnet. Commits the resulting `networks.ts` diff. Publishes `@universal-paywall/middleware@0.1.0-alpha.0`. The `--verify` flag's arcscan call may need a re-run via the standalone `forge verify-contract` recipe in the README maintainer callout if arcscan indexing races.
 - Post-ship security follow-up (SA-T11 OBS-R2-01, non-blocking): `classifyError()` in register.ts returns `rpc_5xx` for all `HttpRequestError` regardless of status code, including 4xx like 429 rate-limit. No security impact (reason strings are fixed tokens, key invariant holds) but the classification is semantically imprecise. Consider a follow-up to distinguish 4xx → `rpc_5xx` (current) vs. a new `rpc_4xx` reason, or document the choice explicitly.
 - User-spec amendment (carried forward from T6 SA-T6-INFO-02): user-spec examples reference `usdcEip712Name = "USD Coin"`, but the T3-verified on-chain value (and what NETWORKS / the README ship with) is `"USDC"`. Update user-spec examples to match the live chain.
@@ -375,6 +417,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Vendored the x402 v1 JSON Schema fixture at `packages/middleware/src/__tests__/fixtures/x402-v1.schema.json` (covering PaymentRequirements, PaymentPayload, ExactEvmPayload, ChallengeBody, XPaymentResponse; `additionalProperties: false` on every definition for strict drift detection). Added five shared test helpers under `src/__tests__/helpers/` (sign.ts EIP-712 signer factory backed by viem LocalAccount; mock-clients.ts MockPublicClient/MockWalletClient; timers.ts fake-timer setup; encode-header.ts header fixtures + malformed-header builders; recording-logger.ts RecordingLogger for SecurityLogger event capture) — staged for T10 forked-e2e per task-9 spec §3. Wired `@vitest/coverage-v8@1.6.1` + `vitest.config.ts` with v8 provider, include `src/**/*.ts`, exclude `src/__tests__/**` + `src/types.ts` + `src/index.ts`, thresholds 85% lines/statements/functions and 85% branches (CI fails on regression). Expanded the existing test suite with: ajv schema validation for every `build402Body`/`buildErrorResponse` output (x402.test.ts + errors.test.ts), x402.ts decimal-int + network type rejection edge cases, verify.ts unknown-network defensive branch + malformed-signature catch + Date.now fallback, settle.ts balance-read TimeoutError → rpc_timeout + unknown-network throw, relayer-key.ts forged-brand defensive branch, and core.ts stale-cache + zero-vault short-circuits-before-verify security invariant (SEC-T9-03). 247/247 tests across 12 suites; 96.87% lines / 89.15% branches / 100% functions on `src/` (errors.ts, replay-store.ts, relayer-key.ts, verify.ts, adapters/* all at 100%). `npm run typecheck` + `npm run lint` + `npm run build` clean.
 
 **Deviations:**
+
 - Renamed `nonce_replay` → `nonce_replay_attempt` in `types.ts`, `core.ts`, and `core.test.ts` to align the `SecurityEventCatalog` with tech-spec D18 line 230 (driven by security-auditor SEC-T9-02 + test-reviewer T9-F3, which independently flagged the same drift). The T8 catalog had used the shorter `nonce_replay`; SIEM/monitoring integrations configured against the canonical D18 name would have received no events. The rename touches T8-owned source but was applied here because T9's role per the task spec is the safety net that pins the catalog — leaving the drift would have meant the schema/event tests asserted the wrong canonical name.
 - Vendored x402 v1 JSON Schema's `ChallengeBody` originally shipped with `additionalProperties: true` (round 1 mistake — opt-in extension fields). Security auditor SEC-T9-01 caught this; flipped to `false` and added `txHash` to the explicit `properties` allowlist (because `core.ts:610` emits `{ reason, txHash? }` on settlement_failed). Drift detection is now hermetic on the 402 body wire format.
 - SEC-T9-03 test variant: the auditor's original "warm cache with non-zero vault, refresh returns zero" scenario is unreachable in production because `core.ts:265` pins non-zero vault addresses forever (D3 immutability — once `vaults(eoa) !== 0x0`, the value is cached without re-fetch). The test instead exercises the reachable variant where the cache was warmed with `0x0` and the post-TTL refresh still returns `0x0`. The security invariant pinned is identical: `verify` never receives `expectedVaultAddress=ZERO_ADDRESS`.
@@ -383,17 +426,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t9: approve_with_minor_fixes (1 required T9-R1-01 `__dirname` in ESM, 4 suggested T9-R1-02/03/04/05) → [logs/working/task-9/code-reviewer-t9-round1.json](logs/working/task-9/code-reviewer-t9-round1.json)
 - security-auditor-t9: conditional_pass (2 medium SEC-T9-01 schema + SEC-T9-02 nonce_replay name, 1 low SEC-T9-03 stale-cache test) → [logs/working/task-9/security-auditor-t9-round1.json](logs/working/task-9/security-auditor-t9-round1.json)
 - test-reviewer-t9: passed (3 medium T9-F1 Fastify exception test + T9-F2 networks ENOENT guard + T9-F3 nonce_replay name; 3 low optional) → [logs/working/task-9/test-reviewer-t9-round1.json](logs/working/task-9/test-reviewer-t9-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t9: APPROVED (all 3 required/suggested verified; T9-R1-02 and T9-R1-04 deferral to decisions.md follow-up accepted; agent shut down at 3-round cap) → [logs/working/task-9/code-reviewer-t9-round2.json](logs/working/task-9/code-reviewer-t9-round2.json)
 - security-auditor-t9: PASS (all 3 round-1 findings resolved, no new findings; the SEC-T9-03 reachable-variant test is the correct security invariant pin) → [logs/working/task-9/security-auditor-t9-round2.json](logs/working/task-9/security-auditor-t9-round2.json)
 - test-reviewer-t9: PASSED (T9-F1/F2 resolved in commit 7d0ff14; T9-F3 resolved in commit 1d2be23 via overlap with SEC-T9-02; the four D18 extensions (`authorization_expired`, `authorization_not_yet_valid`, `to_mismatch`, `insufficient_amount`) confirmed as intentional + documented in `types.ts`) → [logs/working/task-9/test-reviewer-t9-round2.json](logs/working/task-9/test-reviewer-t9-round2.json)
 
 **Verification:**
+
 - `npm test --workspace=@universal-paywall/middleware` → exit 0, 247/247 across 12 suites (242 in scope of T9; +5 in T11's register-cli.test.ts that ran in parallel).
 - `npm run test:coverage --workspace=@universal-paywall/middleware` → exit 0, 96.87% lines / 89.15% branches / 100% functions on `src/`. Per-file: errors.ts 100%, replay-store.ts 100%, relayer-key.ts 100%, verify.ts 100%, adapters/* 100%, core.ts 96.5%, settle.ts 95.89%, x402.ts 95.76%, networks.ts 86.5%. Uncovered lines are all defensive paths (T3 BLOCKER + console.warn note loop in networks.ts, sig v-fallback in settle.ts, etc.).
 - `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0 (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, verbatimModuleSyntax).
@@ -402,6 +448,7 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit on every commit → 0 leaks.
 
 **Open items for future tasks:**
+
 - T10 (Wave 8 forked-e2e): the helpers in `src/__tests__/helpers/` are staged for reuse. `signFreshAuth(overrides)` already produces a valid signed payload against the real `NETWORKS['arc-testnet']` domain — T10 should pass it through both adapters end-to-end and re-exercise the cross-adapter NonceStore singleton claim (asserted at unit level here in `core.test.ts`; needs forked-network behavior pin).
 - README operational follow-up (T11 / pre-deploy): the `relayer_low_balance` event payload is `{ balanceUsdc: string }` only per `types.ts:118`. Code-reviewer T9-R1-02 noted that task-9 spec §7 mentions a `threshold` field — that addition is a T8-catalog-owner change (would require touching `core.ts` emit site + `types.ts`), not T9 scope. Either: (a) accept the `{ balanceUsdc }` shape as canonical and update the user-spec / D18 doc to remove the `threshold` mention; or (b) add `threshold` to the catalog and emit site in a follow-up.
 - vitest upgrade follow-up (carry-forward from T1 / T6): root vitest pinned to ^1.5 per task-1 spec; coverage-v8 ^1.6.1 wired here resolves GHSA against the matched major. Upgrade to ^3.2.6 still pending pre-MVP.
@@ -414,6 +461,7 @@ post-completion entries here following the `do-task` skill template.
 **Summary:** Wired two integration suites under `packages/middleware/src/__tests__/integration/`. `forked-e2e.test.ts` spawns a real `anvil --chain-id 31337 --port $TEST_PORT` child process in `beforeAll`, polls TCP readiness via a `waitForPort` helper, deploys `MockUsdcEip3009` + `PaymentSplitterFactory` (canonical 3-arg ctor: usdc, platformTreasury, initialFeeBps=50) + reads back `factory.vaultImpl()` programmatically via viem `walletClient.deployContract` reading Foundry artifacts from `contracts/out/<Contract>.sol/<Contract>.json`, registers developer A's vault, mints USDC to payer + relayer, side-stages NETWORKS for the anvil chainId via Object.defineProperty (restore fn invoked in `afterAll`), spins up BOTH a Node `http.createServer(withPaywall(handler, configA))` and a Fastify app with `fastify.register(fastifyPaywall(configA))` in the same process, then exercises 5 cases: node-http happy (402 + ajv-schema-validate + sign EIP-3009 + 200 + X-PAYMENT-RESPONSE decode + vault USDC delta == value + `authorizationState[from][nonce] === true`), fastify happy (same shape against the Fastify endpoint), **cross-adapter NonceStore replay rejection** (pay via Node http, retry IDENTICAL X-PAYMENT bytes on Fastify → 402 `nonce_already_used` — locks in the D5 process-singleton claim), `vault_not_deployed` rejection (devB signs against `factory.computeVaultAddress(devB)` so the test reaches that branch on its own merits regardless of pipeline ordering), `paused` rejection (factory.pause() + wait 8 s for the 5 s factory-state cache TTL + signed request → 402 `paused`; finally{} unpauses). `arc-testnet-e2e.test.ts` is gated via `describe.skipIf(process.env.ARC_TESTNET_E2E !== '1')` and reads canonical env (`ARC_RPC_URL`, `PAYWALL_RELAYER_KEY`, `ARC_TESTNET_PAYER_PK`, `ARC_TESTNET_DEVELOPER_EOA`, `PAYMENT_SPLITTER_FACTORY_ADDRESS`) — wraps the relayer key in `OpaqueRelayerKey` at the env read (no plain-hex intermediate), ajv-validates the 402 body against the vendored x402 v1 ChallengeBody schema, asserts `X-PAYMENT-RESPONSE` shape and on-chain vault USDC balance delta. A side `describe('arc testnet e2e gate')` block runs unconditionally and asserts `runCounter === 0` when the flag is unset — structural proof the skip-gate behaves correctly. `vitest.config.ts` gains `testTimeout: 60_000` + `hookTimeout: 30_000` + explicit `isolate: true`. `.gitleaks.toml` allowlists the forked-e2e path so the public Foundry anvil test keys don't trigger pre-commit false positives. 253/253 + 2 skipped across 14 suites; typecheck and lint clean. Forked suite runs in ~10.2 s.
 
 **Deviations:**
+
 - vitest.config.ts gains `testTimeout: 60_000` + `hookTimeout: 30_000` (T9 owned the config but never added them; the T10 spec explicitly required them for the anvil spawn + 5 s factory-state cache TTL wait). Added here because the suite cannot pass without them. Additionally added explicit `isolate: true` per T10-R1-F3 — vitest's default is already isolate=true, but making it explicit defends the in-place NETWORKS mutation against any future config drift.
 - The forked suite mutates NETWORKS in place via `Object.defineProperty` (configurable/writable) to register an `'eip155:31337'` row pointing at the locally-deployed factory / vault / mock USDC. `afterAll` restores the previous state. Combined with `isolate: true`, this guarantees no cross-file bleed. The alternative (passing a fully-formed NetworkConfig through `PaywallConfig`) would have required changing `PaywallConfig` to accept either a string key or an embedded NetworkConfig object — out of T10 scope.
 - `vault_not_deployed` test signs with `to: factory.computeVaultAddress(devB)` instead of `0x0`. The middleware's pipeline order (per SEC-T8-05 / D5) already runs the factory-state check before EIP-712 recovery, so the original `to: 0x0` formulation passed — but the new form pins the test against its own invariant (`factory.vaults(devB) === 0x0`) rather than relying on pipeline ordering. Per T10-R1-F2.
@@ -423,17 +471,20 @@ post-completion entries here following the `do-task` skill template.
 
 **Reviews:**
 
-*Round 1:*
+_Round 1:_
+
 - code-reviewer-t10: approve_with_minors (T10-R1-M1 minor unused `developerBEoa`, T10-R1-M2 minor Fastify XPR assertions missing, T10-R1-M3 minor PublicClient close comment) → [logs/working/task-10/code-reviewer-t10-round1.json](logs/working/task-10/code-reviewer-t10-round1.json)
 - security-auditor-t10: not_blocking (SEC-T10-01 medium gitleaks allowlist for ANVIL_KEYS, SEC-T10-02 + SEC-T10-03 low plain-string hex intermediates before wrapping) → [logs/working/task-10/security-auditor-t10-round1.json](logs/working/task-10/security-auditor-t10-round1.json)
 - test-reviewer-t10: needs_improvement (F1 high paused-branch sleep margin, F2 medium vault_not_deployed `to` hazard, F3 medium NETWORKS mutation isolation, F4 low Fastify XPR assertions [overlap with code-reviewer], F5 low forked-e2e 402 ajv validation) → [logs/working/task-10/test-reviewer-t10-round1.json](logs/working/task-10/test-reviewer-t10-round1.json)
 
-*Round 2 (after fixes):*
+_Round 2 (after fixes):_
+
 - code-reviewer-t10: APPROVED (covers both 13f25d4 + cee0c18; F1/F2/F3/F5 all sound; M1/M2/M3 resolved) → [logs/working/task-10/code-reviewer-t10-round2.json](logs/working/task-10/code-reviewer-t10-round2.json)
 - security-auditor-t10: APPROVED (SEC-T10-01/02/03 all resolved at 9edc669, no new findings) → [logs/working/task-10/security-auditor-t10-round2.json](logs/working/task-10/security-auditor-t10-round2.json)
 - test-reviewer-t10: PASSED (F1/F2/F3/F4/F5 all verified on disk) → [logs/working/task-10/test-reviewer-t10-round2.json](logs/working/task-10/test-reviewer-t10-round2.json)
 
 **Verification:**
+
 - `npm test --workspace=@universal-paywall/middleware` → exit 0, 253 passed + 2 skipped across 14 suites.
 - `npm run test:e2e --workspace=@universal-paywall/middleware` → exit 0, 6 passed + 2 skipped across 2 suites.
 - `npm run typecheck --workspace=@universal-paywall/middleware` → exit 0.
@@ -442,11 +493,10 @@ post-completion entries here following the `do-task` skill template.
 - gitleaks pre-commit hook on every commit → 0 leaks.
 
 **Open items for future tasks:**
+
 - T16 (Wave 12) will need to populate `PAYMENT_SPLITTER_FACTORY_ADDRESS` (and `PAYWALL_RELAYER_KEY` / `ARC_TESTNET_PAYER_PK` / `ARC_TESTNET_DEVELOPER_EOA`) as CI secrets on the nightly job that runs `ARC_TESTNET_E2E=1 npm run test:e2e --workspace=@universal-paywall/middleware`. The suite reads these from env via `requireEnv(...)`; missing values throw a clear error inside the gated beforeAll.
 - Three env vars (`TEST_PORT`, `ARC_TESTNET_PAYER_PK`, `ARC_TESTNET_DEVELOPER_EOA`) are test-only — they appear in test code but are NOT part of the canonical runtime env-var table in tech-spec's Configuration section. Confirmed not to add them per iter-3 addendum.
 - The arc-testnet-e2e suite asserts the 402 body via the vendored x402 v1 ChallengeBody schema (`additionalProperties: false`) — if T8/T11 ever add a new top-level field to the 402 body, this suite (and forked-e2e's matching ajv-validate in node-http happy path, T10-R1-F5) will fail until the schema is updated.
-
-
 
 ## Task 14: Test Audit (Wave 10)
 
@@ -455,6 +505,7 @@ post-completion entries here following the `do-task` skill template.
 **Verdict:** PASS
 
 **Summary:** Holistic full-feature test quality audit completed. All hard requirements (per addendum §4 T14) satisfied:
+
 - Middleware vitest coverage: 96.87% lines / 89.18% branches / 100% functions (target ≥85% lines) → PASS.
 - Contracts Foundry LCOV branch coverage: 100% (10/10) on `contracts/src/` only (test/, script/, lib/ excluded) (target ≥95%) → PASS.
 - `contracts/test/invariants/VaultInvariants.t.sol` exists with **3 invariants** (≥3 required):
@@ -471,6 +522,7 @@ post-completion entries here following the `do-task` skill template.
 Every tech-spec Testing Strategy bullet (unit + contract + forked-e2e + register-cli) maps to an executable test by file+line+name. Coverage matrix in `audit-tests.md` shows PRESENT for all rows — no MISSING, no WEAK. All 4 EIP-712 tamper tests (chainId, verifyingContract, name, version) are distinct. All 7 settlement failure reasons covered by separate tests in `settle.test.ts`. All 14 declared `SecurityEventName` D18 catalog keys have a trigger test in `core.test.ts`. Relayer-key redaction covered for util.inspect, pino, winston, structuredClone, JSON.stringify, toString, error stacks, and non-enumerable assertion. Factory-state cache TTL tests use `vi.useFakeTimers()` (deterministic — no sleep flakiness).
 
 Test quality dimensions audited:
+
 - Meaningful assertions: PASS (algebraic identities in fuzz, exact 402 body shape + emit payloads in unit, on-chain balance deltas + authorizationState in forked-e2e)
 - Test isolation: PASS (vitest isolate:true, beforeEach cache resets, forked-e2e patchNetworksForAnvil teardown closure)
 - Mock realism: PASS (MockUsdcEip3009 mirrors Circle FiatTokenV2_2 domain; settle.test.ts partial-mocks viem preserving real cryptography)
@@ -478,11 +530,13 @@ Test quality dimensions audited:
 - Over-mocking: PASS (core.ts tests mock verify/settle downstream boundaries which have their own dedicated unit tests; no instance of mocking the unit under test)
 
 **3 low-severity recommendations (non-blocking):**
+
 - T14-L1: Replace 8s real-clock sleep in forked-e2e paused-request test (`integration/forked-e2e.test.ts:861`) with an RPC-override that forces a cache miss — deterministic TTL coverage already pinned at `core.test.ts:299`.
 - T14-L2: Document mock-vs-live USDC name divergence (mock="USD Coin", live="USDC") with a single shared constant in forked-e2e helpers.
 - T14-L3: Document forge LCOV instrumentation quirk for inherited modifier wrappers (`PaymentSplitterFactory.sol:97,100,101` show as missed by `_pause`/`_unpause` body lines but are functionally exercised by pause/unpause tests; branch metric is 100%).
 
 **Verification commands run:**
+
 - `npm test --workspace=@universal-paywall/middleware -- --coverage --reporter=basic` → exit 0; 253 passed / 2 skipped (skips are gated arc-testnet-e2e)
 - `cd contracts && forge coverage --report lcov` → exit 0; lcov.info per-file aggregation via awk on `^SF:src/`
 - `cd contracts && FOUNDRY_PROFILE=ci forge test --match-test 'testFuzz_|invariant_' -vv` → exit 0; fuzz runs=1000, invariant runs=256, all pass
@@ -490,10 +544,12 @@ Test quality dimensions audited:
 - `cd contracts && slither --detect reentrancy-eth,reentrancy-no-eth src/` → 0 findings
 
 **Reports:**
+
 - `work/x402-agent-payment/audit-tests.md` — full markdown audit (matrix, mandatory items, quality findings, recommendations)
 - `work/x402-agent-payment/logs/working/audit/test-auditor.json` — structured JSON for orchestrator consumption
 
 **Open items for future tasks:**
+
 - T15 (Pre-deploy QA): may proceed; no blockers. Apply the 3 low-severity recommendations opportunistically (post-MVP) — they are ergonomic, not correctness gates.
 - Coverage gate CI (separate task): document the forge LCOV line-vs-branch quirk in the CI gate config; target the branch metric on `contracts/src/` only (current ratio 100% gives ~5% margin against the ≥95% gate).
 
@@ -506,6 +562,7 @@ Test quality dimensions audited:
 **Deviations from spec:** None. All recommendations are non-blocking defense-in-depth or off-chain-observability improvements; the code matches every Decision (D1–D18) and every applicable Risks-row mitigation.
 
 **Tooling results:**
+
 - `npm test --workspace=@universal-paywall/middleware` → 253 passed + 2 skipped (Arc Testnet E2E gated); 0 failed.
 - `cd contracts && forge test` → 52 passed; 0 failed.
 - `cd contracts && forge test --match-test Reentrancy` → 1 passed (`test_Withdraw_ReentrancyBlocked_ViaMaliciousTreasury`). Note: `--match-contract Reentrancy` returns "no tests found" because the reentrancy test is a method on `PaymentVaultImplTest`, not a separate contract; `--match-test` is the correct selector.
@@ -515,6 +572,7 @@ Test quality dimensions audited:
 - Coverage READ (not re-run; thresholds owned by T14): `PaymentSplitterFactory.sol` 6/6 branches (100%), `PaymentVaultImpl.sol` 4/4 branches (100%), middleware 96.87% statements / 89.18% branches / 100% functions / 96.87% lines. All security-tagged branches exercised.
 
 **Open items for future tasks:**
+
 - Pre-Final-Wave (nice-to-fix, non-blocking): tighten `scrubSecrets` in `packages/middleware/src/relayer-key.ts:32` per M-MW-01 — replace `\b[0-9a-fA-F]{64}\b` with `(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])`, add a bare-130-hex pattern with the same lookarounds, and add fuzz strings (concatenated raw hex without `0x`) to `relayer-key.test.ts`. No exploited path today; closes a defense-in-depth gap.
 - Pre-Final-Wave (operational): add a `.gitleaksignore` entry for the anvil default account-0 key per I-SCRIPT-01 so the husky pre-commit hook stops false-positive on documentation-only commits.
 - Post-MVP (off-chain monitoring ergonomics): add `indexed` to `PlatformTreasuryUpdated.newTreasury` and `VaultDeployed.vault` parameters per L-CT-01/L-CT-02 — improves log filterability for treasury rotation and vault-deploy monitors. Not a security defect.
@@ -529,6 +587,7 @@ Test quality dimensions audited:
 **Deviations from spec:** None. The Solidity layout (`contracts/src/`, `contracts/script/Deploy.s.sol`, no Hardhat) deviates from tech-spec Architecture §"What we're building/modifying" lines 33–65 but matches D9 / iter-4 §1; observation only, not a finding.
 
 **Open items for future tasks:**
+
 - Pre-deploy (single fixer pass, non-blocking): resolve T12-01 either by deleting `errors.ts` and consolidating constants into a shared `error-reasons.ts`, OR by routing all `core.ts` 402 responses through `buildErrorResponse(...)`. Standardize the wire body on a single field name (`reason` or `settlementReason` — both are schema-accepted, but exactly one should be emitted).
 - Pre-deploy (carry with T12-01 fix): merge `SettlementSubReason` and `SettleReason` into a single type (T12-02); resolve the `internal_error` literal (T12-03) by either widening the taxonomy or mapping the chain-id-mismatch path to a documented bucket.
 - Pre-deploy (housekeeping): update `relayer-key.ts:5-6` docstring to describe the `WeakMap`-based design (T12-04); rename local `usdc`/`feeBps` in `PaymentVaultImpl.withdraw()` (T12-05).
@@ -555,6 +614,7 @@ Test quality dimensions audited:
 **Deferrals:** None — all 9 findings were actionable; no auditor flagged any as "advisory / nit / defer post-MVP".
 
 **Verification (post-fix):**
+
 - `npm test --workspace=@universal-paywall/middleware` → 208 passed + 2 skipped across 13 suites (was 253 + 2 skipped; -45 from deleted `errors.test.ts`). All 4 new scrubSecrets fuzz tests green.
 - `cd contracts && forge test` → 52 passed / 0 failed.
 - `npm run lint` → exit 0.
@@ -573,6 +633,7 @@ Test quality dimensions audited:
 **Final coverage delta:** middleware lines 96.69% (was 96.87%), branches 88.88% (was 89.18%). Both above the ≥85% gate. The drop is denominator noise from deleting `errors.test.ts` alongside its `errors.ts` source. Contracts LCOV branch coverage unchanged at 100% on `contracts/src/`.
 
 **Open items for post-MVP:**
+
 - Restore per-reason schema-iteration test on `core.ts:build402` (T14-R1-L4, ~15 lines).
 - Add a test for the `core.ts:430` unknown-network branch emitting `reason='chain_id_mismatch'` (T14-R1-I1).
 - Optional `{64,4096}` cap on `HEX_BARE_RUN_RE` in `relayer-key.ts` for diagnostic ergonomics on mega-blob inputs (I-AF-01).
@@ -589,6 +650,7 @@ Test quality dimensions audited:
 **Summary:** Walked all 51 acceptance criteria across the 5 sections (Middleware 18, Factory 11, Vault 6, Деплой 6, tech-spec technical complement 10). Every code-side AC carries mechanical evidence (file/line of source + named test that exercises it). The four deferred ACs (F-11 arcscan verification, D-04/T-06 live Arc Testnet e2e, T-07 deploy-script arcscan check) all describe the live environment that Task 16 produces and Task 17 verifies — they are structurally not verifiable pre-deploy and the Task 10 e2e file `packages/middleware/src/__tests__/integration/arc-testnet-e2e.test.ts` already carries the `ARC_TESTNET_E2E=1` skip gate by design.
 
 **Suite results:**
+
 - `npm test --workspace=@universal-paywall/middleware -- --coverage` → exit 0, 208 passed + 2 skipped across 13 suites; forked-e2e (`packages/middleware/src/__tests__/integration/forked-e2e.test.ts`) ran in 10.19 s (5 tests). Coverage: 96.69 % lines / 88.88 % branches / 100 % functions (above 85 % gate).
 - `cd contracts && forge test` → exit 0, 52 passed / 0 failed (29 factory + 20 vault + 3 invariants). Fuzz (`testFuzz_FeeMath`, `testFuzz_RegisterIdempotent`) and 3 invariants (`invariant_VaultBalanceIntegrity`, `invariant_FeeBpsBounded`, `invariant_DeveloperNonZero`) all ran with 256 runs each (128 000 invariant calls).
 - `cd contracts && forge coverage --report summary --ir-minimum` → exit 0, branch coverage **100 %** on both `src/PaymentSplitterFactory.sol` (6/6) and `src/PaymentVaultImpl.sol` (4/4) (above 95 % gate).
@@ -600,22 +662,24 @@ Test quality dimensions audited:
 **Audit cross-check:** All three Wave-10 audits (T12 code, T13 security, T14 tests) returned no blockers; the Wave-10 audit-fix round closed all 9 minor/medium findings with code-auditor + security-auditor + test-auditor APPROVED verdicts. No open blocker remains in `audit-code.md`, `audit-security.md`, or `audit-tests.md`.
 
 **Deferred to post-deploy (Task 17):**
+
 - F-11 — Contract verified on `https://testnet.arcscan.app` after deploy.
 - D-04 / T-06 — Live Arc Testnet e2e (`ARC_TESTNET_E2E=1`) against deployed factory.
 - T-07 — Deploy script address verifiable on arcscan.
 - (Out-of-band) Task 11 `Verify-user` — README user walk-through, awaiting user.
 
 **Deviations:** None from the AC set as written. Two user-spec wording items were superseded by binding addenda — both are documented and accepted:
+
 - User-spec "Деплой и тестирование" mentions `npx hardhat test` / `hardhat run deploy/...` — superseded by D9 + iter-4 §1 Foundry migration. Equivalent forge commands are spec'd in tech-spec Acceptance Criteria and verified above.
 - User-spec mentions `contracts/test/integration/forked-e2e.test.ts` — superseded by iter-4 §4 T10: the forked-e2e file lives at `packages/middleware/src/__tests__/integration/forked-e2e.test.ts` and runs under vitest (anvil spawned as a child process, contracts deployed programmatically via viem reading Foundry artifacts from `contracts/out/`).
 
 **Verification:**
+
 - Full markdown report: [qa-report.md](qa-report.md)
 - Structured JSON for orchestrator: [logs/working/pre-deploy-qa/report.json](logs/working/pre-deploy-qa/report.json)
 - Mirror copy of markdown for skill workspace: [logs/working/pre-deploy-qa/audit-pre-deploy-qa.md](logs/working/pre-deploy-qa/audit-pre-deploy-qa.md)
 
 **Post-deploy QA must verify the 4 deferred ACs above on the live Arc Testnet environment after Task 16 completes.**
-
 
 ## Task 16: Deploy to Arc Testnet + npm publish (Wave 12)
 
@@ -623,6 +687,7 @@ Test quality dimensions audited:
 **Agent:** deployer
 **Pre-Phase-A HEAD:** `c1c0c3cf4010c5fed2793b864901b4b340d88cac`
 **Release commits:**
+
 - `b0e2771` — Phase A: unlock `prepublishOnly` + bump to `0.0.1-alpha.0` (anvil dry-run only).
 - `433d14e` — Phase B release: Arc Testnet factory + vaultImpl addresses patched into `networks.ts`, `arc-testnet.enabled = true`, stale `enabled-false-until-Task-11` test updated.
 - `e74984e` — Phase B fix: T3 USDC-domain artefact inlined at build time (codegen + prebuild), bumped to `0.0.1-alpha.1`. Replaced the previous monorepo-relative `readFileSync` (which broke clean-dir `npm install`).
@@ -630,6 +695,7 @@ Test quality dimensions audited:
 **Verdict:** **DEPLOYED + PUBLISHED**. Live factory on Arc Testnet (chainId 5042002) verified on arcscan; `@universal-paywall/middleware@0.0.1-alpha.1` published to public npm registry under the `alpha` dist-tag; clean-dir import smoke-test passes against the live tarball. Three reviewers (code-reviewer-t16, security-auditor-t16, deploy-reviewer-t16) reviewed the cumulative Phase B diff and returned approve-with-notes / conditional-pass with no critical blockers remaining after the captured publish-log + this decisions.md entry.
 
 **On-chain artefacts (Arc Testnet, chainId 5042002):**
+
 - Factory `PaymentSplitterFactory`: [`0x028442a366fd124a9e953c90dae58afb8b8db9d8`](https://testnet.arcscan.app/address/0x028442a366fd124a9e953c90dae58afb8b8db9d8) (`is_verified: true`).
 - VaultImpl `PaymentVaultImpl`: [`0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45`](https://testnet.arcscan.app/address/0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45) (`is_verified: true`). Created inside the factory constructor per D3 + iter-3 §1; exposed via `factory.vaultImpl()`.
 - Deployer EOA: `0x1a06116DA33b3e5c7a7f98bC8593Ef6506895B72`.
@@ -639,6 +705,7 @@ Test quality dimensions audited:
 - Constructor signature: exactly 3 args `(IERC20 _usdc, address _platformTreasury, uint16 _initialFeeBps)` — confirmed in `contracts/script/Deploy.s.sol` line 53–54 and in the broadcast artefact at `contracts/broadcast/Deploy.s.sol/5042002/run-latest.json`.
 
 **npm artefacts:**
+
 - Published versions on registry: `0.0.1-alpha.0` (broken bundle — see deviation below) and `0.0.1-alpha.1` (fixed bundle).
 - Canonical published artefact: `@universal-paywall/middleware@0.0.1-alpha.1` — tarball at https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1-alpha.1.tgz (HTTP/2 200, content-type `application/octet-stream`).
 - dist-tags at publish time: `{ alpha: '0.0.1-alpha.1', latest: '0.0.1-alpha.0' }` — `latest` was auto-created by npm on first publish of a scoped package (open follow-up — see below).
@@ -647,17 +714,20 @@ Test quality dimensions audited:
 - Git tags pushed to origin: `middleware-v0.0.1-alpha.0` (sha `f8ded37`) at `433d14e`, `middleware-v0.0.1-alpha.1` (sha `39353d0`) at `e74984e`.
 
 **Smoke results (post-publish):**
+
 - `npm view @universal-paywall/middleware@0.0.1-alpha.1 dist.tarball` → returns the registry tarball URL above.
 - `curl -sI <tarball>` → HTTP/2 200, `content-type: application/octet-stream`.
 - `git ls-remote --tags origin middleware-v0.0.1-alpha.1` → `39353d02acec4dd8ff01e73238451402200a6147 refs/tags/middleware-v0.0.1-alpha.1`.
 - Clean-dir `mkdir /tmp/smoke && cd /tmp/smoke && npm init -y` (writing `"type": "module"` into package.json) + `npm install @universal-paywall/middleware@0.0.1-alpha.1` + `node -e "import('@universal-paywall/middleware').then(m => console.log(Object.keys(m).sort()))"` → prints `['NETWORKS', 'OpaqueRelayerKey', 'fastifyPaywall', 'withPaywall']` and the two T3 USDC-domain notes surface correctly. AC #145 passes against `0.0.1-alpha.1` (it failed against `0.0.1-alpha.0`; that's the bug that drove the alpha.1 fix).
 
 **Reviews:**
+
 - code-reviewer-t16 round 1: approve_with_notes, no blocking. [code-reviewer-t16-round1.json](logs/working/task-16/code-reviewer-t16-round1.json).
 - security-auditor-t16 round 1: CONDITIONAL_PASS, no critical/high. Three medium findings (MEDIUM-1 sourcemap-discloses-source, MEDIUM-2 `publishConfig.provenance: true` conflicts with bash gate, MEDIUM-3 USDC `name` mismatch). MEDIUM-3 cleared by verifying `cast call 0x3600…0000 "name()(string)"` returns `"USDC"` (exact byte-match with the inlined value); MEDIUM-1/2 deferred to a follow-up alpha.2 bump (non-blocking for alpha). [security-auditor-t16-round1.json](logs/working/task-16/security-auditor-t16-round1.json).
 - deploy-reviewer-t16 round 1: conditional_pass. One critical (decisions.md entry missing — closed by this entry), two major (`latest` dist-tag points at broken alpha.0 — pending user OTP; successful publish log not committed — captured retroactively into `logs/deploy/publish-alpha1-success-*.log` and committed in this round), two minor (version deviation + retry trigger not E409 — documented below). [deploy-reviewer-t16-round1.json](logs/working/task-16/deploy-reviewer-t16-round1.json).
 
 **Deviations from task-16 spec:**
+
 1. **Version numbering: `0.0.1-alpha.0` / `0.0.1-alpha.1` (not `0.1.0-alpha.0`).** The task spec calls for `0.1.0-alpha.0` as the first publish version. We landed on the `0.0.1-alpha.x` line instead because the package was at `0.0.0` pre-Task-16 and the bump aligned with the registry namespace's first-ever publish convention. Functionally equivalent — both forms are prerelease, both publish under `--tag=alpha`, both honor the "tag must NOT be `latest`" intent. Documented as cosmetic deviation.
 2. **`0.0.1-alpha.0` → `0.0.1-alpha.1` retry was NOT triggered by E409.** The task spec covers the alpha.0 → alpha.1 fallback as the response to npm version-conflict (`E409 / "cannot publish over previously published versions"`). Our retry was triggered instead by a real bug in `0.0.1-alpha.0`: `packages/middleware/src/networks.ts` did `readFileSync('../../../contracts/scripts/arc-testnet-usdc-domain.json')` at module load — a path that only exists in the monorepo, not under `node_modules/`. The published bundle therefore crashed on `import` in any clean directory (AC #145 fail). Fix landed in `e74984e` via a prebuild codegen that mirrors the JSON values into `src/generated/arc-testnet-usdc-domain.ts` at build time, so the published bundle no longer depends on a runtime path. The spec's bump-on-conflict mechanic applied straightforwardly anyway.
 3. **SLSA `--provenance` skipped.** Documented per the task-16 brief's bash pre-flight gate: `npm >= 9.5 && $GITHUB_ACTIONS` → `--provenance` else log warning + omit. npm 10.8.2 was OK but `GITHUB_ACTIONS` was unset because the operator published locally (not in CI). The bash gate produced `has_provenance_support=false` → the publish was passed `--provenance=false`, which also overrides the `publishConfig.provenance: true` field in package.json (security-auditor flagged that conflict as MEDIUM-2; deferred to alpha.2). No abort — provenance is best-effort.
@@ -666,6 +736,7 @@ Test quality dimensions audited:
 6. **README missing in tarball.** `files: ["dist", "README.md"]` lists README.md, but the package directory has no README. npm doesn't error on a missing `files` entry; tarball just doesn't include it. Will add a minimal README in the alpha.2 follow-up.
 
 **Open follow-ups (non-blocking for Task 17 unless noted):**
+
 - **DR-T16-R1-M1 (blocking for Task 17):** user runs `npm dist-tag rm @universal-paywall/middleware latest` so `npm install @universal-paywall/middleware` does not auto-install the broken `0.0.1-alpha.0`. Optionally also `npm dist-tag add @universal-paywall/middleware@0.0.1-alpha.1 latest` if the team prefers `latest` to point at the working alpha.
 - **DR-T16-R1-m2:** user runs `npm deprecate @universal-paywall/middleware@0.0.1-alpha.0 'broken bundle — T3 USDC domain artefact path failed in clean install; use >=0.0.1-alpha.1'`.
 - **SEC MEDIUM-1 + MEDIUM-2 + CR-T16-2..5 fix-up bump to `0.0.1-alpha.2`** (planned, not in this scope): turn `tsup.config.ts sourcemap: false` (drops 117 KB inadvertent TS source disclosure), drop `publishConfig.provenance: true` from package.json (eliminates conflict with the bash gate), pass `gasCostExceedsThreshold` and `sampleGasCost` through codegen (so a future README note can wire the > 5 % gas-cost warning), tighten the codegen type-check on `decimals` / `supportsEip3009`, add `.gitignore` comment documenting `src/generated/` is intentionally committed.
@@ -673,6 +744,7 @@ Test quality dimensions audited:
 - **Task 17 (post-deploy-qa) will exercise the live e2e** against this deployed factory + the published `0.0.1-alpha.1` tarball — full payment loop end-to-end on Arc Testnet, ARC_TESTNET_E2E=1 with a payer EOA topped up by the operator.
 
 **Verification:**
+
 - Deploy log: [logs/deploy/arcTestnet-20260626T122947Z.log](logs/deploy/arcTestnet-20260626T122947Z.log).
 - arcscan-verify logs: [logs/deploy/arcTestnet-verify-20260626T123210Z.log](logs/deploy/arcTestnet-verify-20260626T123210Z.log), [logs/deploy/arcTestnet-verify-vault-20260626T123218Z.log](logs/deploy/arcTestnet-verify-vault-20260626T123218Z.log).
 - Publish log (first attempt, EOTP fail before tarball upload — registry untouched): [logs/deploy/publish-20260626T123528Z.log](logs/deploy/publish-20260626T123528Z.log).
@@ -685,6 +757,7 @@ Test quality dimensions audited:
 After the 3 reviewer rounds closed (round 1 only), the operator chose to skip the alpha.2 step and promote directly to `0.0.1` (first stable) with the reviewer-recommended fixes baked in. Commit: `f5b94bd release(middleware): 0.0.1 — first stable release`. Tag: `middleware-v0.0.1` at `f5b94bd`, pushed to origin (`7252b6a`).
 
 **Reviewer fixes applied in `f5b94bd`:**
+
 - SEC MEDIUM-1: `tsup.config.ts` `sourcemap: false` — drops the inadvertent ~117 KB TypeScript source disclosure from `dist/index.js.map`. Tarball shrunk from 44.4 KB → 14.5 KB.
 - SEC MEDIUM-2: removed `publishConfig.provenance: true` so the bash pre-flight gate is the sole control of `--provenance`.
 - CR-T16-2: passthrough of `sampleGasCost` + `gasCostExceedsThreshold` from the source JSON through the codegen so the bundle carries them. Generated `ArcTestnetUsdcDomain` interface updated.
@@ -692,6 +765,7 @@ After the 3 reviewer rounds closed (round 1 only), the operator chose to skip th
 - CR-T16-4: strict type validation of all artefact fields in the codegen (`decimals` integer, `supportsEip3009` boolean, optional `sampleGasCost` string, optional `gasCostExceedsThreshold` boolean).
 
 **Live publish state (`0.0.1`):**
+
 - Versions on registry: `0.0.1-alpha.0`, `0.0.1-alpha.1`, `0.0.1`.
 - dist-tags: `{ alpha: '0.0.1-alpha.1', latest: '0.0.1' }`. **`latest` now points at the stable release** (DR-T16-R1-M1 resolved; consumers running `npm install @universal-paywall/middleware` will install `0.0.1`, not the broken alpha.0).
 - Tarball: https://registry.npmjs.org/@universal-paywall/middleware/-/middleware-0.0.1.tgz (HTTP/2 200, 14.5 KB).
@@ -703,10 +777,12 @@ After the 3 reviewer rounds closed (round 1 only), the operator chose to skip th
 **Versioning decision:** the spec's `0.1.0-alpha.0` was a prerelease number; promoting directly to `0.0.1` skips the prerelease ladder. Per semver, `0.x.y` is still pre-1.0 and explicitly does NOT guarantee API stability, so this is a defensible "first usable release" rather than a "we vouch for the API" claim. Task 17 will exercise the live e2e against `0.0.1` to confirm the deployed factory + this tarball talk to each other end-to-end.
 
 **Open follow-ups (carried forward):**
+
 - DR-T16-R1-m2: user runs `npm deprecate @universal-paywall/middleware@0.0.1-alpha.0 'broken bundle — use >=0.0.1-alpha.1'` (and optionally also deprecate alpha.1 in favour of 0.0.1). Cosmetic; the `latest` and `alpha` dist-tags already steer consumers to working versions.
 - CR-T16-1 (deferred): `"sideEffects": false` vs the module-level `console.warn` loop in `networks.ts:30-40` — bundlers may tree-shake the warn. Move into a named function called from `core.ts` startup OR remove `"sideEffects": false`. Not blocking for 0.0.1; potential 0.0.2.
 
 **Verification:**
+
 - Release commit: [f5b94bd](https://github.com/mnemonik-dev/universal-paywall/commit/f5b94bd).
 - Publish-success log (captured retroactively, includes `npm audit signatures` output): [logs/deploy/publish-0.0.1-success-20260626T165503Z.log](logs/deploy/publish-0.0.1-success-20260626T165503Z.log).
 - Git tag: `middleware-v0.0.1` (`7252b6a`).
@@ -723,17 +799,20 @@ After the 3 reviewer rounds closed (round 1 only), the operator chose to skip th
 **Summary:** Verified live that the deployed factory `0x028442a366fd124a9e953c90dae58afb8b8db9d8` exposes the expected `feeBps=50` / `platformTreasury=0xBD84…C409` / `owner=0x1a06…5B72` / `paused=false`; that the `ARC_TESTNET_E2E=1` integration suite passes 8/8 with a real EIP-3009 settlement landing **+10 000 base units (= 0.01 USDC) into the developer's live vault `0xB949951a0AA8e84f90c538E81B7A67a7b7F89006`**; and that the public-npm-installed `@universal-paywall/middleware@0.0.1` package returns an x402-v1-schema-valid 402 challenge from a `withPaywall()`-wrapped Node http server in a clean directory.
 
 **Live setup performed for step 2:**
+
 - Operator (the deployer EOA `0x1a06116DA33b3e5c7a7f98bC8593Ef6506895B72`) ran `factory.register()` to mint themselves a vault; resulting vault address `0xB949951a0AA8e84f90c538E81B7A67a7b7F89006`. `register()` tx is a one-shot prerequisite for live e2e and is NOT part of Task 16's deploy scope (it would be performed by every onboarding developer in production).
 - Payer EOA `0x7aa689CbFf2d83014cf28911d5597974f5672C85` topped up to 60 USDC on Arc Testnet; relayer EOA `0x9551402B8809E16b753Bf617aFB089aA0935be14` topped up to 20 USDC.
 - Env wiring: `ARC_TESTNET_E2E=1`, `ARC_TESTNET_PAYER_PK=<payer key>`, `ARC_TESTNET_DEVELOPER_EOA=0x1a06…5B72`, `PAYMENT_SPLITTER_FACTORY_ADDRESS=0x028442a3…` exported. Payer key never logged.
 
 **Deferred-AC closure (from pre-deploy QA `qa-report.md`):**
+
 - F-11 — Contract verified on `https://testnet.arcscan.app`. Closed: both factory and vaultImpl `is_verified: true` (verified at Task 16; cross-checked here via arcscan URLs).
 - T-07 — Deploy script outputs factory address; verifiable on arcscan. Closed.
 - D-04 / T-06 — Live Arc Testnet e2e (`ARC_TESTNET_E2E=1`). **Closed by Step 2 above** — 8/8 tests pass with a confirmed on-chain settlement (`vault.balanceOf == 10000` base units == 0.01 USDC).
 - T-11 — README user walk-through. Out of band; not a Task 17 deliverable per spec.
 
 **Verification:**
+
 - Full markdown report: [post-deploy-report.md](post-deploy-report.md).
 - Live e2e raw log: [logs/deploy/task-17/live-e2e-20260626T181746Z.log](logs/deploy/task-17/live-e2e-20260626T181746Z.log).
 - 402 body smoke capture: [logs/deploy/task-17/smoke-402-body.json](logs/deploy/task-17/smoke-402-body.json).

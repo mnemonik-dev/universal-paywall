@@ -33,6 +33,7 @@ contracts/
 ```
 
 `foundry.toml`:
+
 ```toml
 [profile.default]
 src = "src"
@@ -58,23 +59,24 @@ arc_testnet = "${ARC_RPC_URL}"
 Mocks live under `contracts/test/mocks/*.sol`. **Foundry's `test` path is compiled automatically** for test runs — no separate `paths.sources` override needed (this dissolves the round-3 critical on T5). Production sources under `contracts/src/` are NOT polluted with test mocks. NatSpec `@custom:test-only` tags are still added for clarity.
 
 Slither config (`slither.config.json`) excludes `contracts/test/` from production-security severity:
+
 ```json
 { "filter_paths": "test/,lib/", "exclude_low": false }
 ```
 
 ## 3. Commands
 
-| Operation | Command |
-|---|---|
-| Compile | `forge build` |
-| Tests (unit + fuzz + invariant) | `forge test` |
-| Coverage | `forge coverage --report lcov` |
-| Gas snapshot | `forge snapshot` |
-| Slither | `slither contracts/src/ --config-file contracts/slither.config.json` |
-| Local node (for middleware integration tests) | `anvil --chain-id 31337 --port 8545` (T10 spawns this) |
-| Forked node (Arc Testnet, optional) | `anvil --fork-url $ARC_RPC_URL --chain-id 5042002` |
-| Deploy | `forge script script/Deploy.s.sol --rpc-url $ARC_RPC_URL --broadcast --verify` |
-| Verify (contract) | bundled into `--verify` flag on the deploy script (uses `verifier_url` for arcscan if needed) |
+| Operation                                     | Command                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Compile                                       | `forge build`                                                                                 |
+| Tests (unit + fuzz + invariant)               | `forge test`                                                                                  |
+| Coverage                                      | `forge coverage --report lcov`                                                                |
+| Gas snapshot                                  | `forge snapshot`                                                                              |
+| Slither                                       | `slither contracts/src/ --config-file contracts/slither.config.json`                          |
+| Local node (for middleware integration tests) | `anvil --chain-id 31337 --port 8545` (T10 spawns this)                                        |
+| Forked node (Arc Testnet, optional)           | `anvil --fork-url $ARC_RPC_URL --chain-id 5042002`                                            |
+| Deploy                                        | `forge script script/Deploy.s.sol --rpc-url $ARC_RPC_URL --broadcast --verify`                |
+| Verify (contract)                             | bundled into `--verify` flag on the deploy script (uses `verifier_url` for arcscan if needed) |
 
 ## 4. Per-task adjustments
 
@@ -152,6 +154,7 @@ Two-step pipeline:
 ### T15 — Pre-deploy QA
 
 Commands:
+
 - `npm test --workspace=@universal-paywall/middleware` — middleware vitest.
 - `cd contracts && forge test && forge coverage --report summary` — contracts.
 - `ARC_TESTNET_E2E=1 npm run test:e2e --workspace=@universal-paywall/middleware` — live Arc Testnet e2e.
@@ -179,6 +182,7 @@ Add explicit comment in `packages/middleware/package.json` `scripts.test` value:
 ### T3 — artifact JSON shape includes `notes?`
 
 `contracts/scripts/arc-testnet-usdc-domain.json` artifact shape:
+
 ```json
 {
   "name": "USD Coin",

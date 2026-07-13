@@ -26,9 +26,11 @@
     "prettier": "^3.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.5.0"
+    "vitest": "^3.2.7"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "vite": "^6.4.3",
+    "ws": "^8.21.0"
   }
 }

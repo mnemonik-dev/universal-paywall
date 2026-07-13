@@ -9,7 +9,13 @@ function spyReporter() {
   const reporter: Reporter = {
     async report(input: ReportInput): Promise<ReportOutcome> {
       calls.push(input);
-      return { status: 'charged', id: `c_${calls.length}`, payer: '0x1' as never, creator: '0x2' as never, amount: input.amount };
+      return {
+        status: 'charged',
+        id: `c_${calls.length}`,
+        payer: '0x1' as never,
+        creator: '0x2' as never,
+        amount: input.amount,
+      };
     },
   };
   return { calls, reporter };
@@ -21,10 +27,18 @@ function fakeSubsonic(): Promise<{ url: string; server: Server }> {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ 'subsonic-response': { status: 'ok' } }));
   });
-  return new Promise((resolve) => server.listen(0, () => resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server })));
+  return new Promise((resolve) =>
+    server.listen(0, () =>
+      resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server }),
+    ),
+  );
 }
 
-async function withProxy(upstreamUrl: string, reporter: Reporter, fn: (base: string) => Promise<void>) {
+async function withProxy(
+  upstreamUrl: string,
+  reporter: Reporter,
+  fn: (base: string) => Promise<void>,
+) {
   const proxy = createServer(createSubsonicProxy({ upstreamUrl, reporter, ratePerPlay: 3n }));
   await new Promise<void>((r) => proxy.listen(0, r));
   const base = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
@@ -39,8 +53,12 @@ const tick = () => new Promise((r) => setTimeout(r, 60));
 describe('isScrobbleSubmission', () => {
   it('matches a scrobble submission with an id, excludes now-playing', () => {
     expect(isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice&id=t1'))).toBe(true);
-    expect(isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice&id=t1&submission=true'))).toBe(true);
-    expect(isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice&id=t1&submission=false'))).toBe(false); // now playing
+    expect(
+      isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice&id=t1&submission=true')),
+    ).toBe(true);
+    expect(
+      isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice&id=t1&submission=false')),
+    ).toBe(false); // now playing
     expect(isScrobbleSubmission(new URL('http://x/rest/scrobble.view?u=alice'))).toBe(false); // no id
     expect(isScrobbleSubmission(new URL('http://x/rest/ping.view?u=alice'))).toBe(false);
   });
@@ -52,7 +70,9 @@ describe('createSubsonicProxy', () => {
     const { calls, reporter } = spyReporter();
     try {
       await withProxy(url, reporter, async (base) => {
-        const res = await fetch(`${base}/rest/scrobble.view?u=alice&id=track-9&time=1700000000000&submission=true&c=app&v=1.16.1`);
+        const res = await fetch(
+          `${base}/rest/scrobble.view?u=alice&id=track-9&time=1700000000000&submission=true&c=app&v=1.16.1`,
+        );
         expect(res.status).toBe(200);
         expect((await res.json())['subsonic-response'].status).toBe('ok'); // proxied through
         await tick();

@@ -237,7 +237,7 @@ describe('SessionPaymentService', () => {
   it('settles fifty concurrent retries once and returns one signed receipt', async () => {
     const { service, sessionSettler, signer } = harness();
     await service.registerSession(await registration());
-    service.createQuote(stakeRequest().binding);
+    await service.createQuote(stakeRequest().binding);
     const receipts = await Promise.all(
       Array.from({ length: 50 }, () => service.settle(stakeRequest())),
     );
@@ -258,7 +258,7 @@ describe('SessionPaymentService', () => {
     const { service } = harness();
     await service.registerSession(await registration());
     const original = stakeRequest();
-    service.createQuote(original.binding);
+    await service.createQuote(original.binding);
     const first = service.settle(original);
     const conflicting = stakeRequest();
     conflicting.binding.artifact_hash = 'different-artifact';
@@ -279,7 +279,7 @@ describe('SessionPaymentService', () => {
   it('returns the durable receipt after a provider restart', async () => {
     const first = harness();
     await first.service.registerSession(await registration());
-    first.service.createQuote(stakeRequest().binding);
+    await first.service.createQuote(stakeRequest().binding);
     const receipt = await first.service.settle(stakeRequest());
 
     const second = new SessionPaymentService({
@@ -298,7 +298,7 @@ describe('SessionPaymentService', () => {
   it('reconciles an uncertain transaction instead of charging again', async () => {
     const { service, sessionSettler } = harness({ uncertainOnce: true });
     await service.registerSession(await registration());
-    service.createQuote(stakeRequest().binding);
+    await service.createQuote(stakeRequest().binding);
     await expect(service.settle(stakeRequest())).rejects.toThrow('rpc_timeout');
     const status = await service.getPaymentStatus('operation-1');
     expect(status.status).toBe('settled');
@@ -310,12 +310,12 @@ describe('SessionPaymentService', () => {
     const { service } = harness();
     await service.registerSession(await registration());
     const wrongScope = stakeRequest();
-    service.createQuote(wrongScope.binding);
+    await service.createQuote(wrongScope.binding);
     if (wrongScope.payment.scheme !== 'stake') throw new Error('expected stake');
     wrongScope.payment.authorization.workspace_hash = `0x${'aa'.repeat(32)}`;
     await expect(service.settle(wrongScope)).rejects.toThrow('session_scope_violation');
 
-    service.createQuote(stakeRequest('other-operation').binding);
+    await service.createQuote(stakeRequest('other-operation').binding);
     await service.settle(stakeRequest('other-operation'));
     const changed = stakeRequest('other-operation');
     changed.binding.artifact_hash = 'different';
@@ -343,7 +343,7 @@ describe('SessionPaymentService', () => {
         },
       },
     };
-    service.createQuote(exactBinding);
+    await service.createQuote(exactBinding);
     const receipt = await service.settle(request);
     expect(receipt.scheme).toBe('exact');
     expect(receipt.receipt.payload.binding_digest).toMatch(/^0x[0-9a-f]{64}$/);

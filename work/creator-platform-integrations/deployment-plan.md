@@ -3,8 +3,8 @@ feature: creator-platform-integrations
 doc: deployment-plan
 created: 2026-06-21
 supersedes: parts of upstream-integration-guide.md (now that the forks are in scope)
-decision: "sidecars + recipes only; platform forks stay untouched"
-sequencing: "plan + scaffold first, then build one platform at a time"
+decision: 'sidecars + recipes only; platform forks stay untouched'
+sequencing: 'plan + scaffold first, then build one platform at a time'
 ---
 
 # Deployment Plan — Attaching the Rail to the In-Scope Platform Forks
@@ -14,7 +14,7 @@ This session has the platform forks in scope as `mnemonik-dev` clones
 `musicbrainz-server`). The chosen integration shape is **sidecars + deployment
 recipes only** — we do **not** modify the platform forks. Each platform attaches
 to the existing `@universal-paywall/integrations` sidecar through its own
-*existing* configuration surface, which has now been **verified against the actual
+_existing_ configuration surface, which has now been **verified against the actual
 fork code** (not just the Canteen guide's assumptions).
 
 > Immich is **not** in scope (no fork) — its row is dropped from this plan.
@@ -26,15 +26,15 @@ fork code** (not just the Canteen guide's assumptions).
 Every anchor below was confirmed by reading the fork on branch
 `claude/universal-paywall-integrations-2xsjwu`.
 
-| Platform | Fork anchor (verified) | Existing config surface used | Sidecar role | Code change to fork? |
-|---|---|---|---|---|
-| **Navidrome** (music) | `consts/consts.go:82` `DefaultListenBrainzBaseURL = "https://api.listenbrainz.org/1/"`; `core/scrobbler/` external-scrobbler interface | Point `ND_LISTENBRAINZ_BASEURL` at our sidecar's `/1/` | ListenBrainz-compatible scrobble receiver | **None** (config only) |
-| **Owncast** (live) | `models/eventType.go:10-12` `USER_JOINED`/`USER_PARTED`; `POST /api/admin/webhooks/create` (`webserver/handlers/generated/generated.gen.go:568`) | Admin webhook registration (Basic auth) | Presence meter (per-second) — already e2e-proven | **None** (register webhook) |
-| **Jellyfin** (VOD) | `Jellyfin.Api/Controllers/PlaystateController.cs`; official `jellyfin-plugin-webhook` (separate repo) | Install the official Webhook plugin, template payload | Per-minute billing on `PlaybackStop` | **None** (official plugin) |
-| **RSSHub** (feeds) | `lib/types.ts:37,88` `DataItem.link`/`author`; `lib/middleware/` | Crawler boundary (preferred) or an RSSHub middleware | Per-citation toll | **None** (crawler-side) |
-| **PeerTube** (fed. VOD) | `packages/models/src/plugins/server/server-hook.model.ts:186` `action:api.video.viewed` | Plugin loader (**no native view webhook exists** — confirmed) | Per-view charge | **Published plugin** (separate npm pkg; not a fork edit) |
-| **Mastodon** (fediverse) | `app/controllers/api/v1/donation_campaigns_controller.rb`; `config/mastodon.yml:7` `DONATION_CAMPAIGNS_URL` | Operator sets `DONATION_CAMPAIGNS_URL` → our provider | Campaign-source provider | **None** (env config) |
-| **MusicBrainz** (registry) | `musicbrainz-server` WS/2 (`/ws/2/recording/<mbid>`) | Read-only lookups to enrich the resolver | Registry/moat enrichment for `resolveCreator` | **None** (read API) |
+| Platform                   | Fork anchor (verified)                                                                                                                           | Existing config surface used                                  | Sidecar role                                     | Code change to fork?                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| **Navidrome** (music)      | `consts/consts.go:82` `DefaultListenBrainzBaseURL = "https://api.listenbrainz.org/1/"`; `core/scrobbler/` external-scrobbler interface           | Point `ND_LISTENBRAINZ_BASEURL` at our sidecar's `/1/`        | ListenBrainz-compatible scrobble receiver        | **None** (config only)                                   |
+| **Owncast** (live)         | `models/eventType.go:10-12` `USER_JOINED`/`USER_PARTED`; `POST /api/admin/webhooks/create` (`webserver/handlers/generated/generated.gen.go:568`) | Admin webhook registration (Basic auth)                       | Presence meter (per-second) — already e2e-proven | **None** (register webhook)                              |
+| **Jellyfin** (VOD)         | `Jellyfin.Api/Controllers/PlaystateController.cs`; official `jellyfin-plugin-webhook` (separate repo)                                            | Install the official Webhook plugin, template payload         | Per-minute billing on `PlaybackStop`             | **None** (official plugin)                               |
+| **RSSHub** (feeds)         | `lib/types.ts:37,88` `DataItem.link`/`author`; `lib/middleware/`                                                                                 | Crawler boundary (preferred) or an RSSHub middleware          | Per-citation toll                                | **None** (crawler-side)                                  |
+| **PeerTube** (fed. VOD)    | `packages/models/src/plugins/server/server-hook.model.ts:186` `action:api.video.viewed`                                                          | Plugin loader (**no native view webhook exists** — confirmed) | Per-view charge                                  | **Published plugin** (separate npm pkg; not a fork edit) |
+| **Mastodon** (fediverse)   | `app/controllers/api/v1/donation_campaigns_controller.rb`; `config/mastodon.yml:7` `DONATION_CAMPAIGNS_URL`                                      | Operator sets `DONATION_CAMPAIGNS_URL` → our provider         | Campaign-source provider                         | **None** (env config)                                    |
+| **MusicBrainz** (registry) | `musicbrainz-server` WS/2 (`/ws/2/recording/<mbid>`)                                                                                             | Read-only lookups to enrich the resolver                      | Registry/moat enrichment for `resolveCreator`    | **None** (read API)                                      |
 
 ## What the sidecar already does vs. what each recipe needs
 
@@ -54,8 +54,8 @@ Gaps the recipes expose:
    `PLATFORM=mastodon`): 200 campaign JSON echoing the requested `locale`, or 204
    when unset. Built to the real schema (`amounts` nested `{one_time,monthly}`;
    the stale `pr-drafts.md` array shape corrected), verified against the controller
-   + request spec and live HTTP-smoke-tested. No facilitator needed (config-only).
-   +5 unit tests. `RouteResponse` added to `serve.ts` for the 204 path.
+   - request spec and live HTTP-smoke-tested. No facilitator needed (config-only).
+     +5 unit tests. `RouteResponse` added to `serve.ts` for the 204 path.
 3. ~~**PeerTube plugin**~~ — **BUILT.** `packages/peertube-plugin/`
    (`peertube-plugin-universal-paywall`): `main.js` registers
    `action:api.video.viewed` → settings-driven `createReporter` → facilitator
@@ -97,8 +97,8 @@ are marked `TODO`.
 
 See **`testing-plan.md`** for the four-layer verification (L1 unit → L2 sidecar
 HTTP contract → L3 real Docker'd instance → L4 anvil on-chain money loop) and the
-per-platform test matrix. The universal acceptance check: *after one event from a
-staked consumer, the payee's on-chain balance increased by exactly rate × units.*
+per-platform test matrix. The universal acceptance check: _after one event from a
+staked consumer, the payee's on-chain balance increased by exactly rate × units._
 
 ## Recommended build order
 
@@ -115,4 +115,3 @@ Routes #1 (Navidrome) and #2 (Mastodon) are **done**. Remaining:
 7. **Browser-extension** (gap #5) — first add the agent signer abstraction
    (prerequisite), then the MV3 adaptor.
 8. **PeerTube** — build the plugin package; publish is external.
-

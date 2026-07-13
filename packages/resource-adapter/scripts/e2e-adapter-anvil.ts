@@ -45,7 +45,13 @@ function artifact(p) {
 async function deploy(key, art, args) {
   const account = privateKeyToAccount(key);
   const w = createWalletClient({ account, chain, transport: http(RPC) });
-  const hash = await w.deployContract({ abi: art.abi, bytecode: art.bytecode, args, account, chain });
+  const hash = await w.deployContract({
+    abi: art.abi,
+    bytecode: art.bytecode,
+    args,
+    account,
+    chain,
+  });
   const r = await pub.waitForTransactionReceipt({ hash });
   return r.contractAddress;
 }
@@ -78,7 +84,12 @@ async function main() {
   const usdc = await deploy(DEPLOYER, mockUsdc, []);
   const factory = await deploy(DEPLOYER, factoryArt, [usdc]);
   await send(DEPLOYER, factory, factoryArt.abi, 'createVault', [payer]);
-  const vault = await pub.readContract({ address: factory, abi: factoryArt.abi, functionName: 'vaults', args: [payer] });
+  const vault = await pub.readContract({
+    address: factory,
+    abi: factoryArt.abi,
+    functionName: 'vaults',
+    args: [payer],
+  });
   await send(DEPLOYER, usdc, mockUsdc.abi, 'mint', [payer, 1_000_000n]);
   await send(PAYER_KEY, usdc, mockUsdc.abi, 'approve', [vault, 1_000_000n]);
   await send(PAYER_KEY, vault, vaultArt.abi, 'deposit', [1_000_000n]);
@@ -122,7 +133,10 @@ async function main() {
   // 1) No proof → 402 payer_required
   const r402 = await fetch('http://127.0.0.1:3000/paid');
   const b402 = await r402.json();
-  assert(r402.status === 402 && b402.error === 'payer_required', '402 payer_required without proof');
+  assert(
+    r402.status === 402 && b402.error === 'payer_required',
+    '402 payer_required without proof',
+  );
 
   // 2) Signed proof + active grant → 200
   const ts = Math.floor(Date.now() / 1000);
@@ -139,7 +153,12 @@ async function main() {
   const results = await fac.service.flushAll();
   assert(results.length === 1 && results[0].ok, 'facilitator settled the charge on-chain');
 
-  const creatorBal = await pub.readContract({ address: usdc, abi: mockUsdc.abi, functionName: 'balanceOf', args: [CREATOR] });
+  const creatorBal = await pub.readContract({
+    address: usdc,
+    abi: mockUsdc.abi,
+    functionName: 'balanceOf',
+    args: [CREATOR],
+  });
   assert(creatorBal === PRICE, `creator paid ${PRICE} on-chain (got ${creatorBal})`);
 
   resourceServer.close();

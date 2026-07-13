@@ -22,15 +22,15 @@ against `mastodon/.../donation_campaigns_controller.rb` and its request spec:
 
 Either a full `CAMPAIGN_JSON` (the template minus `locale`), or discrete vars:
 
-| Env | Default |
-|---|---|
-| `CAMPAIGN_DONATION_URL` | **required** — donor stake/checkout URL (settles via the rail) |
-| `CAMPAIGN_ID` | `universal-paywall` |
-| `CAMPAIGN_BANNER_MESSAGE` | "Support this instance — settles onchain…" |
-| `CAMPAIGN_BANNER_BUTTON_TEXT` | `Donate` |
-| `CAMPAIGN_DONATION_MESSAGE` / `_BUTTON_TEXT` / `_SUCCESS_POST` | sensible defaults |
-| `CAMPAIGN_AMOUNTS` | `{"one_time":{"USD":[5,10,25]},"monthly":{"USD":[5]}}` |
-| `CAMPAIGN_DEFAULT_CURRENCY` | `USD` |
+| Env                                                            | Default                                                        |
+| -------------------------------------------------------------- | -------------------------------------------------------------- |
+| `CAMPAIGN_DONATION_URL`                                        | **required** — donor stake/checkout URL (settles via the rail) |
+| `CAMPAIGN_ID`                                                  | `universal-paywall`                                            |
+| `CAMPAIGN_BANNER_MESSAGE`                                      | "Support this instance — settles onchain…"                     |
+| `CAMPAIGN_BANNER_BUTTON_TEXT`                                  | `Donate`                                                       |
+| `CAMPAIGN_DONATION_MESSAGE` / `_BUTTON_TEXT` / `_SUCCESS_POST` | sensible defaults                                              |
+| `CAMPAIGN_AMOUNTS`                                             | `{"one_time":{"USD":[5,10,25]},"monthly":{"USD":[5]}}`         |
+| `CAMPAIGN_DEFAULT_CURRENCY`                                    | `USD`                                                          |
 
 No `FACILITATOR_URL` needed — the provider only serves config; donations settle
 later at `donation_url` via `@universal-paywall/agent` + the facilitator.

@@ -18,7 +18,7 @@ A forward design for Universal Paywall's agent/creator payment path. It keeps th
 This resolves the gaps in `economics-review.md` (per-payment gas ≫ fee; relayer
 fragility; mandatory platform fee) and the x402-alignment tension (centralizing
 rent-taking middleman), while preserving a clear place to charge a fee — at the
-*optional* facilitator layer, not in the rail.
+_optional_ facilitator layer, not in the rail.
 
 > Naming note: this is described as a **facilitator + session-key rail**. We do not
 > brand it "account abstraction"; session keys / spending policies are the
@@ -55,34 +55,35 @@ seamlessly; a separate external service does the on-chain work on their behalf.
 
 ## Roles
 
-| Tier | Who | Responsibilities | Holds keys? | Pays gas? |
-|---|---|---|---|---|
-| **Payer** | AI agent, or a platform user | Funds + **locks a stake**; grants a **scoped, revocable** session-key policy (max total, per-period rate, expiry, allowed payees/facilitator). Keeps the master key. | Master key (own funds) | No |
-| **Creator / platform** | Owncast/Navidrome/Jellyfin/RSSHub operator, or any HTTP API | Imports a thin SDK; emits a charge/usage intent per event (`POST /charge`) **or** exposes a webhook the facilitator subscribes to. Receives net funds to its payout vault. | **None** | No |
-| **Facilitator** | **External, permissionless service** — runnable by anybody (us as a paid hosted option, the platform itself, or a 3rd party) | Receives charge intents; authorizes via the payer-delegated session key **within policy**; **batches** many micro-charges; submits settlement tx; pays gas; **takes a fee**. | Delegated **session key** (bounded authority only) | **Yes** (reimbursed via fee) |
-| **Rail** | Smart contracts (deployed once, ownerless) | Custody-free stake accounts + per-creator counterfactual payout vaults; **enforces the session-key policy on-chain**; routes payer→creator; **no protocol fee**. | — | — |
+| Tier                   | Who                                                                                                                          | Responsibilities                                                                                                                                                             | Holds keys?                                        | Pays gas?                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------- |
+| **Payer**              | AI agent, or a platform user                                                                                                 | Funds + **locks a stake**; grants a **scoped, revocable** session-key policy (max total, per-period rate, expiry, allowed payees/facilitator). Keeps the master key.         | Master key (own funds)                             | No                           |
+| **Creator / platform** | Owncast/Navidrome/Jellyfin/RSSHub operator, or any HTTP API                                                                  | Imports a thin SDK; emits a charge/usage intent per event (`POST /charge`) **or** exposes a webhook the facilitator subscribes to. Receives net funds to its payout vault.   | **None**                                           | No                           |
+| **Facilitator**        | **External, permissionless service** — runnable by anybody (us as a paid hosted option, the platform itself, or a 3rd party) | Receives charge intents; authorizes via the payer-delegated session key **within policy**; **batches** many micro-charges; submits settlement tx; pays gas; **takes a fee**. | Delegated **session key** (bounded authority only) | **Yes** (reimbursed via fee) |
+| **Rail**               | Smart contracts (deployed once, ownerless)                                                                                   | Custody-free stake accounts + per-creator counterfactual payout vaults; **enforces the session-key policy on-chain**; routes payer→creator; **no protocol fee**.             | —                                                  | —                            |
 
 ## Trust model (non-custodial, bounded)
 
 - **Principal never leaves payer control.** The stake is locked in a
   **payer-owned** account contract; the payer can reclaim the unused remainder and
   **revoke** the session key at any time. The facilitator and creator only ever
-  hold *delegated, capped* authority — never the funds.
+  hold _delegated, capped_ authority — never the funds.
 - **Worst case is bounded by the on-chain policy.** A rogue or compromised
   facilitator cannot spend beyond `{cap, rate, expiry, allowed payees}`; the
   contract rejects anything outside it. No backend bug can exceed the envelope the
   payer signed.
 - **Stake = locked deposit, settled against (unidirectional channel).** Critical
   refinement: the facilitator **serves first, settles after**, so it carries the
-  served-but-unsettled gap. If the stake were a *liquid* balance the payer could
+  served-but-unsettled gap. If the stake were a _liquid_ balance the payer could
   drain-and-revoke after consuming. Locking the stake (with refund of the unused
   remainder on close) removes that risk — the facilitator/creator settle against
   funds the payer cannot pull mid-window.
 - **Fee lives at the facilitator layer only.** Because facilitators are swappable
-  and the rail privileges none, the fee is *market-set and optional*, not protocol
+  and the rail privileges none, the fee is _market-set and optional_, not protocol
   rent. This is what keeps the design x402-aligned.
 
 ### Charge authorization — two tiers
+
 1. **MVP (seamless):** the creator authenticates to the facilitator (API key /
    signed request) and its `POST /charge` is treated as the usage attestation.
    Bounded by the payer's on-chain policy. Maximum integration simplicity.
@@ -113,20 +114,20 @@ seamlessly; a separate external service does the on-chain work on their behalf.
 
 ## How it fixes the open problems
 
-| Problem (from prior docs) | Fix here |
-|---|---|
-| Per-payment gas ≈ 12.6% of a $0.01 call (`economics-review.md`) | **Batching** — one tx per N charges → gas/charge ≪ payment. |
-| Relayer USDC-float fragility, `relayer_no_balance` hard-fails | Gas float moves to the **facilitator** and is amortized per *batch*, not per payment; far less fragile, and creators never touch it. |
-| Mandatory 0.5% rent for ~no runtime work | Rail is **feeless**; fee moves to the facilitator, where real work is done and competition sets the price. |
-| Centralizing middleman vs x402 ethos | Rail is permissionless + non-custodial; facilitators are **swappable** → no mandatory intermediary, no protocol rent. |
-| Fragile self-hosted facilitator in creator deployment | Facilitator is **external and separate**; creators integrate with an SDK/HTTP call only. |
+| Problem (from prior docs)                                       | Fix here                                                                                                                             |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Per-payment gas ≈ 12.6% of a $0.01 call (`economics-review.md`) | **Batching** — one tx per N charges → gas/charge ≪ payment.                                                                          |
+| Relayer USDC-float fragility, `relayer_no_balance` hard-fails   | Gas float moves to the **facilitator** and is amortized per _batch_, not per payment; far less fragile, and creators never touch it. |
+| Mandatory 0.5% rent for ~no runtime work                        | Rail is **feeless**; fee moves to the facilitator, where real work is done and competition sets the price.                           |
+| Centralizing middleman vs x402 ethos                            | Rail is permissionless + non-custodial; facilitators are **swappable** → no mandatory intermediary, no protocol rent.                |
+| Fragile self-hosted facilitator in creator deployment           | Facilitator is **external and separate**; creators integrate with an SDK/HTTP call only.                                             |
 
 ## Incorporates the earlier proposed fixes
 
 - **Fix 1 — feeless / permissionless / pauseless / ownerless contract** → the
   **rail**.
 - **Fix 2 — counterfactual vaults** (precomputed address, deploy-on-withdraw, salt
-  that *commits to the owner*) → both the payer stake account and the creator
+  that _commits to the owner_) → both the payer stake account and the creator
   payout vault.
 - **Session key / policy + batching** → this design's core.
 
@@ -143,7 +144,7 @@ seamlessly; a separate external service does the on-chain work on their behalf.
 ## Open questions / risks
 
 - **Compliance.** Non-custodial principal + bounded delegation keeps a facilitator
-  off the custody hook. If *we* run a hosted facilitator holding session keys for
+  off the custody hook. If _we_ run a hosted facilitator holding session keys for
   many payers, we execute delegated (not custodied) authority — lighter than
   escrow, but get a legal read before the hosted tier ships.
 - **Charge-auth model.** API-key (seamless) vs signed receipts (trust-minimized) —
@@ -153,7 +154,7 @@ seamlessly; a separate external service does the on-chain work on their behalf.
   key/permission standard. (Candidate primitives exist; selection is a separate
   spike.)
 - **Arc specifics.** On Arc, gas is already USDC, so gas-abstraction is a non-issue
-  — the facilitator just needs a USDC float for *batch* gas, reimbursed via fee.
+  — the facilitator just needs a USDC float for _batch_ gas, reimbursed via fee.
   The win on Arc is the **session-key/policy + batching**, not gas sponsorship.
 - **Liveness / revocation.** Locked stake + short settlement windows bound the
   facilitator's served-but-unsettled exposure; define the window and the

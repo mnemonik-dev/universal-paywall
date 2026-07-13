@@ -22,6 +22,11 @@ Pin `SESSION_STAKE_VAULT_FACTORY`; never accept a payer-supplied factory. Record
 the receipt endpoint's `public_key_base64url` in Mnemonic configuration rather
 than trusting a key fetched dynamically from the same payment connection.
 
+Set the payment-store directory to mode `0700` and the receipt private-key file
+to `0600`. Review startup validation errors before exposing the API: invalid
+`CHAIN_ID`, missing `SERVICE_API_KEYS`, oversized TTLs, or an insecure key file
+all abort launch.
+
 Required readiness checks include funded facilitator gas, RPC chain-ID pinning,
 receipt-key discovery, writable durable storage, session-vault reads, and a
 successful no-value reconciliation probe. Never reuse staging API credentials

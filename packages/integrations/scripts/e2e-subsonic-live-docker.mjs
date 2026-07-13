@@ -43,45 +43,111 @@ const PAYER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b7
 const FAC_KEY = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'; // gitleaks:allow
 const ARTIST_WALLET = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
 
-const chain = defineChain({ id: CHAIN_ID, name: 'anvil', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } });
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'anvil',
+  nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 },
+  rpcUrls: { default: { http: [RPC] } },
+});
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '../../..');
-const art = (p) => { const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8')); return { abi: a.abi, bytecode: a.bytecode.object }; };
-async function deploy(k, a, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain }); return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress; }
-async function txw(k, address, abi, fn, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain }); await pub.waitForTransactionReceipt({ hash: h }); }
+const art = (p) => {
+  const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8'));
+  return { abi: a.abi, bytecode: a.bytecode.object };
+};
+async function deploy(k, a, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain });
+  return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress;
+}
+async function txw(k, address, abi, fn, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain });
+  await pub.waitForTransactionReceipt({ hash: h });
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const song = readFileSync('/tmp/gonic_song', 'utf8').trim();
-  const usdcArt = art('MockUSDC.sol/MockUSDC.json'), facArt = art('StakeVaultFactory.sol/StakeVaultFactory.json');
-  const viewer = privateKeyToAccount(PAYER_KEY).address, facAddr = privateKeyToAccount(FAC_KEY).address;
+  const usdcArt = art('MockUSDC.sol/MockUSDC.json'),
+    facArt = art('StakeVaultFactory.sol/StakeVaultFactory.json');
+  const viewer = privateKeyToAccount(PAYER_KEY).address,
+    facAddr = privateKeyToAccount(FAC_KEY).address;
 
   console.log('1. rail + grant + facilitator...');
-  const usdc = await deploy(DEPLOYER, usdcArt, []); const factory = await deploy(DEPLOYER, facArt, [usdc]);
+  const usdc = await deploy(DEPLOYER, usdcArt, []);
+  const factory = await deploy(DEPLOYER, facArt, [usdc]);
   await txw(DEPLOYER, usdc, usdcArt.abi, 'mint', [viewer, 2_000_000n]);
-  const agent = createPayerAgent({ rpcUrl: RPC, chainId: CHAIN_ID, payerKey: PAYER_KEY, stakeVaultFactory: factory, usdc });
-  await agent.ensureGrant({ facilitator: facAddr, stakeVaultFactory: factory, recommendedCap: 1_000_000n, validForSeconds: 3600 });
-  const fac = createFacilitator({ rpcUrl: RPC, chainId: CHAIN_ID, facilitatorKey: FAC_KEY, stakeVaultFactory: factory, apiKeys: ['k'], batch: { maxCharges: 100, maxAgeMs: 1 } });
+  const agent = createPayerAgent({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    payerKey: PAYER_KEY,
+    stakeVaultFactory: factory,
+    usdc,
+  });
+  await agent.ensureGrant({
+    facilitator: facAddr,
+    stakeVaultFactory: factory,
+    recommendedCap: 1_000_000n,
+    validForSeconds: 3600,
+  });
+  const fac = createFacilitator({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    facilitatorKey: FAC_KEY,
+    stakeVaultFactory: factory,
+    apiKeys: ['k'],
+    batch: { maxCharges: 100, maxAgeMs: 1 },
+  });
   await new Promise((r) => fac.server.listen(8402, () => r(null)));
 
   console.log('2. Subsonic reverse-proxy in front of gonic (track', song, '-> wallet)...');
-  const reporter = createReporter({ facilitatorUrl: 'http://127.0.0.1:8402', apiKey: 'k', resolvePayer: mapResolver({ admin: viewer }), resolveCreator: mapResolver({ [song]: ARTIST_WALLET }) });
-  const proxy = createServer(createSubsonicProxy({ upstreamUrl: GONIC, reporter, ratePerPlay: RATE }));
+  const reporter = createReporter({
+    facilitatorUrl: 'http://127.0.0.1:8402',
+    apiKey: 'k',
+    resolvePayer: mapResolver({ admin: viewer }),
+    resolveCreator: mapResolver({ [song]: ARTIST_WALLET }),
+  });
+  const proxy = createServer(
+    createSubsonicProxy({ upstreamUrl: GONIC, reporter, ratePerPlay: RATE }),
+  );
   await new Promise((r) => proxy.listen(8410, () => r(null)));
 
   console.log('3. real scrobble THROUGH the proxy...');
-  const res = await fetch(`http://127.0.0.1:8410/rest/scrobble.view?u=admin&p=admin&v=1.16.1&c=l3&f=json&id=${song}&submission=true&time=${Date.now()}`);
+  const res = await fetch(
+    `http://127.0.0.1:8410/rest/scrobble.view?u=admin&p=admin&v=1.16.1&c=l3&f=json&id=${song}&submission=true&time=${Date.now()}`,
+  );
   const j = await res.json();
   if (j['subsonic-response'].status !== 'ok') throw new Error('gonic did not accept the scrobble');
 
   console.log('4. meter -> charge -> settle...');
   for (let i = 0; i < 15; i++) {
     await fac.service.flushAll();
-    const bal = await pub.readContract({ address: usdc, abi: usdcArt.abi, functionName: 'balanceOf', args: [ARTIST_WALLET] });
-    if (bal > 0n) { console.log(`\nREAL SUBSONIC L3 PASS: real scrobble via reverse-proxy -> per-listen royalty -> facilitator -> on-chain settle -> artist paid ${bal} micro-USDC`); proxy.close(); fac.server.close(); process.exit(0); }
+    const bal = await pub.readContract({
+      address: usdc,
+      abi: usdcArt.abi,
+      functionName: 'balanceOf',
+      args: [ARTIST_WALLET],
+    });
+    if (bal > 0n) {
+      console.log(
+        `\nREAL SUBSONIC L3 PASS: real scrobble via reverse-proxy -> per-listen royalty -> facilitator -> on-chain settle -> artist paid ${bal} micro-USDC`,
+      );
+      proxy.close();
+      fac.server.close();
+      process.exit(0);
+    }
     await sleep(1000);
   }
-  console.error('no charge'); proxy.close(); fac.server.close(); process.exit(1);
+  console.error('no charge');
+  proxy.close();
+  fac.server.close();
+  process.exit(1);
 }
-main().catch((e) => { console.error('L3 ERROR:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('L3 ERROR:', e);
+  process.exit(1);
+});

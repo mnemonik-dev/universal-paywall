@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   closeSync,
   existsSync,
   fsyncSync,
@@ -8,7 +9,7 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type {
   OperationBinding,
   PaymentAuthorization,
@@ -73,10 +74,10 @@ export class FilePaymentStore implements PaymentStore {
   #data: StoreFile;
 
   constructor(path: string) {
-    this.#path = path;
-    mkdirSync(dirname(path), { recursive: true });
-    this.#data = existsSync(path)
-      ? (JSON.parse(readFileSync(path, 'utf8')) as StoreFile)
+    this.#path = resolve(path);
+    mkdirSync(dirname(this.#path), { recursive: true, mode: 0o700 });
+    this.#data = existsSync(this.#path)
+      ? (JSON.parse(readFileSync(this.#path, 'utf8')) as StoreFile)
       : emptyStore();
     if (this.#data.version !== 1) throw new Error('unsupported_payment_store_version');
     this.#data.quotes ??= {};
@@ -119,6 +120,11 @@ export class FilePaymentStore implements PaymentStore {
       closeSync(fd);
     }
     renameSync(temp, this.#path);
+    try {
+      chmodSync(this.#path, 0o600);
+    } catch {
+      // Best-effort: permissions may already be restrictive or filesystem may not support chmod.
+    }
     const directory = openSync(dirname(this.#path), 'r');
     try {
       fsyncSync(directory);

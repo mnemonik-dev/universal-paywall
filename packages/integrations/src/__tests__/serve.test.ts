@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Hex, Reporter, ReportInput, ReportOutcome } from '../core.js';
 import { handleSharedLinkResolve } from '../immich.js';
-import { citationRoute, createSidecarServer, immichRoute, listenBrainzRoutes, mastodonCampaignRoute, owncastRoute, RouteResponse, subsonicRoute } from '../serve.js';
+import {
+  citationRoute,
+  createSidecarServer,
+  immichRoute,
+  listenBrainzRoutes,
+  mastodonCampaignRoute,
+  owncastRoute,
+  RouteResponse,
+  subsonicRoute,
+} from '../serve.js';
 import type { AddressInfo } from 'node:net';
 import { OwncastPresenceMeter } from '../owncast.js';
 import { handleListenSubmit, listenCreatorKey, parseListenToken } from '../listenbrainz.js';
@@ -18,7 +27,13 @@ function spyReporter() {
   const reporter: Reporter = {
     async report(input: ReportInput): Promise<ReportOutcome> {
       calls.push(input);
-      return { status: 'charged', id: `c_${calls.length}`, payer: P, creator: C, amount: input.amount };
+      return {
+        status: 'charged',
+        id: `c_${calls.length}`,
+        payer: P,
+        creator: C,
+        amount: input.amount,
+      };
     },
   };
   return { calls, reporter };
@@ -27,10 +42,23 @@ function spyReporter() {
 describe('immich shared-link', () => {
   it('pays the EXIF Artist, falling back to ownerId', async () => {
     const { calls, reporter } = spyReporter();
-    await handleSharedLinkResolve({ resolverId: 'agent', assetId: 'a1', exifArtist: 'photog', ownerId: 'uploader' }, reporter, { licenseFee: 9n });
-    expect(calls[0]).toEqual({ payerKey: 'agent', creatorKey: 'photog', amount: 9n, ref: 'immich:agent:a1' });
+    await handleSharedLinkResolve(
+      { resolverId: 'agent', assetId: 'a1', exifArtist: 'photog', ownerId: 'uploader' },
+      reporter,
+      { licenseFee: 9n },
+    );
+    expect(calls[0]).toEqual({
+      payerKey: 'agent',
+      creatorKey: 'photog',
+      amount: 9n,
+      ref: 'immich:agent:a1',
+    });
 
-    await handleSharedLinkResolve({ resolverId: 'agent', assetId: 'a2', ownerId: 'uploader' }, reporter, { licenseFee: 9n });
+    await handleSharedLinkResolve(
+      { resolverId: 'agent', assetId: 'a2', ownerId: 'uploader' },
+      reporter,
+      { licenseFee: 9n },
+    );
     expect(calls[1]?.creatorKey).toBe('uploader');
   });
 });
@@ -40,15 +68,35 @@ describe('route builders', () => {
     const { calls, reporter } = spyReporter();
     const route = subsonicRoute(reporter, { ratePerPlay: 3n });
     expect(route.method).toBe('GET');
-    await route.handle({ body: null, url: new URL('http://x/rest/scrobble.view?u=alice&id=t1'), headers: NO_HEADERS });
+    await route.handle({
+      body: null,
+      url: new URL('http://x/rest/scrobble.view?u=alice&id=t1'),
+      headers: NO_HEADERS,
+    });
     expect(calls[0]).toMatchObject({ payerKey: 'alice', creatorKey: 't1', amount: 3n });
   });
 
   it('owncast POST route meters presence', async () => {
     const { calls, reporter } = spyReporter();
-    const route = owncastRoute(new OwncastPresenceMeter(reporter, { ratePerSecond: 2n, streamerKey: 's' }));
-    await route.handle({ body: { type: 'USER_JOINED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:00Z' } }, url: new URL('http://x/owncast'), headers: NO_HEADERS });
-    const out = await route.handle({ body: { type: 'USER_PARTED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:10Z' } }, url: new URL('http://x/owncast'), headers: NO_HEADERS });
+    const route = owncastRoute(
+      new OwncastPresenceMeter(reporter, { ratePerSecond: 2n, streamerKey: 's' }),
+    );
+    await route.handle({
+      body: {
+        type: 'USER_JOINED',
+        eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:00Z' },
+      },
+      url: new URL('http://x/owncast'),
+      headers: NO_HEADERS,
+    });
+    const out = await route.handle({
+      body: {
+        type: 'USER_PARTED',
+        eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:10Z' },
+      },
+      url: new URL('http://x/owncast'),
+      headers: NO_HEADERS,
+    });
     expect((out as ReportOutcome).status).toBe('charged');
     expect(calls[0]?.amount).toBe(20n); // 10s * 2
   });
@@ -56,14 +104,22 @@ describe('route builders', () => {
   it('citation POST route tolls the author', async () => {
     const { calls, reporter } = spyReporter();
     const route = citationRoute(reporter, { toll: 4n });
-    await route.handle({ body: { crawlerId: 'gpt', link: 'https://s/p', author: 'https://a' }, url: new URL('http://x/citation'), headers: NO_HEADERS });
+    await route.handle({
+      body: { crawlerId: 'gpt', link: 'https://s/p', author: 'https://a' },
+      url: new URL('http://x/citation'),
+      headers: NO_HEADERS,
+    });
     expect(calls[0]).toMatchObject({ payerKey: 'gpt', creatorKey: 'https://a', amount: 4n });
   });
 
   it('immich POST route charges a license fee', async () => {
     const { calls, reporter } = spyReporter();
     const route = immichRoute(reporter, { licenseFee: 5n });
-    await route.handle({ body: { resolverId: 'agent', assetId: 'a1', ownerId: 'u' }, url: new URL('http://x/immich/resolve'), headers: NO_HEADERS });
+    await route.handle({
+      body: { resolverId: 'agent', assetId: 'a1', ownerId: 'u' },
+      url: new URL('http://x/immich/resolve'),
+      headers: NO_HEADERS,
+    });
     expect(calls[0]).toMatchObject({ payerKey: 'agent', creatorKey: 'u', amount: 5n });
   });
 
@@ -71,7 +127,11 @@ describe('route builders', () => {
     const { reporter } = spyReporter();
     const [validate] = listenBrainzRoutes(reporter, { ratePerListen: 7n });
     expect(validate).toMatchObject({ method: 'GET', path: '/1/validate-token' });
-    const out = await validate.handle({ body: null, url: new URL('http://x/1/validate-token'), headers: { authorization: 'Token tok-alice' } });
+    const out = await validate.handle({
+      body: null,
+      url: new URL('http://x/1/validate-token'),
+      headers: { authorization: 'Token tok-alice' },
+    });
     expect(out).toMatchObject({ valid: true, user_name: 'tok-alice', code: 200 });
   });
 
@@ -81,9 +141,18 @@ describe('route builders', () => {
     expect(submit).toMatchObject({ method: 'POST', path: '/1/submit-listens' });
     const body = {
       listen_type: 'single',
-      payload: [{ listened_at: 1700000000, track_metadata: { additional_info: { recording_mbid: 'rec-1', artist_mbids: ['art-1'] } } }],
+      payload: [
+        {
+          listened_at: 1700000000,
+          track_metadata: { additional_info: { recording_mbid: 'rec-1', artist_mbids: ['art-1'] } },
+        },
+      ],
     };
-    const out = await submit.handle({ body, url: new URL('http://x/1/submit-listens'), headers: { authorization: 'Token tok-alice' } });
+    const out = await submit.handle({
+      body,
+      url: new URL('http://x/1/submit-listens'),
+      headers: { authorization: 'Token tok-alice' },
+    });
     expect(out).toEqual({ status: 'ok' });
     expect(calls[0]).toMatchObject({ payerKey: 'tok-alice', creatorKey: 'rec-1', amount: 7n });
   });
@@ -92,7 +161,10 @@ describe('route builders', () => {
     const { calls, reporter } = spyReporter();
     const [, submit] = listenBrainzRoutes(reporter, { ratePerListen: 7n });
     const out = await submit.handle({
-      body: { listen_type: 'playing_now', payload: [{ track_metadata: { additional_info: { recording_mbid: 'rec-1' } } }] },
+      body: {
+        listen_type: 'playing_now',
+        payload: [{ track_metadata: { additional_info: { recording_mbid: 'rec-1' } } }],
+      },
       url: new URL('http://x/1/submit-listens'),
       headers: { authorization: 'Token tok-alice' },
     });
@@ -111,8 +183,14 @@ describe('listenbrainz adapter', () => {
   });
 
   it('listenCreatorKey prefers recording_mbid, falls back to first artist_mbid', () => {
-    expect(listenCreatorKey({ track_metadata: { additional_info: { recording_mbid: 'r', artist_mbids: ['a'] } } })).toBe('r');
-    expect(listenCreatorKey({ track_metadata: { additional_info: { artist_mbids: ['', 'a2'] } } })).toBe('a2');
+    expect(
+      listenCreatorKey({
+        track_metadata: { additional_info: { recording_mbid: 'r', artist_mbids: ['a'] } },
+      }),
+    ).toBe('r');
+    expect(
+      listenCreatorKey({ track_metadata: { additional_info: { artist_mbids: ['', 'a2'] } } }),
+    ).toBe('a2');
     expect(listenCreatorKey({ track_metadata: { additional_info: {} } })).toBeNull();
     expect(listenCreatorKey({})).toBeNull();
   });
@@ -138,7 +216,10 @@ describe('listenbrainz adapter', () => {
   it('handleListenSubmit charges nothing without a token', async () => {
     const { calls, reporter } = spyReporter();
     const outcomes = await handleListenSubmit(
-      { listen_type: 'single', payload: [{ track_metadata: { additional_info: { recording_mbid: 'r1' } } }] },
+      {
+        listen_type: 'single',
+        payload: [{ track_metadata: { additional_info: { recording_mbid: 'r1' } } }],
+      },
       null,
       reporter,
       { ratePerListen: 2n },
@@ -158,7 +239,10 @@ describe('mastodon donation-campaign provider', () => {
   };
 
   it('buildDonationCampaign echoes the requested locale', () => {
-    expect(buildDonationCampaign({ campaign }, { locale: 'de' })).toMatchObject({ id: 'up-1', locale: 'de' });
+    expect(buildDonationCampaign({ campaign }, { locale: 'de' })).toMatchObject({
+      id: 'up-1',
+      locale: 'de',
+    });
   });
 
   it('buildDonationCampaign defaults locale to en when absent', () => {
@@ -178,12 +262,20 @@ describe('mastodon donation-campaign provider', () => {
       url: new URL('http://x/api/v1/donation_campaigns?platform=web&seed=42&locale=fr'),
       headers: NO_HEADERS,
     });
-    expect(out).toMatchObject({ id: 'up-1', locale: 'fr', donation_url: 'https://pay.example/donate' });
+    expect(out).toMatchObject({
+      id: 'up-1',
+      locale: 'fr',
+      donation_url: 'https://pay.example/donate',
+    });
   });
 
   it('route returns a 204 RouteResponse when no campaign is configured', async () => {
     const route = mastodonCampaignRoute({ campaign: null });
-    const out = await route.handle({ body: null, url: new URL('http://x/api/v1/donation_campaigns?locale=en'), headers: NO_HEADERS });
+    const out = await route.handle({
+      body: null,
+      url: new URL('http://x/api/v1/donation_campaigns?locale=en'),
+      headers: NO_HEADERS,
+    });
     expect(out).toBeInstanceOf(RouteResponse);
     expect((out as RouteResponse).status).toBe(204);
     expect((out as RouteResponse).body).toBeUndefined();
@@ -191,7 +283,10 @@ describe('mastodon donation-campaign provider', () => {
 });
 
 describe('createSidecarServer over real HTTP', () => {
-  async function withServer(routes: Parameters<typeof createSidecarServer>[0], fn: (base: string) => Promise<void>) {
+  async function withServer(
+    routes: Parameters<typeof createSidecarServer>[0],
+    fn: (base: string) => Promise<void>,
+  ) {
     const srv = createSidecarServer(routes);
     await new Promise<void>((r) => srv.listen(0, r));
     const port = (srv.address() as AddressInfo).port;
@@ -211,13 +306,19 @@ describe('createSidecarServer over real HTTP', () => {
       const join = await fetch(`${base}/owncast`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'USER_JOINED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:00Z' } }),
+        body: JSON.stringify({
+          type: 'USER_JOINED',
+          eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:00Z' },
+        }),
       });
       expect(join.status).toBe(200);
       const part = await fetch(`${base}/owncast`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'USER_PARTED', eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:10Z' } }),
+        body: JSON.stringify({
+          type: 'USER_PARTED',
+          eventData: { user: { id: 'v' }, timestamp: '2026-01-01T00:00:10Z' },
+        }),
       });
       expect(part.status).toBe(200);
       const body = (await part.json()) as { status: string; amount: string };

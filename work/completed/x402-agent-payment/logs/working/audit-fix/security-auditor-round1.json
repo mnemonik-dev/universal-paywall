@@ -79,7 +79,10 @@
   },
   "spillover_review": {
     "T12-01_errors_module_deletion": {
-      "files": ["packages/middleware/src/errors.ts (deleted)", "packages/middleware/src/__tests__/errors.test.ts (deleted)"],
+      "files": [
+        "packages/middleware/src/errors.ts (deleted)",
+        "packages/middleware/src/__tests__/errors.test.ts (deleted)"
+      ],
       "verdict": "SAFE",
       "evidence": "errors.ts was never re-exported from index.ts — confirmed by `grep -n 'errors' packages/middleware/src/index.ts` returning empty. No imports from `./errors.js` anywhere in src/, scripts/, or tests (verified with grep). The two error classes that errors.ts re-exported (`MalformedPaymentHeaderError`, `NetworkMismatchError`) are still defined in x402.ts and settle.ts respectively, and all consumers import them directly from those origin modules. Test suite count drops by 49 (errors.test.ts → 49 tests) and that matches the observed 253→208 delta exactly. No security regression.",
       "anchor": "D1 (canonical reason strings) — verified: x402.ts:33+ still emits canonical reason strings; core.ts:build402 produces the wire body and uses the canonical reasons."
@@ -109,7 +112,10 @@
       "anchor": "D4 (note-only) + D8 reentrancy guard preservation."
     },
     "T14_test_comments_only": {
-      "files": ["packages/middleware/src/__tests__/integration/forked-e2e.test.ts", "contracts/src/PaymentSplitterFactory.sol (LCOV comment)"],
+      "files": [
+        "packages/middleware/src/__tests__/integration/forked-e2e.test.ts",
+        "contracts/src/PaymentSplitterFactory.sol (LCOV comment)"
+      ],
       "verdict": "SAFE",
       "evidence": "Comment-only changes for T14-L1 (8s sleep rationale), T14-L2 (MOCK_USDC_NAME constant extraction is data-only — same string, single source of truth), T14-L3 (LCOV instrumentation note on pause()/unpause() bodies). No security impact."
     }

@@ -9,11 +9,12 @@ const WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 
 /** A fetch stub returning a WS/2 recording payload crediting ARTIST_MBID. */
 function recordingFetch() {
-  return vi.fn(async () =>
-    new Response(JSON.stringify({ 'artist-credit': [{ artist: { id: ARTIST_MBID } }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
+  return vi.fn(
+    async () =>
+      new Response(JSON.stringify({ 'artist-credit': [{ artist: { id: ARTIST_MBID } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
   );
 }
 
@@ -28,7 +29,9 @@ describe('createMusicBrainzResolver', () => {
     });
     expect(await resolve(RECORDING_MBID)).toBe(WALLET);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain(`/recording/${RECORDING_MBID}?inc=artists&fmt=json`);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain(
+      `/recording/${RECORDING_MBID}?inc=artists&fmt=json`,
+    );
   });
 
   it('fast-path: a directly-registered key returns without any WS/2 call', async () => {
@@ -100,7 +103,9 @@ describe('createMusicBrainzResolver', () => {
     });
     await resolve(RECORDING_MBID);
     const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Record<string, string>)['User-Agent']).toBe('up-test/9.9 (ops@example.com)');
+    expect((init.headers as Record<string, string>)['User-Agent']).toBe(
+      'up-test/9.9 (ops@example.com)',
+    );
   });
 
   it('flows through createReporter as an async resolveCreator', async () => {
@@ -114,9 +119,18 @@ describe('createMusicBrainzResolver', () => {
         fetchImpl: fetchImpl as unknown as typeof fetch,
         minIntervalMs: 0,
       }),
-      client: { charge: async (c) => { charges.push(c); return { id: 'c1' }; } },
+      client: {
+        charge: async (c) => {
+          charges.push(c);
+          return { id: 'c1' };
+        },
+      },
     });
-    const out = await reporter.report({ payerKey: 'alice', creatorKey: RECORDING_MBID, amount: 5n });
+    const out = await reporter.report({
+      payerKey: 'alice',
+      creatorKey: RECORDING_MBID,
+      amount: 5n,
+    });
     expect(out.status).toBe('charged');
     expect(charges[0]?.creator).toBe(WALLET);
   });

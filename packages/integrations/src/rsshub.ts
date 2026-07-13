@@ -22,7 +22,11 @@ export interface CitationOptions {
 }
 
 /** Reports one grounding citation as a toll from the crawler to the source. */
-export function handleCitation(ev: CitationEvent, reporter: Reporter, opts: CitationOptions): Promise<ReportOutcome> {
+export function handleCitation(
+  ev: CitationEvent,
+  reporter: Reporter,
+  opts: CitationOptions,
+): Promise<ReportOutcome> {
   // Prefer the author identity; fall back to the canonical link.
   const creatorKey = ev.author !== undefined && ev.author.length > 0 ? ev.author : ev.link;
   return reporter.report({

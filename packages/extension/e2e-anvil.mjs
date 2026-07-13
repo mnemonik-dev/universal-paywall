@@ -35,14 +35,38 @@ const CREATOR = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
 const PRICE = 50_000n;
 const CAP = 1_000_000n;
 
-const chain = defineChain({ id: CHAIN_ID, name: 'anvil', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } });
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'anvil',
+  nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 },
+  rpcUrls: { default: { http: [RPC] } },
+});
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '../..');
-const art = (p) => { const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8')); return { abi: a.abi, bytecode: a.bytecode.object }; };
-async function deploy(k, a, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain }); return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress; }
-async function send(k, address, abi, fn, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain }); await pub.waitForTransactionReceipt({ hash: h }); }
-function assert(c, m) { if (!c) { console.error('FAIL:', m); process.exit(1); } console.log('  ok:', m); }
+const art = (p) => {
+  const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8'));
+  return { abi: a.abi, bytecode: a.bytecode.object };
+};
+async function deploy(k, a, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain });
+  return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress;
+}
+async function send(k, address, abi, fn, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain });
+  await pub.waitForTransactionReceipt({ hash: h });
+}
+function assert(c, m) {
+  if (!c) {
+    console.error('FAIL:', m);
+    process.exit(1);
+  }
+  console.log('  ok:', m);
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -57,22 +81,56 @@ async function main() {
   await send(DEPLOYER, usdc, mockUsdc.abi, 'mint', [payerAccount.address, 2_000_000n]);
 
   console.log('Start facilitator (8402) + x402 resource (3000)...');
-  const fac = createFacilitator({ rpcUrl: RPC, chainId: CHAIN_ID, facilitatorKey: FACILITATOR_KEY, stakeVaultFactory: factory, apiKeys: ['k'], batch: { maxCharges: 100, maxAgeMs: 1 } });
+  const fac = createFacilitator({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    facilitatorKey: FACILITATOR_KEY,
+    stakeVaultFactory: factory,
+    apiKeys: ['k'],
+    batch: { maxCharges: 100, maxAgeMs: 1 },
+  });
   await new Promise((r) => fac.server.listen(8402, () => r(null)));
-  const resourceServer = createServer(withStakePaywall(
-    (_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ paid: true })); },
-    { price: PRICE, creator: CREATOR, recommendedCap: CAP, chain: { rpcUrl: RPC, chainId: CHAIN_ID, network: 'eip155:31337', asset: usdc, facilitatorAddress: facilitator, stakeVaultFactory: factory }, facilitator: { url: 'http://127.0.0.1:8402', apiKey: 'k' } },
-  ));
+  const resourceServer = createServer(
+    withStakePaywall(
+      (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ paid: true }));
+      },
+      {
+        price: PRICE,
+        creator: CREATOR,
+        recommendedCap: CAP,
+        chain: {
+          rpcUrl: RPC,
+          chainId: CHAIN_ID,
+          network: 'eip155:31337',
+          asset: usdc,
+          facilitatorAddress: facilitator,
+          stakeVaultFactory: factory,
+        },
+        facilitator: { url: 'http://127.0.0.1:8402', apiKey: 'k' },
+      },
+    ),
+  );
   await new Promise((r) => resourceServer.listen(3000, () => r(null)));
 
   console.log('Build the agent with an INJECTED account; wire the extension handler...');
-  const agent = createPayerAgent({ rpcUrl: RPC, chainId: CHAIN_ID, account: payerAccount, stakeVaultFactory: factory, usdc });
+  const agent = createPayerAgent({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    account: payerAccount,
+    stakeVaultFactory: factory,
+    usdc,
+  });
   const handle = createMessageHandler({ agent });
   const bridge = createBridge((m) => handle(m, null)); // background message channel
 
   console.log('Extension up:status...');
   const st = await handle({ type: 'up:status' });
-  assert(st.ok && st.payer.toLowerCase() === payerAccount.address.toLowerCase(), 'up:status returns the injected-account payer');
+  assert(
+    st.ok && st.payer.toLowerCase() === payerAccount.address.toLowerCase(),
+    'up:status returns the injected-account payer',
+  );
 
   console.log('Extension up:fetch auto-pays the x402 resource...');
   const res = await bridge.upFetch('http://127.0.0.1:3000/paid');
@@ -81,18 +139,31 @@ async function main() {
   assert(body.paid === true, 'resource body returned through the extension bridge');
 
   const vault = await agent.vaultAddress();
-  assert(vault.toLowerCase() !== '0x0000000000000000000000000000000000000000', 'agent auto-deployed its vault during up:fetch');
+  assert(
+    vault.toLowerCase() !== '0x0000000000000000000000000000000000000000',
+    'agent auto-deployed its vault during up:fetch',
+  );
 
   for (let i = 0; i < 50 && fac.ledger.size() === 0; i++) await sleep(20);
   assert(fac.ledger.size() === 1, 'facilitator received the metered charge');
   const results = await fac.service.flushAll();
   assert(results.length === 1 && results[0].ok, 'facilitator settled on-chain');
-  const creatorBal = await pub.readContract({ address: usdc, abi: mockUsdc.abi, functionName: 'balanceOf', args: [CREATOR] });
+  const creatorBal = await pub.readContract({
+    address: usdc,
+    abi: mockUsdc.abi,
+    functionName: 'balanceOf',
+    args: [CREATOR],
+  });
   assert(creatorBal === PRICE, `creator paid ${PRICE} on-chain (got ${creatorBal})`);
 
   resourceServer.close();
   fac.server.close();
-  console.log('\nEXTENSION E2E PASS: bridge.upFetch -> handler -> agent(injected account) -> 402->grant->200 -> on-chain settle -> creator paid');
+  console.log(
+    '\nEXTENSION E2E PASS: bridge.upFetch -> handler -> agent(injected account) -> 402->grant->200 -> on-chain settle -> creator paid',
+  );
   process.exit(0);
 }
-main().catch((e) => { console.error('E2E ERROR:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('E2E ERROR:', e);
+  process.exit(1);
+});

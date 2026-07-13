@@ -1,10 +1,28 @@
-import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import type { Reporter } from './core.js';
 import { handleScrobble, parseSubsonicScrobble, type ScrobbleOptions } from './subsonic.js';
-import { OwncastPresenceMeter, type OwncastMeterOptions, type OwncastWebhookEvent } from './owncast.js';
-import { handleJellyfinEvent, type JellyfinMeterOptions, type JellyfinWebhookEvent } from './jellyfin.js';
+import {
+  OwncastPresenceMeter,
+  type OwncastMeterOptions,
+  type OwncastWebhookEvent,
+} from './owncast.js';
+import {
+  handleJellyfinEvent,
+  type JellyfinMeterOptions,
+  type JellyfinWebhookEvent,
+} from './jellyfin.js';
 import { handleCitation, type CitationEvent, type CitationOptions } from './rsshub.js';
-import { handleSharedLinkResolve, type SharedLinkOptions, type SharedLinkResolveEvent } from './immich.js';
+import {
+  handleSharedLinkResolve,
+  type SharedLinkOptions,
+  type SharedLinkResolveEvent,
+} from './immich.js';
 import {
   handleListenSubmit,
   parseListenToken,
@@ -15,7 +33,11 @@ import { buildDonationCampaign, type DonationCampaignOptions } from './mastodon.
 
 const MAX_BODY = 64 * 1024;
 
-export type RouteHandler = (ctx: { body: unknown; url: URL; headers: IncomingHttpHeaders }) => Promise<unknown>;
+export type RouteHandler = (ctx: {
+  body: unknown;
+  url: URL;
+  headers: IncomingHttpHeaders;
+}) => Promise<unknown>;
 
 /**
  * Lets a route return a non-200 status (e.g. Mastodon's 204 "no banner"). A plain
@@ -67,7 +89,10 @@ function toJson(value: unknown): string {
 }
 
 /** Builds a small HTTP server that dispatches platform events to the routes. */
-export function createSidecarServer(routes: readonly Route[], opts: SidecarServerOptions = {}): Server {
+export function createSidecarServer(
+  routes: readonly Route[],
+  opts: SidecarServerOptions = {},
+): Server {
   return createServer((req, res) => {
     void dispatch(req, res, routes, opts).catch((err: unknown) => {
       res.writeHead(400, { 'content-type': 'application/json' });
@@ -102,7 +127,8 @@ async function dispatch(
       return;
     }
   }
-  const body = req.method === 'POST' ? (JSON.parse((await readBody(req)) || 'null') as unknown) : null;
+  const body =
+    req.method === 'POST' ? (JSON.parse((await readBody(req)) || 'null') as unknown) : null;
   const result = await route.handle({ body, url, headers: req.headers });
   if (result instanceof RouteResponse) {
     if (result.body === undefined) {
@@ -120,7 +146,11 @@ async function dispatch(
 
 // ----- per-platform route builders -----
 
-export function subsonicRoute(reporter: Reporter, opts: ScrobbleOptions, path = '/rest/scrobble.view'): Route {
+export function subsonicRoute(
+  reporter: Reporter,
+  opts: ScrobbleOptions,
+  path = '/rest/scrobble.view',
+): Route {
   return {
     method: 'GET',
     path,
@@ -136,19 +166,31 @@ export function owncastRoute(meter: OwncastPresenceMeter, path = '/owncast'): Ro
   return {
     method: 'POST',
     path,
-    handle: async ({ body }) => (await meter.handle(body as OwncastWebhookEvent)) ?? { status: 'tracked' },
+    handle: async ({ body }) =>
+      (await meter.handle(body as OwncastWebhookEvent)) ?? { status: 'tracked' },
   };
 }
 
-export function jellyfinRoute(reporter: Reporter, opts: JellyfinMeterOptions, path = '/jellyfin'): Route {
+export function jellyfinRoute(
+  reporter: Reporter,
+  opts: JellyfinMeterOptions,
+  path = '/jellyfin',
+): Route {
   return {
     method: 'POST',
     path,
-    handle: async ({ body }) => (await handleJellyfinEvent(body as JellyfinWebhookEvent, reporter, opts)) ?? { status: 'ignored' },
+    handle: async ({ body }) =>
+      (await handleJellyfinEvent(body as JellyfinWebhookEvent, reporter, opts)) ?? {
+        status: 'ignored',
+      },
   };
 }
 
-export function citationRoute(reporter: Reporter, opts: CitationOptions, path = '/citation'): Route {
+export function citationRoute(
+  reporter: Reporter,
+  opts: CitationOptions,
+  path = '/citation',
+): Route {
   return {
     method: 'POST',
     path,
@@ -156,11 +198,16 @@ export function citationRoute(reporter: Reporter, opts: CitationOptions, path = 
   };
 }
 
-export function immichRoute(reporter: Reporter, opts: SharedLinkOptions, path = '/immich/resolve'): Route {
+export function immichRoute(
+  reporter: Reporter,
+  opts: SharedLinkOptions,
+  path = '/immich/resolve',
+): Route {
   return {
     method: 'POST',
     path,
-    handle: async ({ body }) => handleSharedLinkResolve(body as SharedLinkResolveEvent, reporter, opts),
+    handle: async ({ body }) =>
+      handleSharedLinkResolve(body as SharedLinkResolveEvent, reporter, opts),
   };
 }
 
@@ -170,7 +217,11 @@ export function immichRoute(reporter: Reporter, opts: SharedLinkOptions, path = 
  * `ND_LISTENBRAINZ_BASEURL=…/1/`): `validate-token` (so the token links) and
  * `submit-listens` (the per-listen charge). Both speak the ListenBrainz wire shape.
  */
-export function listenBrainzRoutes(reporter: Reporter, opts: ListenBrainzOptions, prefix = '/1'): readonly Route[] {
+export function listenBrainzRoutes(
+  reporter: Reporter,
+  opts: ListenBrainzOptions,
+  prefix = '/1',
+): readonly Route[] {
   return [
     {
       method: 'GET',
@@ -178,14 +229,24 @@ export function listenBrainzRoutes(reporter: Reporter, opts: ListenBrainzOptions
       handle: async ({ headers }) => {
         const token = parseListenToken(headers.authorization);
         // Permissionless: any token links; unknown ones meter-and-skip at scrobble.
-        return { code: 200, message: 'Token valid.', valid: true, user_name: token ?? 'universal-paywall' };
+        return {
+          code: 200,
+          message: 'Token valid.',
+          valid: true,
+          user_name: token ?? 'universal-paywall',
+        };
       },
     },
     {
       method: 'POST',
       path: `${prefix}/submit-listens`,
       handle: async ({ body, headers }) => {
-        await handleListenSubmit(body as ListenSubmission, parseListenToken(headers.authorization), reporter, opts);
+        await handleListenSubmit(
+          body as ListenSubmission,
+          parseListenToken(headers.authorization),
+          reporter,
+          opts,
+        );
         return { status: 'ok' };
       },
     },
@@ -197,7 +258,10 @@ export function listenBrainzRoutes(reporter: Reporter, opts: ListenBrainzOptions
  * + caches from `DONATION_CAMPAIGNS_URL` (default path `/api/v1/donation_campaigns`),
  * echoing the requested `locale`. Returns 204 when no campaign is configured.
  */
-export function mastodonCampaignRoute(opts: DonationCampaignOptions, path = '/api/v1/donation_campaigns'): Route {
+export function mastodonCampaignRoute(
+  opts: DonationCampaignOptions,
+  path = '/api/v1/donation_campaigns',
+): Route {
   return {
     method: 'GET',
     path,

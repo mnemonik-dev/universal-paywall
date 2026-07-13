@@ -92,18 +92,18 @@ Every integration attaches **without modifying the platform** — it uses one of
 permissionless patterns (config-redirect, event-sidecar, reverse-proxy, published
 plugin, external provider, payer-side adaptor).
 
-| Platform | Vertical | Attach surface | Pattern |
-|---|---|---|---|
-| Owncast | Live video | admin webhook → sidecar | event-sidecar |
-| Navidrome | Music | `ND_LISTENBRAINZ_BASEURL` → ListenBrainz-shaped sidecar | config-redirect |
-| Subsonic (gonic, …) | Music | scrobble endpoint → sidecar | config-redirect |
-| Jellyfin | VOD | official Webhook plugin → sidecar | event-sidecar |
-| RSSHub | Feeds | crawler/citation boundary → sidecar | event-sidecar |
-| Immich | Photo | reverse proxy meters shared-link resolves | reverse-proxy |
-| Mastodon | Fediverse | `DONATION_CAMPAIGNS_URL` → campaign provider | external provider |
-| PeerTube | Federated VOD | published `action:api.video.viewed` plugin | published plugin |
-| MusicBrainz | Registry/resolver | WS/2 `recording_mbid → artist_mbid → wallet` | resolver (the moat) |
-| Any browser extension | Payer side | `agent.fetchWithPaywall` + MV3 messaging bridge | payer-side adaptor |
+| Platform              | Vertical          | Attach surface                                          | Pattern             |
+| --------------------- | ----------------- | ------------------------------------------------------- | ------------------- |
+| Owncast               | Live video        | admin webhook → sidecar                                 | event-sidecar       |
+| Navidrome             | Music             | `ND_LISTENBRAINZ_BASEURL` → ListenBrainz-shaped sidecar | config-redirect     |
+| Subsonic (gonic, …)   | Music             | scrobble endpoint → sidecar                             | config-redirect     |
+| Jellyfin              | VOD               | official Webhook plugin → sidecar                       | event-sidecar       |
+| RSSHub                | Feeds             | crawler/citation boundary → sidecar                     | event-sidecar       |
+| Immich                | Photo             | reverse proxy meters shared-link resolves               | reverse-proxy       |
+| Mastodon              | Fediverse         | `DONATION_CAMPAIGNS_URL` → campaign provider            | external provider   |
+| PeerTube              | Federated VOD     | published `action:api.video.viewed` plugin              | published plugin    |
+| MusicBrainz           | Registry/resolver | WS/2 `recording_mbid → artist_mbid → wallet`            | resolver (the moat) |
+| Any browser extension | Payer side        | `agent.fetchWithPaywall` + MV3 messaging bridge         | payer-side adaptor  |
 
 All ten are verified against **real Docker'd instances** with on-chain settlement;
 see the documentation below.

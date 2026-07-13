@@ -27,6 +27,6 @@
     "test": "node test.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.28.1"
   }
 }

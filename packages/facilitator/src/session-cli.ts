@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { FilePaymentStore } from './payment-store.js';
 import { ReceiptSigner } from './receipt.js';
 import { OnChainExactPayments, OnChainSessionPayments } from './session-chain.js';
@@ -13,14 +14,48 @@ function env(name: string): string {
   return value;
 }
 
+function parsePositiveInt(value: string, name: string, max?: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`invalid env: ${name} must be a positive integer`);
+  }
+  if (max !== undefined && parsed > max) {
+    throw new Error(`invalid env: ${name} must be <= ${max}`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeBigInt(value: string, name: string): bigint {
+  try {
+    const parsed = BigInt(value);
+    if (parsed < 0n) throw new Error(`invalid env: ${name} must be non-negative`);
+    return parsed;
+  } catch {
+    throw new Error(`invalid env: ${name} must be a non-negative integer`);
+  }
+}
+
+function readRestrictedFile(path: string, name: string): string {
+  const resolved = resolve(path);
+  const stats = statSync(resolved);
+  const mode = stats.mode & 0o777;
+  if (mode !== 0o600) {
+    throw new Error(`invalid permissions: ${name} must be readable only by owner (0o600)`);
+  }
+  return readFileSync(resolved, 'utf8');
+}
+
 function main(): void {
   const rpcUrl = env('ARC_RPC_URL');
-  const chainId = Number(env('CHAIN_ID'));
+  const chainId = parsePositiveInt(env('CHAIN_ID'), 'CHAIN_ID');
   const facilitatorKey = env('FACILITATOR_KEY') as Hex;
   const facilitatorAddress = privateKeyToAccount(facilitatorKey).address;
   const asset = env('USDC_ADDRESS') as Hex;
   const factory = env('SESSION_STAKE_VAULT_FACTORY') as Hex;
-  const fromBlock = BigInt(process.env['SESSION_RAIL_FROM_BLOCK'] ?? '0');
+  const fromBlock = parseNonNegativeBigInt(
+    process.env['SESSION_RAIL_FROM_BLOCK'] ?? '0',
+    'SESSION_RAIL_FROM_BLOCK',
+  );
   const chain = new OnChainSessionPayments({
     rpcUrl,
     chainId,
@@ -42,7 +77,7 @@ function main(): void {
       })
     : undefined;
   const signer = new ReceiptSigner({
-    privateKeyPem: readFileSync(env('RECEIPT_PRIVATE_KEY_FILE'), 'utf8'),
+    privateKeyPem: readRestrictedFile(env('RECEIPT_PRIVATE_KEY_FILE'), 'RECEIPT_PRIVATE_KEY_FILE'),
     keyId: env('RECEIPT_KEY_ID'),
   });
   const service = new SessionPaymentService({
@@ -53,9 +88,17 @@ function main(): void {
       asset,
       facilitator: facilitatorAddress,
       payTo: env('SERVICE_PAY_TO') as Hex,
-      quoteTtlSeconds: Number(process.env['QUOTE_TTL_SECONDS'] ?? '300'),
+      quoteTtlSeconds: parsePositiveInt(
+        process.env['QUOTE_TTL_SECONDS'] ?? '300',
+        'QUOTE_TTL_SECONDS',
+        86_400,
+      ),
       factory,
-      maxSessionSeconds: Number(process.env['MAX_SESSION_SECONDS'] ?? '604800'),
+      maxSessionSeconds: parsePositiveInt(
+        process.env['MAX_SESSION_SECONDS'] ?? '604800',
+        'MAX_SESSION_SECONDS',
+        31_536_000,
+      ),
     },
     store: new FilePaymentStore(env('PAYMENT_STORE_PATH')),
     policyReader: chain,
@@ -65,13 +108,14 @@ function main(): void {
     ...(exact === undefined ? {} : { exactSettler: exact }),
     receiptSigner: signer,
   });
-  const server = createSessionPaymentServer(service, {
-    apiKeys: env('SERVICE_API_KEYS')
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean),
-  });
-  const port = Number(process.env['PORT'] ?? '8403');
+  const apiKeys = env('SERVICE_API_KEYS')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (apiKeys.length === 0)
+    throw new Error('invalid env: SERVICE_API_KEYS must contain at least one key');
+  const server = createSessionPaymentServer(service, { apiKeys });
+  const port = parsePositiveInt(process.env['PORT'] ?? '8403', 'PORT', 65_535);
   server.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`up-session-facilitator listening on :${port}`);

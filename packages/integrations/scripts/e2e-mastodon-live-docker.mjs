@@ -41,32 +41,60 @@ async function main() {
     donation_message: 'Your contribution settles onchain, non-custodially.',
     donation_button_text: 'Contribute',
     donation_success_post: 'I just supported this instance via Universal Paywall.',
-    amounts: { one_time: { USD: [1_000_000, 5_000_000, 10_000_000] }, monthly: { USD: [5_000_000] } },
+    amounts: {
+      one_time: { USD: [1_000_000, 5_000_000, 10_000_000] },
+      monthly: { USD: [5_000_000] },
+    },
     default_currency: 'USD',
     donation_url: 'https://pay.example/donate?recipient=0x90F7...&amount=5000000',
   };
 
   let fetched = null;
   const base = mastodonCampaignRoute({ campaign });
-  const provider = createSidecarServer([{ ...base, handle: async (ctx) => { fetched = ctx.url.search; console.log('  >>> REAL MASTODON FETCHED our provider:', ctx.url.pathname + ctx.url.search); return base.handle(ctx); } }]);
+  const provider = createSidecarServer([
+    {
+      ...base,
+      handle: async (ctx) => {
+        fetched = ctx.url.search;
+        console.log('  >>> REAL MASTODON FETCHED our provider:', ctx.url.pathname + ctx.url.search);
+        return base.handle(ctx);
+      },
+    },
+  ]);
   await new Promise((r) => provider.listen(8500, () => r(null)));
 
   console.log('Asking REAL Mastodon for /api/v1/donation_campaigns (authenticated)...');
-  const res = await fetch(`${MASTODON}/api/v1/donation_campaigns`, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Proto': 'https' } });
+  const res = await fetch(`${MASTODON}/api/v1/donation_campaigns`, {
+    headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Proto': 'https' },
+  });
   const body = await res.text();
   let ok = false;
   if (res.status === 200) {
     const j = JSON.parse(body);
-    console.log('  campaign from Mastodon: id=' + j.id + ' locale=' + j.locale + ' amounts.one_time.USD=' + JSON.stringify(j.amounts?.one_time?.USD));
+    console.log(
+      '  campaign from Mastodon: id=' +
+        j.id +
+        ' locale=' +
+        j.locale +
+        ' amounts.one_time.USD=' +
+        JSON.stringify(j.amounts?.one_time?.USD),
+    );
     ok = j.id === 'up-instance-1' && fetched !== null;
   } else {
     console.log('  status', res.status, 'body', body.slice(0, 160));
   }
   provider.close();
   if (ok) {
-    console.log('\nREAL MASTODON L3 PASS: live Mastodon fetched our provider (query ' + fetched + ') and returned our campaign to an authenticated client');
+    console.log(
+      '\nREAL MASTODON L3 PASS: live Mastodon fetched our provider (query ' +
+        fetched +
+        ') and returned our campaign to an authenticated client',
+    );
     process.exit(0);
   }
   process.exit(1);
 }
-main().catch((e) => { console.error('L3 ERROR:', e && e.message); process.exit(1); });
+main().catch((e) => {
+  console.error('L3 ERROR:', e && e.message);
+  process.exit(1);
+});

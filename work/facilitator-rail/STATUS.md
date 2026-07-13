@@ -16,6 +16,7 @@ and a one-call creator SDK. All three tiers are built, typechecked, and tested.
 ## What's implemented
 
 ### 1. Rail — `contracts/src/rail/` (Foundry, Solidity 0.8.20)
+
 - **`StakeVault.sol`** — per-payer, non-custodial prepaid stake. `deposit` /
   `grantPolicy(facilitator, cap, validUntil)` / `revoke` (cooldown) /
   `settle(creators[], amounts[])` (facilitator-only, cap+expiry bounded, batched)
@@ -29,7 +30,9 @@ and a one-call creator SDK. All three tiers are built, typechecked, and tested.
   reclaims remainder, revoke cooldown window).
 
 ### 2. Facilitator — `packages/facilitator/` (TS, ESM)
+
 External, permissionless service. **Not part of any creator deployment.**
+
 - `ledger.ts` — pending-charge store (idempotent by `ref`, requeue on failure).
 - `batcher.ts` — aggregates many charges into one `settle(creators, amounts)`
   (amounts summed per payee → gas amortized).
@@ -42,6 +45,7 @@ External, permissionless service. **Not part of any creator deployment.**
 - Tests: **14 passing** (ledger, batcher, service with a mock settler — no chain).
 
 ### 3. Creator SDK — `packages/sdk/` (TS, ESM)
+
 - `createPaywallClient({ facilitatorUrl, apiKey }).charge({ payer, creator, amount, ref })`
   — the entire integration: one POST per billable event, no keys/gas/chain code.
 - Tests: **4 passing** (auth header, amount stringify, ref omission, error path).
@@ -75,15 +79,15 @@ payer:      vault.withdrawRemainder(...) / revoke() anytime
 
 ## Facilitator env config (`up-facilitator`)
 
-| Var | Meaning |
-|---|---|
-| `ARC_RPC_URL` | JSON-RPC endpoint |
-| `CHAIN_ID` | EIP-155 chain id |
-| `FACILITATOR_KEY` | session-key EOA private key (registered in payer policies) |
-| `STAKE_VAULT_FACTORY` | deployed `StakeVaultFactory` address |
-| `FACILITATOR_API_KEYS` | comma-separated accepted creator API keys |
-| `BATCH_MAX_CHARGES` / `BATCH_MAX_AGE_MS` | batching window (default 50 / 15000) |
-| `PORT` | HTTP port (default 8402) |
+| Var                                      | Meaning                                                    |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| `ARC_RPC_URL`                            | JSON-RPC endpoint                                          |
+| `CHAIN_ID`                               | EIP-155 chain id                                           |
+| `FACILITATOR_KEY`                        | session-key EOA private key (registered in payer policies) |
+| `STAKE_VAULT_FACTORY`                    | deployed `StakeVaultFactory` address                       |
+| `FACILITATOR_API_KEYS`                   | comma-separated accepted creator API keys                  |
+| `BATCH_MAX_CHARGES` / `BATCH_MAX_AGE_MS` | batching window (default 50 / 15000)                       |
+| `PORT`                                   | HTTP port (default 8402)                                   |
 
 ## Deliberate MVP scope cuts (documented, not forgotten)
 
@@ -150,7 +154,7 @@ payer:      vault.withdrawRemainder(...) / revoke() anytime
 ## Test totals
 
 contracts **39** · facilitator **20** · sdk **4** · resource-adapter **10** ·
-agent **7**  →  **80 unit tests**, plus 3 anvil e2e scripts (settle / adapter /
+agent **7** → **80 unit tests**, plus 3 anvil e2e scripts (settle / adapter /
 agent) all PASS.
 
 ## Remaining work (next session)

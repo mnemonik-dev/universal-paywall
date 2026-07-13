@@ -60,7 +60,12 @@ export function createReporter(cfg: ReporterConfig): Reporter {
       if (payer === null || payer === undefined) return { status: 'unresolved_payer' };
       const creator = await cfg.resolveCreator(creatorKey);
       if (creator === null || creator === undefined) return { status: 'unresolved_creator' };
-      const ack = await charge.charge({ payer, creator, amount, ...(ref !== undefined ? { ref } : {}) });
+      const ack = await charge.charge({
+        payer,
+        creator,
+        amount,
+        ...(ref !== undefined ? { ref } : {}),
+      });
       return { status: 'charged', id: ack.id, payer, creator, amount };
     },
   };

@@ -15,7 +15,10 @@
       "location": "contracts/.env.example:8",
       "description": "The placeholder value for DEPLOYER_KEY is `0x0000000000000000000000000000000000000000000000000000000000000000` — a structurally valid Ethereum private key (the zero key). A developer who copies .env.example to .env and runs a forge script without replacing DEPLOYER_KEY will not get a clear error; the script will silently use account 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf (the deterministic address for the zero private key), which is not their own EOA. This is a usability-security concern rather than a leak: no actual secret is committed, and contracts/.env is correctly gitignored.",
       "recommendation": "Change the DEPLOYER_KEY placeholder to a non-key-shaped value that forge will reject at parse time, e.g. `DEPLOYER_KEY=<replace-with-your-0x-prefixed-private-key>`. This forces the developer to provide a real value before the script can run and eliminates the zero-key silent footgun.",
-      "references": ["task-2 AC: .env.example contains placeholder values only", "OWASP A02: Cryptographic Failures (inadvertent use of weak key)"],
+      "references": [
+        "task-2 AC: .env.example contains placeholder values only",
+        "OWASP A02: Cryptographic Failures (inadvertent use of weak key)"
+      ],
       "status": "advisory"
     },
     {
@@ -26,7 +29,10 @@
       "location": ".gitmodules:5-7",
       "description": "The openzeppelin-contracts submodule correctly carries `branch = v5.0.2` as a documentation hint. The forge-std submodule has no `branch =` line. The actual pin is the commit SHA in the git index (620536fa..., forge-std v1.16.1 per foundry.lock), so the pin is cryptographically enforced. However, the missing branch annotation makes it harder for a reviewer or dependabot-style tool to know what version is intended without cross-referencing foundry.lock. This is an informational / supply-chain hygiene concern, not an active vulnerability.",
       "recommendation": "Add `branch = v1.16.1` to the forge-std submodule entry in .gitmodules for parity with the OZ entry and to assist future auditors.",
-      "references": ["task-2 spec: .gitmodules records both submodules", "OWASP A06: Vulnerable and Outdated Components (visibility of pinned versions)"],
+      "references": [
+        "task-2 spec: .gitmodules records both submodules",
+        "OWASP A06: Vulnerable and Outdated Components (visibility of pinned versions)"
+      ],
       "status": "advisory"
     }
   ],
@@ -75,6 +81,9 @@
   "verdict": {
     "block_merge": false,
     "required_changes": [],
-    "advisory_changes": ["T2-SEC-01: Change DEPLOYER_KEY placeholder to a non-parseable sentinel value", "T2-SEC-02: Add branch = v1.16.1 to forge-std submodule entry in .gitmodules"]
+    "advisory_changes": [
+      "T2-SEC-01: Change DEPLOYER_KEY placeholder to a non-parseable sentinel value",
+      "T2-SEC-02: Add branch = v1.16.1 to forge-std submodule entry in .gitmodules"
+    ]
   }
 }

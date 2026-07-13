@@ -64,3 +64,18 @@ The built-in file store fsyncs atomic snapshots and survives restart. It is a
 single-writer deployment store. Horizontal deployments must provide a
 transactional shared-store implementation with unique service/operation keys.
 Never log API credentials, wallet proofs, or receipt private keys.
+
+## Security considerations
+
+- `RECEIPT_PRIVATE_KEY_FILE` must be readable only by the facilitator process
+  (permissions are enforced at startup).
+- `QUOTE_TTL_SECONDS` and `MAX_SESSION_SECONDS` are capped to sensible maximums
+  at startup; configure the smallest values your clients can tolerate.
+- Quote creation and session registration are serialized per
+  `operation_id`/`session_id` to prevent races on the in-memory store.
+- On-chain reconciliation scans the most recent `100_000` blocks plus the
+  configured `SESSION_RAIL_FROM_BLOCK`, avoiding unbounded RPC queries.
+- RPC failures during vault trust checks are propagated instead of silently
+  returning `false`.
+- Session authorization failures return a generic `invalid_session_authorization`
+  response while the specific reason is logged server-side.

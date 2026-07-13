@@ -26,7 +26,10 @@
       "category": "Security Logging & Monitoring (OWASP A09)",
       "title": "txHash in settlement_failed SecurityLogger event is always scrubbed to '<redacted:relayer-key>'",
       "spec_reference": "tech-spec D18: settlement_failed { payerHash, reason, txHash? }; tech-spec D13: scrubSecrets scrubs '0x[0-9a-fA-F]{64}' patterns",
-      "files": ["packages/middleware/src/core.ts:557-559", "packages/middleware/src/relayer-key.ts:30-103"],
+      "files": [
+        "packages/middleware/src/core.ts:557-559",
+        "packages/middleware/src/relayer-key.ts:30-103"
+      ],
       "description": "core.ts emits settlement_failed with payload { payerHash, reason, txHash? }. scrubSecrets is applied to the full payload before emit (core.ts:384). HEX_64_WITH_PREFIX_RE = /0x[0-9a-fA-F]{64}/g matches a 32-byte transaction hash (0x + 64 hex = 66 chars total). Therefore, every txHash value in the event will be replaced with '<redacted:relayer-key>' before reaching the integrator's monitoring system. This is a false positive from the regex — a tx hash is not a secret — but the pattern runs unconditionally.",
       "impact": "Operators lose the ability to correlate settlement_failed events with on-chain transactions. When reason=receipt_reverted or mine_timeout the txHash is the only forensic handle to investigate the failure. This is a monitoring regression, not a security leak.",
       "reproduction": "Call settle with a mock that returns { ok: false, reason: 'mine_timeout', txHash: '0x' + 'fe'.repeat(32) }. Check the emitted payload — txHash will be '<redacted:relayer-key>'.",
@@ -38,7 +41,10 @@
       "category": "Security Logging & Monitoring (OWASP A09) — D18 catalog completeness",
       "title": "D18 relayer_low_balance event missing from SecurityEventCatalog and never emitted",
       "spec_reference": "tech-spec D18 table: 'relayer_low_balance | { balanceUsdc }'; settle.ts returns reason='relayer_no_balance' which collapses into settlement_failed",
-      "files": ["packages/middleware/src/core.ts:65-79", "packages/middleware/src/settle.ts:339-344"],
+      "files": [
+        "packages/middleware/src/core.ts:65-79",
+        "packages/middleware/src/settle.ts:339-344"
+      ],
       "description": "The tech-spec D18 catalog explicitly includes relayer_low_balance: { balanceUsdc } as a distinct event. The SecurityEventCatalog in core.ts omits this event entirely. When settle.ts detects low balance, it returns { ok: false, reason: 'relayer_no_balance', details: { balance } }. core.ts receives this and emits settlement_failed with reason='relayer_no_balance' — discarding the balance field. Operators monitoring for 'relayer wallet needs refilling' have no dedicated signal with the actual balance value.",
       "impact": "Operational: operators cannot configure dedicated alerting on relayer balance depletion with a balance threshold (they would need to parse settlement_failed reason field instead of a distinct event). Does not affect payment security.",
       "fix": "Add relayer_low_balance: { balanceUsdc: string } to SecurityEventCatalog. In the settle failure handling in core.ts, inspect settleResult.details?.balance when reason='relayer_no_balance' and emit both relayer_low_balance (with balanceUsdc) AND settlement_failed (to preserve existing integrations). Alternatively, note in D18 that the catalog was intentionally merged and close with a documented deviation."
@@ -60,7 +66,10 @@
       "category": "Insecure Design — defense-in-depth",
       "title": "verify() receives expectedVaultAddress=ZERO_ADDRESS when factory lookup fails before header read",
       "spec_reference": "tech-spec Solution step 7c: to == computeVaultAddress(developerEoa); core.ts lines 421-428",
-      "files": ["packages/middleware/src/core.ts:421-429", "packages/middleware/src/core.ts:462-470"],
+      "files": [
+        "packages/middleware/src/core.ts:421-429",
+        "packages/middleware/src/core.ts:462-470"
+      ],
       "description": "When the initial factory state read fails (lines 422-429), payTo stays ZERO_ADDRESS. This ZERO_ADDRESS is passed as expectedVaultAddress to verifyEip3009Authorization. An attacker who crafts authorization.to=ZERO_ADDRESS would pass the to_mismatch check. The 7d vault_not_deployed check (line 531) is the safety net — it blocks settlement even if a second factory read succeeds and payTo gets updated to a real vault. In practice, an attacker gains nothing (they cannot redirect funds to their chosen address) but can waste relayer USDC attempting settlement to 0x0 if the 7d re-fetch accidentally returns a real vault for a different developer.",
       "impact": "Theoretical relayer USDC waste in a specific race condition. Does not enable fund theft due to the cryptographic binding of authorization.to in EIP-3009.",
       "fix": "Guard verify call with an early-exit if payTo == ZERO_ADDRESS: if payTo is still ZERO_ADDRESS when reaching 7c, return 402 vault_not_deployed immediately without calling verify. This makes the invariant explicit and removes the confusing state where expectedVaultAddress=ZERO_ADDRESS is treated as a valid verification target."

@@ -48,7 +48,12 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 
 function segment(url: URL, index: number): string | undefined {
   const value = url.pathname.split('/').filter(Boolean)[index];
-  return value === undefined ? undefined : decodeURIComponent(value);
+  if (value === undefined) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new PaymentServiceError('invalid_path_segment', 400);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,7 +102,7 @@ async function handle(
     if (!isRecord(body) || !isRecord(body['binding'])) {
       throw new PaymentServiceError('missing_binding', 400);
     }
-    json(res, 201, service.createQuote(body['binding'] as unknown as OperationBinding));
+    json(res, 201, await service.createQuote(body['binding'] as unknown as OperationBinding));
     return;
   }
   if (req.method === 'POST' && url.pathname === '/v1/sessions') {

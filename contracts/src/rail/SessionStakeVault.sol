@@ -149,10 +149,10 @@ contract SessionStakeVault is Initializable, ReentrancyGuard, EIP712 {
         address recovered = ECDSA.recover(_hashTypedDataV4(_sessionGrantStructHash(grant)), signature);
         if (recovered != payer) revert InvalidSessionSignature();
 
-        usedGrantNonces[grant.nonce] = true;
         _grantPolicy(
             grant.facilitator, grant.payTo, grant.cap, grant.perOperationCeiling, grant.validUntil, grant.scopeHash
         );
+        usedGrantNonces[grant.nonce] = true;
     }
 
     function hashSessionGrant(SessionGrant calldata grant) external view returns (bytes32) {

@@ -31,17 +31,18 @@ peertube-plugin-universal-paywall/
 `createReporter` / `mapResolver`):
 
 ```js
-async function register ({ registerHook, registerSetting, settingsManager }) {
+async function register({ registerHook, registerSetting, settingsManager }) {
   for (const [name, label] of [
     ['facilitator-url', 'Facilitator URL'],
     ['facilitator-api-key', 'Facilitator API key'],
     ['price-micro-usdc', 'Price per view (micro-USDC)'],
     ['viewer-wallets', 'Viewer wallet map (JSON)'],
     ['channel-wallets', 'Channel wallet map (JSON)'],
-  ]) registerSetting({ name, label, type: 'input' })
+  ])
+    registerSetting({ name, label, type: 'input' });
 
-  const { createReporter, mapResolver } = await import('@universal-paywall/integrations')
-  const get = (k) => settingsManager.getSetting(k)
+  const { createReporter, mapResolver } = await import('@universal-paywall/integrations');
+  const get = (k) => settingsManager.getSetting(k);
 
   registerHook({
     target: 'action:api.video.viewed',
@@ -51,17 +52,17 @@ async function register ({ registerHook, registerSetting, settingsManager }) {
         apiKey: await get('facilitator-api-key'),
         resolvePayer: mapResolver(JSON.parse((await get('viewer-wallets')) || '{}')),
         resolveCreator: mapResolver(JSON.parse((await get('channel-wallets')) || '{}')),
-      })
+      });
       await reporter.report({
         payerKey: req?.headers?.['x-payer-user'] ?? 'anonymous',
         creatorKey: String(video.channelId),
         amount: BigInt((await get('price-micro-usdc')) || '1000'),
         ref: `peertube:${video.uuid}:${Date.now()}`,
-      })
+      });
     },
-  })
+  });
 }
-module.exports = { register, unregister: () => Promise.resolve() }
+module.exports = { register, unregister: () => Promise.resolve() };
 ```
 
 ## Open design questions (resolve during implementation)
@@ -89,7 +90,7 @@ module.exports = { register, unregister: () => Promise.resolve() }
 A **self-contained esbuild bundle** of `packages/peertube-plugin/` was installed
 into a live **PeerTube 7.3.0** (postgres + redis): it **installs, registers the
 `action:api.video.viewed` hook + settings, is enabled**, and configures via
-`PUT /api/v1/plugins/.../settings`. The hook fires on a PeerTube *counted* view
+`PUT /api/v1/plugins/.../settings`. The hook fires on a PeerTube _counted_ view
 (watch-time threshold + viewer-stats), which a real player session drives; the
 per-view charge logic is covered by the plugin's unit test. See
 `../../../../work/creator-platform-integrations/testing-plan.md` (PeerTube row) for

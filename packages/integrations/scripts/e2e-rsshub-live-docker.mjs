@@ -39,17 +39,37 @@ const PAYER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b7
 const FAC_KEY = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'; // gitleaks:allow
 const STREAMER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
 
-const chain = defineChain({ id: CHAIN_ID, name: 'anvil', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } });
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'anvil',
+  nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 },
+  rpcUrls: { default: { http: [RPC] } },
+});
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '../../..');
-const art = (p) => { const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8')); return { abi: a.abi, bytecode: a.bytecode.object }; };
-async function deploy(k, a, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain }); return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress; }
-async function sendTx(k, address, abi, fn, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain }); await pub.waitForTransactionReceipt({ hash: h }); }
+const art = (p) => {
+  const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8'));
+  return { abi: a.abi, bytecode: a.bytecode.object };
+};
+async function deploy(k, a, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain });
+  return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress;
+}
+async function sendTx(k, address, abi, fn, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain });
+  await pub.waitForTransactionReceipt({ hash: h });
+}
 
 async function main() {
-  const usdcArt = art('MockUSDC.sol/MockUSDC.json'), facArt = art('StakeVaultFactory.sol/StakeVaultFactory.json');
-  const viewer = privateKeyToAccount(PAYER_KEY).address, facAddr = privateKeyToAccount(FAC_KEY).address;
+  const usdcArt = art('MockUSDC.sol/MockUSDC.json'),
+    facArt = art('StakeVaultFactory.sol/StakeVaultFactory.json');
+  const viewer = privateKeyToAccount(PAYER_KEY).address,
+    facAddr = privateKeyToAccount(FAC_KEY).address;
 
   console.log('1. Crawler fetches a REAL RSSHub feed item...');
   const feed = await (await fetch(`${RSS}/test/1?format=json`)).json();
@@ -58,31 +78,71 @@ async function main() {
   console.log('   item url:', item.url, '| author:', author);
 
   console.log('2. Deploy rail + grant...');
-  const usdc = await deploy(DEPLOYER, usdcArt, []); const factory = await deploy(DEPLOYER, facArt, [usdc]);
+  const usdc = await deploy(DEPLOYER, usdcArt, []);
+  const factory = await deploy(DEPLOYER, facArt, [usdc]);
   await sendTx(DEPLOYER, usdc, usdcArt.abi, 'mint', [viewer, 2_000_000n]);
-  const agent = createPayerAgent({ rpcUrl: RPC, chainId: CHAIN_ID, payerKey: PAYER_KEY, stakeVaultFactory: factory, usdc });
-  await agent.ensureGrant({ facilitator: facAddr, stakeVaultFactory: factory, recommendedCap: 1_000_000n, validForSeconds: 3600 });
+  const agent = createPayerAgent({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    payerKey: PAYER_KEY,
+    stakeVaultFactory: factory,
+    usdc,
+  });
+  await agent.ensureGrant({
+    facilitator: facAddr,
+    stakeVaultFactory: factory,
+    recommendedCap: 1_000_000n,
+    validForSeconds: 3600,
+  });
 
   console.log('3. Facilitator + REAL sidecar (citationRoute)...');
-  const fac = createFacilitator({ rpcUrl: RPC, chainId: CHAIN_ID, facilitatorKey: FAC_KEY, stakeVaultFactory: factory, apiKeys: ['k'], batch: { maxCharges: 100, maxAgeMs: 1 } });
+  const fac = createFacilitator({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    facilitatorKey: FAC_KEY,
+    stakeVaultFactory: factory,
+    apiKeys: ['k'],
+    batch: { maxCharges: 100, maxAgeMs: 1 },
+  });
   await new Promise((r) => fac.server.listen(8402, () => r(null)));
-  const reporter = createReporter({ facilitatorUrl: 'http://127.0.0.1:8402', apiKey: 'k', resolvePayer: mapResolver({ [CRAWLER]: viewer }), resolveCreator: mapResolver({ [author]: STREAMER }) });
+  const reporter = createReporter({
+    facilitatorUrl: 'http://127.0.0.1:8402',
+    apiKey: 'k',
+    resolvePayer: mapResolver({ [CRAWLER]: viewer }),
+    resolveCreator: mapResolver({ [author]: STREAMER }),
+  });
   const sidecar = createSidecarServer([citationRoute(reporter, { toll: TOLL })]);
   await new Promise((r) => sidecar.listen(8410, () => r(null)));
 
   console.log('4. Crawler grounds an answer in the item -> POST /citation...');
-  const res = await (await fetch('http://localhost:8410/citation', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ crawlerId: CRAWLER, link: item.url, author }) })).json();
+  const res = await (
+    await fetch('http://localhost:8410/citation', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ crawlerId: CRAWLER, link: item.url, author }),
+    })
+  ).json();
   console.log('   citation outcome:', JSON.stringify(res));
   if (res.status !== 'charged') throw new Error('citation not charged');
 
   console.log('5. Flush + assert on-chain settle...');
   const results = await fac.service.flushAll();
-  const bal = await pub.readContract({ address: usdc, abi: usdcArt.abi, functionName: 'balanceOf', args: [STREAMER] });
+  const bal = await pub.readContract({
+    address: usdc,
+    abi: usdcArt.abi,
+    functionName: 'balanceOf',
+    args: [STREAMER],
+  });
   if (!(results.length === 1 && results[0].ok)) throw new Error('no settle');
   if (bal !== TOLL) throw new Error(`expected ${TOLL} got ${bal}`);
   sidecar.close();
   fac.server.close();
-  console.log(`\nREAL RSSHUB L3 PASS: crawler cites a live RSSHub item -> /citation toll -> facilitator -> on-chain settle -> author paid ${bal} micro-USDC`);
+  console.log(
+    `\nREAL RSSHUB L3 PASS: crawler cites a live RSSHub item -> /citation toll -> facilitator -> on-chain settle -> author paid ${bal} micro-USDC`,
+  );
   process.exit(0);
 }
-main().catch((e) => { console.error('L3 ERROR:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('L3 ERROR:', e);
+  process.exit(1);
+});

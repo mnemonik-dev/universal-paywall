@@ -11,15 +11,15 @@ created: 2026-06-17
 `@universal-paywall/integrations` — permissionless sidecars + a runnable serve
 layer + CLI.
 
-| Vertical | Adapter | Runnable route | Tested |
-|---|---|---|---|
-| Music (Subsonic) | `handleScrobble`, `parseSubsonicScrobble` | `subsonicRoute` (GET `/rest/scrobble.view`) | ✓ |
-| Music (Navidrome/ListenBrainz) | `handleListenSubmit`, `parseListenToken`, `listenCreatorKey` | `listenBrainzRoutes` (GET `/1/validate-token`, POST `/1/submit-listens`) | ✓ |
-| Live video (Owncast) | `OwncastPresenceMeter` | `owncastRoute` (POST `/owncast`) | ✓ |
-| VOD (Jellyfin) | `handleJellyfinEvent` | `jellyfinRoute` (POST `/jellyfin`) | ✓ |
-| Feeds (RSSHub) | `handleCitation` | `citationRoute` (POST `/citation`) | ✓ |
-| Photo (Immich) | `handleSharedLinkResolve` + `createImmichProxy` (reverse-proxy) | `immichRoute` / `PLATFORM=immich-proxy` | ✓ (real L3) |
-| Fediverse (Mastodon) | `buildDonationCampaign` | `mastodonCampaignRoute` (GET `/api/v1/donation_campaigns`) | ✓ |
+| Vertical                       | Adapter                                                         | Runnable route                                                           | Tested      |
+| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------- |
+| Music (Subsonic)               | `handleScrobble`, `parseSubsonicScrobble`                       | `subsonicRoute` (GET `/rest/scrobble.view`)                              | ✓           |
+| Music (Navidrome/ListenBrainz) | `handleListenSubmit`, `parseListenToken`, `listenCreatorKey`    | `listenBrainzRoutes` (GET `/1/validate-token`, POST `/1/submit-listens`) | ✓           |
+| Live video (Owncast)           | `OwncastPresenceMeter`                                          | `owncastRoute` (POST `/owncast`)                                         | ✓           |
+| VOD (Jellyfin)                 | `handleJellyfinEvent`                                           | `jellyfinRoute` (POST `/jellyfin`)                                       | ✓           |
+| Feeds (RSSHub)                 | `handleCitation`                                                | `citationRoute` (POST `/citation`)                                       | ✓           |
+| Photo (Immich)                 | `handleSharedLinkResolve` + `createImmichProxy` (reverse-proxy) | `immichRoute` / `PLATFORM=immich-proxy`                                  | ✓ (real L3) |
+| Fediverse (Mastodon)           | `buildDonationCampaign`                                         | `mastodonCampaignRoute` (GET `/api/v1/donation_campaigns`)               | ✓           |
 
 - `createSidecarServer(routes)` + `up-integration` CLI: run any sidecar from env
   (`PLATFORM`, `FACILITATOR_URL`, `FACILITATOR_API_KEY`, `PAYER_WALLETS`,
@@ -76,8 +76,7 @@ per-platform test matrix.
       scrobble -> recording_mbid -> live MusicBrainz artist -> on-chain settle, artist
       paid 100) — PASS. Field-verifies gaps #1 + #4 together.
 - [x] Jellyfin **real L3** (live `ghcr.io/jellyfin/jellyfin` + official Webhook
-      plugin, real PlaybackStop -> per-minute bill -> on-chain settle, creator paid
-      2000) — PASS.
+      plugin, real PlaybackStop -> per-minute bill -> on-chain settle, creator paid 2000) — PASS.
 - [x] PeerTube **real L3+L4** (live PeerTube 7.3.0 + a real headless-browser player ->
       counted view -> action:api.video.viewed -> on-chain settle). Live run also
       found+fixed a real bug (MVideoImmutable has no channelId).

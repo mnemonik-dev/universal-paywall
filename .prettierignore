@@ -5,3 +5,6 @@ artifacts/
 coverage/
 typechain-types/
 *.sol
+.claude/
+.claude-flow/
+contracts/lib/

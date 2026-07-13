@@ -3,7 +3,7 @@ feature: x402-agent-payment
 doc: external-analysis
 status: draft
 created: 2026-06-16
-source: "Canteen — The Distribution Bootstrap for Payments Founders (2026-05-28)"
+source: 'Canteen — The Distribution Bootstrap for Payments Founders (2026-05-28)'
 source_url: https://thecanteenapp.com/analysis/2026/05/28/distribution-bootstrap-payments-founders.html
 relates_to: review.md
 ---
@@ -18,14 +18,14 @@ covers exactly this project's problem domain.
 
 ## What the article argues
 
-- **Thesis:** For a new payments company, *distribution* is the hardest problem.
+- **Thesis:** For a new payments company, _distribution_ is the hardest problem.
   For the creator economy the right place to get it is the existing **open-source
   self-hosted creator stack** (Navidrome, Owncast, Jellyfin, PeerTube, Immich,
   RSSHub, Mastodon, …), not crypto token/airdrop incentives — creators aren't
   onchain natives.
 - **Economic engine (strongest part):** Fiat rails impose a fee floor. Evidenced
   from Liberapay's own `PAYIN_AMOUNTS`: fee **>10% at €2, >8% at €10, <6% only
-  above €40**. That floor *forced* platform-level batching and *forced*
+  above €40**. That floor _forced_ platform-level batching and _forced_
   centralization (Liberapay can't be self-hosted because one instance can't batch
   across donors). **Onchain rail-level batched settlement** — specifically
   **Circle's Arc Nanopayments on Circle Gateway, x402 on top** — inverts it:
@@ -34,9 +34,9 @@ covers exactly this project's problem domain.
 - **The canonical x402 flow it describes:** buyer **signs an EIP-3009
   authorization offchain** → seller **verifies the signature and serves the
   resource immediately** → Gateway **aggregates many authorizations and settles
-  them onchain in bulk**. Batching moves *down to the rail*; authorization stays
+  them onchain in bulk**. Batching moves _down to the rail_; authorization stays
   individual and offchain (so it is not custodial in the trust path).
-- **How to attach:** integrate *permissionlessly* through surfaces upstreams
+- **How to attach:** integrate _permissionlessly_ through surfaces upstreams
   already expose — plugin / sidecar / wrapper / federation-peer / client-fork —
   reading data structures that already exist. Empirically: **server-admin
   donation pointers get merged upstream; per-user payment plumbing does not.**
@@ -57,14 +57,14 @@ point.
 
 1. **Corroborates review issue #2 (payment mechanism is likely wrong).** The
    article's canonical model is offchain EIP-3009 authorization + immediate serve
-   + batched onchain settlement (Gateway). Our `tech-spec.md` does the opposite:
-   the agent submits its *own* on-chain `payWithPermit` (EIP-2612) tx, waits for
-   confirmation, then passes `tx_hash` for receipt verification — and `D2`
-   explicitly rejects Gateway ("no Circle Gateway dependency, no custodial batch
-   processing"). The article reframes batched settlement as the *upgrade*, not a
-   custody risk. Our own interview log says the design is "based on
-   arc-nanopayments patterns (@circle-fin/x402-batching)," yet the spec walked
-   away from that model. Revisit before T3.
+   - batched onchain settlement (Gateway). Our `tech-spec.md` does the opposite:
+     the agent submits its _own_ on-chain `payWithPermit` (EIP-2612) tx, waits for
+     confirmation, then passes `tx_hash` for receipt verification — and `D2`
+     explicitly rejects Gateway ("no Circle Gateway dependency, no custodial batch
+     processing"). The article reframes batched settlement as the _upgrade_, not a
+     custody risk. Our own interview log says the design is "based on
+     arc-nanopayments patterns (@circle-fin/x402-batching)," yet the spec walked
+     away from that model. Revisit before T3.
 
 2. **Supports the Base → Arc pivot flagged in the review.** The essay centers
    Circle Arc Nanopayments / Arc for nanopayment economics and native USDC, so
@@ -92,7 +92,7 @@ point.
 
 Every thesis the article advances, section by section, with its supporting
 links. Source:
-[Canteen — *The Distribution Bootstrap for Payments Founders*](https://thecanteenapp.com/analysis/2026/05/28/distribution-bootstrap-payments-founders.html)
+[Canteen — _The Distribution Bootstrap for Payments Founders_](https://thecanteenapp.com/analysis/2026/05/28/distribution-bootstrap-payments-founders.html)
 (2026-05-28).
 
 ## Framing (intro)
@@ -145,8 +145,8 @@ links. Source:
   table), Live video ([owncast](https://github.com/owncast/owncast), 10.9k —
   `userJoined`/`userParted`), Photo
   ([immich](https://github.com/immich-app/immich), 88.8k — shared-link controller
-  + `ownerId`), Feeds ([RSSHub](https://github.com/DIYgod/RSSHub), 41.3k —
-  `DataItem.link`/`author`).
+  - `ownerId`), Feeds ([RSSHub](https://github.com/DIYgod/RSSHub), 41.3k —
+    `DataItem.link`/`author`).
 - **Common pattern:** an external process (sidecar / wrapper / plugin /
   middleware) reads a settlement-grade event stream the upstream isn't treating as
   one — no fork to maintain, no roadmap to wait on.
@@ -168,9 +168,9 @@ links. Source:
   [constants.py](https://github.com/liberapay/liberapay.com/blob/1e4fc833950c2d34d9c550e6d43ed7510f6898b8/liberapay/constants.py)
   comments the fee inline: **>10% at €2, <8% at €10, <6% only above €40.**
 - **Three constraints fall out of the fiat-rail architecture:** (1) centralization
-  was *forced, not chosen* (a self-hosted instance can't batch across donors);
-  (2) per-event settlement is *impossible* (weekly cadence, Stripe SDD 5-day
-  delay); (3) the unit of value *can't be smaller than ~$2*.
+  was _forced, not chosen_ (a self-hosted instance can't batch across donors);
+  (2) per-event settlement is _impossible_ (weekly cadence, Stripe SDD 5-day
+  delay); (3) the unit of value _can't be smaller than ~$2_.
 - **Onchain settlement inverts all three by moving the batch one layer down.**
   [Circle Arc Nanopayments](https://github.com/circlefin/arc-nanopayments) on
   Circle Gateway: buyer signs an **EIP-3009 authorization offchain** per request,
@@ -195,7 +195,7 @@ links. Source:
   ([navidrome](https://github.com/navidrome/navidrome),
   [immich](https://github.com/immich-app/immich),
   [peertube](https://github.com/Chocobozzz/PeerTube),
-  [mastodon](https://github.com/mastodon/mastodon)) is *intentionally* minimal.
+  [mastodon](https://github.com/mastodon/mastodon)) is _intentionally_ minimal.
 - **Permissionless integration has five zero-permission shapes:** Plugin, Sidecar,
   Wrapper / reverse proxy, Federation peer, Client fork. Heavier paths exist
   (modified node; protocol fork) but rarely pay off.
@@ -217,7 +217,7 @@ links. Source:
   [#1586](https://github.com/Chocobozzz/PeerTube/issues/1586) (115 comments, open
   since 2019) never produced an in-tree feature; the community
   [web-monetization plugin](https://github.com/samlich/peertube-plugin-web-monetization)
-  went stale; workaround is password-gated videos. No incumbent — *sit in the slot.*
+  went stale; workaround is password-gated videos. No incumbent — _sit in the slot._
 - **Mastodon — a decade of refused demand, just opened.**
   [#37880](https://github.com/mastodon/mastodon/pull/37880)
   (`GET /api/v1/donation_campaigns`, by
@@ -236,7 +236,7 @@ links. Source:
   (mid-2024) consolidated donations
   ([#9207](https://github.com/immich-app/immich/pull/9207),
   [#11890](https://github.com/immich-app/immich/pull/11890)); community pushback
-  was about the AGPL "license" *framing*
+  was about the AGPL "license" _framing_
   ([#11288](https://github.com/immich-app/immich/issues/11288),
   [#11325](https://github.com/immich-app/immich/issues/11325)), not whether to
   monetize. **The opening is a different value chain** (per-photographer
@@ -251,7 +251,7 @@ links. Source:
 
 - **A self-hosted music server has a complete, honest play record** — more
   accurate than any commercial platform (no recommendation skew, no ad inflation).
-- **Code against the Subsonic *wire protocol*, not one server**, to inherit the
+- **Code against the Subsonic _wire protocol_, not one server**, to inherit the
   whole family's installed base ([supersonic](https://github.com/dweymouth/supersonic),
   [feishin](https://github.com/jeffvli/feishin),
   [gonic](https://github.com/sentriz/gonic),
@@ -268,7 +268,7 @@ links. Source:
   amount splits only across the artists they actually played; a <30s play (the
   floor Spotify uses) doesn't settle.
 - **[Maloja](https://github.com/krateng/maloja) is a broader attachment** — a
-  scrobble *server* accepting Last.fm/ListenBrainz protocols, capturing that
+  scrobble _server_ accepting Last.fm/ListenBrainz protocols, capturing that
   audience without depending on the ListenBrainz cloud.
 
 ## Video: Per-Second Pay from Owncast Webhooks
@@ -329,20 +329,20 @@ links. Source:
   (`artist_credit`, `composers_ids` as MBIDs), Immich's EXIF `Artist` vs
   `ownerId`, Mastodon's `actor` vs `attributedTo`.
 - **Every project sits on a settlement-grade attribution graph it treats as
-  display-grade** — the transition is a change in the *consumer* of the graph,
+  display-grade** — the transition is a change in the _consumer_ of the graph,
   not the graph.
 
 ## When Permissioned-Only Wins
 
 - **Permissioned-only wins in three shapes:** (a) payment built into the
-  *protocol spec* — Podcasting 2.0 `<podcast:value>` /
+  _protocol spec_ — Podcasting 2.0 `<podcast:value>` /
   [AntennaPod](https://github.com/AntennaPod/AntennaPod)
   ([PodcastIndex.java](https://github.com/AntennaPod/AntennaPod/blob/689495543ea842339416a1fd2c377bf89b0a0e89/parser/feed/src/main/java/de/danoeh/antennapod/parser/feed/namespace/PodcastIndex.java),
   with `<podcast:value>` already in [Fountain](https://www.fountain.fm/) /
-  [Breez](https://breez.technology/)); (b) *payment-native by design* —
+  [Breez](https://breez.technology/)); (b) _payment-native by design_ —
   [Ghost](https://github.com/TryGhost/Ghost),
-  [Castopod](https://github.com/ad-aures/castopod); (c) *category-level
-  convergence forced by cost* — the photo libraries
+  [Castopod](https://github.com/ad-aures/castopod); (c) _category-level
+  convergence forced by cost_ — the photo libraries
   ([Immich](https://github.com/immich-app/immich) 88.8k,
   [PhotoPrism](https://github.com/photoprism/photoprism) 39.4k,
   [Ente](https://github.com/ente-io/ente) 24.1k).

@@ -46,7 +46,7 @@ The self-contained bundle was installed into a live **PeerTube 7.3.0** (postgres
 redis): the plugin **installs, registers the `action:api.video.viewed` hook + its
 settings, and is enabled** (confirmed via logs + the `/api/v1/plugins` API), and is
 configurable through `PUT /api/v1/plugins/.../settings`. Note: the hook fires only
-on a PeerTube *counted* view (its anti-fraud watch-time threshold + viewer-stats
+on a PeerTube _counted_ view (its anti-fraud watch-time threshold + viewer-stats
 processing), which a real player session drives. **Verified end-to-end** via `e2e-player-docker.mjs`
 (real headless-browser player -> counted view -> hook -> on-chain settle). That run
 also surfaced + fixed a real bug: the hook's `video` is an MVideoImmutable with no

@@ -32,6 +32,13 @@ import type {
   SettlementResult,
 } from './session-types.js';
 
+const MAX_RECONCILE_BLOCKS = 100_000n;
+
+function isTransientRpcError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|socket|network|fetch|disconnected|rate limit|429|503/i.test(message);
+}
+
 export interface SessionChainConfig {
   rpcUrl: string;
   chainId: number;
@@ -83,6 +90,12 @@ export class OnChainSessionPayments
     this.#fromBlock = config.fromBlock ?? 0n;
   }
 
+  async #boundedFromBlock(): Promise<bigint> {
+    const latest = await this.#public.getBlockNumber();
+    const start = latest > MAX_RECONCILE_BLOCKS ? latest - MAX_RECONCILE_BLOCKS + 1n : 0n;
+    return start > this.#fromBlock ? start : this.#fromBlock;
+  }
+
   async isTrustedVault(vault: Hex, payer: Hex): Promise<boolean> {
     try {
       const [registered, vaultPayer, vaultFactory, vaultAsset] = await Promise.all([
@@ -114,7 +127,8 @@ export class OnChainSessionPayments
         vaultFactory.toLowerCase() === this.#factory.toLowerCase() &&
         vaultAsset.toLowerCase() === this.#asset.toLowerCase()
       );
-    } catch {
+    } catch (error) {
+      if (isTransientRpcError(error)) throw error;
       return false;
     }
   }
@@ -213,12 +227,13 @@ export class OnChainSessionPayments
       args: [input.operation_id],
     });
     if (!settled) return { settled: false };
+    const fromBlock = await this.#boundedFromBlock();
     const events = await this.#public.getContractEvents({
       address: input.vault,
       abi: sessionStakeVaultAbi,
       eventName: 'OperationSettled',
       args: { operationId: input.operation_id },
-      fromBlock: this.#fromBlock,
+      fromBlock,
       toBlock: 'latest',
     });
     const event = events.at(-1);
@@ -273,6 +288,12 @@ export class OnChainExactPayments implements ExactPaymentSettler {
     this.#public = createPublicClient({ chain, transport: http(config.rpcUrl) });
     this.#config = config;
     this.#fromBlock = config.fromBlock ?? 0n;
+  }
+
+  async #boundedFromBlock(): Promise<bigint> {
+    const latest = await this.#public.getBlockNumber();
+    const start = latest > MAX_RECONCILE_BLOCKS ? latest - MAX_RECONCILE_BLOCKS + 1n : 0n;
+    return start > this.#fromBlock ? start : this.#fromBlock;
   }
 
   async settle(binding: OperationBinding, proof: ExactAuthorization): Promise<SettlementResult> {
@@ -371,12 +392,13 @@ export class OnChainExactPayments implements ExactPaymentSettler {
       args: [proof.authorization.from, proof.authorization.nonce],
     });
     if (!used) return { settled: false };
+    const fromBlock = await this.#boundedFromBlock();
     const events = await this.#public.getContractEvents({
       address: this.#config.asset,
       abi: eip3009Abi,
       eventName: 'AuthorizationUsed',
       args: { authorizer: proof.authorization.from, nonce: proof.authorization.nonce },
-      fromBlock: this.#fromBlock,
+      fromBlock,
       toBlock: 'latest',
     });
     const event = events.at(-1);

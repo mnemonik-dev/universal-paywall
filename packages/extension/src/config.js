@@ -38,5 +38,7 @@ export async function buildAccount(cfg) {
   // on-chain grant `cap` + `validUntil` bound the spend. (Model 1, an EIP-1193
   // browser wallet, is deployment-specific SW wiring; configure that or this.)
   if (cfg && cfg.sessionPrivateKey) return privateKeyToAccount(cfg.sessionPrivateKey);
-  throw new Error('configure a signer: `sessionPrivateKey` (managed session account) or an EIP-1193 provider — see README');
+  throw new Error(
+    'configure a signer: `sessionPrivateKey` (managed session account) or an EIP-1193 provider — see README',
+  );
 }

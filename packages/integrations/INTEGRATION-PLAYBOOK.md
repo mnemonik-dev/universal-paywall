@@ -90,7 +90,7 @@ import { createReporter, mapResolver } from '@universal-paywall/integrations';
 const reporter = createReporter({
   facilitatorUrl: process.env.FACILITATOR_URL!,
   apiKey: process.env.FACILITATOR_API_KEY!,
-  resolvePayer: mapResolver(JSON.parse(process.env.PAYER_WALLETS || '{}')),   // A3 payer key → wallet
+  resolvePayer: mapResolver(JSON.parse(process.env.PAYER_WALLETS || '{}')), // A3 payer key → wallet
   resolveCreator: mapResolver(JSON.parse(process.env.CREATOR_WALLETS || '{}')), // A3 creator key → wallet
 });
 ```
@@ -168,17 +168,18 @@ unknown → null).
 
 ## D. Test ladder (climb in order; do not skip)
 
-| Layer | Proves | How |
-|---|---|---|
-| **L1 Unit** | adapter maps the event → correct charge args | vitest spy reporter |
-| **L2 Contract** | the running endpoint answers the platform's real bytes | `createSidecarServer`/proxy + `fetch` over an ephemeral port |
-| **L3 Real instance** | a live platform actually drives the event into us | run the upstream Docker image; wire per the recipe |
-| **L4 Money loop** | payee on-chain balance += rate × units | anvil + facilitator + `settle`; model on `scripts/e2e-*-live-docker.mjs` |
+| Layer                | Proves                                                 | How                                                                      |
+| -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| **L1 Unit**          | adapter maps the event → correct charge args           | vitest spy reporter                                                      |
+| **L2 Contract**      | the running endpoint answers the platform's real bytes | `createSidecarServer`/proxy + `fetch` over an ephemeral port             |
+| **L3 Real instance** | a live platform actually drives the event into us      | run the upstream Docker image; wire per the recipe                       |
+| **L4 Money loop**    | payee on-chain balance += rate × units                 | anvil + facilitator + `settle`; model on `scripts/e2e-*-live-docker.mjs` |
 
-The universal acceptance check (L4): *after one event from a staked consumer, the
-payee's on-chain balance increased by exactly the expected amount.*
+The universal acceptance check (L4): _after one event from a staked consumer, the
+payee's on-chain balance increased by exactly the expected amount._
 
 L3/L4 harness recipe (reuse the existing scripts):
+
 1. `dockerd` (root) → `docker run` the **upstream** image (GHCR avoids Docker Hub
    anon pull limits). No fork needed — forks are reference-only.
 2. anvil + deploy rail + facilitator + your adapter, with `resolvePayer`/`resolveCreator`
@@ -223,13 +224,14 @@ acceptance gate.
 `UPSTREAM_URL` (immich-proxy), `CAMPAIGN_*` (mastodon).
 
 **Worked examples (copy these):**
-| Pattern | File(s) | Live L3 harness |
-|---|---|---|
-| 1 config-redirect | `src/listenbrainz.ts` | `scripts/e2e-navidrome-live-docker.mjs` |
-| 2 event subscriber | `src/owncast.ts`, `src/jellyfin.ts` | `scripts/e2e-owncast-live-docker.mjs`, `e2e-jellyfin-live-docker.mjs` |
-| 3 reverse proxy | `src/immich-proxy.ts`, `src/rsshub.ts` | `scripts/e2e-immich-live-docker.mjs`, `e2e-rsshub-live-docker.mjs` |
-| 4 published plugin | `packages/peertube-plugin/` | (real install; PeerTube 7.3.0) |
-| 5 external provider | `src/mastodon.ts` | `scripts/e2e-mastodon-donation-anvil.mjs` |
-| 6 payer adaptor | `packages/extension/` | `packages/extension/e2e-anvil.mjs` |
+
+| Pattern             | File(s)                                | Live L3 harness                                                       |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| 1 config-redirect   | `src/listenbrainz.ts`                  | `scripts/e2e-navidrome-live-docker.mjs`                               |
+| 2 event subscriber  | `src/owncast.ts`, `src/jellyfin.ts`    | `scripts/e2e-owncast-live-docker.mjs`, `e2e-jellyfin-live-docker.mjs` |
+| 3 reverse proxy     | `src/immich-proxy.ts`, `src/rsshub.ts` | `scripts/e2e-immich-live-docker.mjs`, `e2e-rsshub-live-docker.mjs`    |
+| 4 published plugin  | `packages/peertube-plugin/`            | (real install; PeerTube 7.3.0)                                        |
+| 5 external provider | `src/mastodon.ts`                      | `scripts/e2e-mastodon-donation-anvil.mjs`                             |
+| 6 payer adaptor     | `packages/extension/`                  | `packages/extension/e2e-anvil.mjs`                                    |
 
 **Registry/moat example:** `src/musicbrainz.ts` (`createMusicBrainzResolver`).

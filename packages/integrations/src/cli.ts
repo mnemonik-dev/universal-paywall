@@ -45,12 +45,24 @@ function campaignFromEnv(): CampaignTemplate {
   const amounts = process.env.CAMPAIGN_AMOUNTS;
   return {
     id: optEnv('CAMPAIGN_ID', 'universal-paywall'),
-    banner_message: optEnv('CAMPAIGN_BANNER_MESSAGE', 'Support this instance — settles onchain via Universal Paywall'),
+    banner_message: optEnv(
+      'CAMPAIGN_BANNER_MESSAGE',
+      'Support this instance — settles onchain via Universal Paywall',
+    ),
     banner_button_text: optEnv('CAMPAIGN_BANNER_BUTTON_TEXT', 'Donate'),
-    donation_message: optEnv('CAMPAIGN_DONATION_MESSAGE', 'Your contribution settles onchain, non-custodially.'),
+    donation_message: optEnv(
+      'CAMPAIGN_DONATION_MESSAGE',
+      'Your contribution settles onchain, non-custodially.',
+    ),
     donation_button_text: optEnv('CAMPAIGN_DONATION_BUTTON_TEXT', 'Contribute'),
-    donation_success_post: optEnv('CAMPAIGN_DONATION_SUCCESS_POST', 'I just supported this instance via Universal Paywall.'),
-    amounts: amounts !== undefined && amounts !== '' ? (JSON.parse(amounts) as CampaignAmounts) : { one_time: { USD: [5, 10, 25] }, monthly: { USD: [5] } },
+    donation_success_post: optEnv(
+      'CAMPAIGN_DONATION_SUCCESS_POST',
+      'I just supported this instance via Universal Paywall.',
+    ),
+    amounts:
+      amounts !== undefined && amounts !== ''
+        ? (JSON.parse(amounts) as CampaignAmounts)
+        : { one_time: { USD: [5, 10, 25] }, monthly: { USD: [5] } },
     default_currency: optEnv('CAMPAIGN_DEFAULT_CURRENCY', 'USD'),
     donation_url: env('CAMPAIGN_DONATION_URL'),
   };
@@ -78,7 +90,9 @@ function main(): void {
     return createMusicBrainzResolver({
       walletRegistry: registry,
       userAgent: ua,
-      ...(process.env.MUSICBRAINZ_BASE_URL !== undefined ? { baseUrl: process.env.MUSICBRAINZ_BASE_URL } : {}),
+      ...(process.env.MUSICBRAINZ_BASE_URL !== undefined
+        ? { baseUrl: process.env.MUSICBRAINZ_BASE_URL }
+        : {}),
     });
   }
 
@@ -87,7 +101,13 @@ function main(): void {
   // Immich reverse-proxy variant: a full transparent proxy in front of Immich
   // (not a route on the sidecar server), metering shared-link asset resolves.
   if (platform === 'immich-proxy') {
-    const proxy = createServer(createImmichProxy({ upstreamUrl: env('UPSTREAM_URL'), reporter: reporter(), licenseFee: rate() }));
+    const proxy = createServer(
+      createImmichProxy({
+        upstreamUrl: env('UPSTREAM_URL'),
+        reporter: reporter(),
+        licenseFee: rate(),
+      }),
+    );
     proxy.listen(port, () => {
       // eslint-disable-next-line no-console
       console.log(`up-integration [immich-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`);
@@ -95,10 +115,18 @@ function main(): void {
     return;
   }
   if (platform === 'subsonic-proxy') {
-    const proxy = createServer(createSubsonicProxy({ upstreamUrl: env('UPSTREAM_URL'), reporter: reporter(musicCreatorResolver()), ratePerPlay: rate() }));
+    const proxy = createServer(
+      createSubsonicProxy({
+        upstreamUrl: env('UPSTREAM_URL'),
+        reporter: reporter(musicCreatorResolver()),
+        ratePerPlay: rate(),
+      }),
+    );
     proxy.listen(port, () => {
       // eslint-disable-next-line no-console
-      console.log(`up-integration [subsonic-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`);
+      console.log(
+        `up-integration [subsonic-proxy] proxying ${process.env.UPSTREAM_URL} on :${port}`,
+      );
     });
     return;
   }
@@ -113,7 +141,14 @@ function main(): void {
       routes = listenBrainzRoutes(reporter(musicCreatorResolver()), { ratePerListen: rate() });
       break;
     case 'owncast':
-      routes = [owncastRoute(new OwncastPresenceMeter(reporter(), { ratePerSecond: rate(), streamerKey: env('STREAMER_KEY') }))];
+      routes = [
+        owncastRoute(
+          new OwncastPresenceMeter(reporter(), {
+            ratePerSecond: rate(),
+            streamerKey: env('STREAMER_KEY'),
+          }),
+        ),
+      ];
       break;
     case 'jellyfin':
       routes = [jellyfinRoute(reporter(), { ratePerMinute: rate() })];
@@ -129,7 +164,9 @@ function main(): void {
       routes = [mastodonCampaignRoute({ campaign: campaignFromEnv() })];
       break;
     default:
-      throw new Error(`unknown PLATFORM: ${platform} (use subsonic|navidrome|owncast|jellyfin|rsshub|immich|immich-proxy|mastodon)`);
+      throw new Error(
+        `unknown PLATFORM: ${platform} (use subsonic|navidrome|owncast|jellyfin|rsshub|immich|immich-proxy|mastodon)`,
+      );
   }
 
   const server = createSidecarServer(routes, {
@@ -137,7 +174,9 @@ function main(): void {
   });
   server.listen(port, () => {
     // eslint-disable-next-line no-console
-    console.log(`up-integration [${platform}] listening on :${port} (paths ${routes.map((r) => r.path).join(', ')})`);
+    console.log(
+      `up-integration [${platform}] listening on :${port} (paths ${routes.map((r) => r.path).join(', ')})`,
+    );
   });
 }
 

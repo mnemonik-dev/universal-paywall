@@ -36,14 +36,38 @@ const CREATOR = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
 const PRICE = 50_000n;
 const CAP = 1_000_000n;
 
-const chain = defineChain({ id: CHAIN_ID, name: 'anvil', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } });
+const chain = defineChain({
+  id: CHAIN_ID,
+  name: 'anvil',
+  nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 },
+  rpcUrls: { default: { http: [RPC] } },
+});
 const pub = createPublicClient({ chain, transport: http(RPC) });
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '../..');
-const art = (p) => { const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8')); return { abi: a.abi, bytecode: a.bytecode.object }; };
-async function deploy(k, a, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain }); return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress; }
-async function send(k, address, abi, fn, args) { const ac = privateKeyToAccount(k); const w = createWalletClient({ account: ac, chain, transport: http(RPC) }); const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain }); await pub.waitForTransactionReceipt({ hash: h }); }
-function assert(c, m) { if (!c) { console.error('FAIL:', m); process.exit(1); } console.log('  ok:', m); }
+const art = (p) => {
+  const a = JSON.parse(readFileSync(join(root, 'contracts/out', p), 'utf8'));
+  return { abi: a.abi, bytecode: a.bytecode.object };
+};
+async function deploy(k, a, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.deployContract({ abi: a.abi, bytecode: a.bytecode, args, account: ac, chain });
+  return (await pub.waitForTransactionReceipt({ hash: h })).contractAddress;
+}
+async function send(k, address, abi, fn, args) {
+  const ac = privateKeyToAccount(k);
+  const w = createWalletClient({ account: ac, chain, transport: http(RPC) });
+  const h = await w.writeContract({ address, abi, functionName: fn, args, account: ac, chain });
+  await pub.waitForTransactionReceipt({ hash: h });
+}
+function assert(c, m) {
+  if (!c) {
+    console.error('FAIL:', m);
+    process.exit(1);
+  }
+  console.log('  ok:', m);
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -58,49 +82,110 @@ async function main() {
   await send(DEPLOYER, usdc, usdcArt.abi, 'mint', [session, 2_000_000n]);
 
   console.log('2. facilitator (8402) + x402 resource (3000)...');
-  const fac = createFacilitator({ rpcUrl: RPC, chainId: CHAIN_ID, facilitatorKey: FAC_KEY, stakeVaultFactory: factory, apiKeys: ['k'], batch: { maxCharges: 100, maxAgeMs: 1 } });
+  const fac = createFacilitator({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    facilitatorKey: FAC_KEY,
+    stakeVaultFactory: factory,
+    apiKeys: ['k'],
+    batch: { maxCharges: 100, maxAgeMs: 1 },
+  });
   await new Promise((r) => fac.server.listen(8402, () => r(null)));
-  const resourceServer = createServer(withStakePaywall(
-    (_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ paid: true })); },
-    { price: PRICE, creator: CREATOR, recommendedCap: CAP, chain: { rpcUrl: RPC, chainId: CHAIN_ID, network: 'eip155:31337', asset: usdc, facilitatorAddress: facilitator, stakeVaultFactory: factory }, facilitator: { url: 'http://127.0.0.1:8402', apiKey: 'k' } },
-  ));
+  const resourceServer = createServer(
+    withStakePaywall(
+      (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ paid: true }));
+      },
+      {
+        price: PRICE,
+        creator: CREATOR,
+        recommendedCap: CAP,
+        chain: {
+          rpcUrl: RPC,
+          chainId: CHAIN_ID,
+          network: 'eip155:31337',
+          asset: usdc,
+          facilitatorAddress: facilitator,
+          stakeVaultFactory: factory,
+        },
+        facilitator: { url: 'http://127.0.0.1:8402', apiKey: 'k' },
+      },
+    ),
+  );
   await new Promise((r) => resourceServer.listen(3000, () => r(null)));
 
   console.log('3. Launch headless Chromium with the bundled extension...');
   const extDir = join(here, 'dist');
   const ctx = await chromium.launchPersistentContext(join(here, '.pw-profile'), {
     headless: false,
-    args: ['--headless=new', '--no-sandbox', `--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
+    args: [
+      '--headless=new',
+      '--no-sandbox',
+      `--disable-extensions-except=${extDir}`,
+      `--load-extension=${extDir}`,
+    ],
   });
   let sw = ctx.serviceWorkers()[0] || (await ctx.waitForEvent('serviceworker', { timeout: 10000 }));
   console.log('   extension service worker:', sw.url().slice(0, 40) + '...');
 
   console.log('4. Inject config (managed session account) into chrome.storage...');
-  await sw.evaluate(async (cfg) => {
-    await chrome.storage.local.set(cfg);
-  }, { rpcUrl: RPC, chainId: CHAIN_ID, stakeVaultFactory: factory, usdc, sessionPrivateKey: SESSION_KEY, allowList: [] });
+  await sw.evaluate(
+    async (cfg) => {
+      await chrome.storage.local.set(cfg);
+    },
+    {
+      rpcUrl: RPC,
+      chainId: CHAIN_ID,
+      stakeVaultFactory: factory,
+      usdc,
+      sessionPrivateKey: SESSION_KEY,
+      allowList: [],
+    },
+  );
   await sleep(500);
 
   console.log('5. Invoke the REAL in-browser handler: up:status, then up:fetch (auto-pay)...');
   const st = await sw.evaluate(() => globalThis.__upHandle({ type: 'up:status' }));
-  assert(st.ok && st.payer.toLowerCase() === session.toLowerCase(), 'SW up:status returns the session-account payer');
+  assert(
+    st.ok && st.payer.toLowerCase() === session.toLowerCase(),
+    'SW up:status returns the session-account payer',
+  );
 
-  const out = await sw.evaluate(() => globalThis.__upHandle({ type: 'up:fetch', url: 'http://127.0.0.1:3000/paid' }));
-  assert(out.ok && out.status === 200, `in-browser extension auto-paid -> 200 (got ${out.status} ${out.error || ''})`);
-  assert(JSON.parse(out.body).paid === true, 'resource body returned through the in-browser extension');
+  const out = await sw.evaluate(() =>
+    globalThis.__upHandle({ type: 'up:fetch', url: 'http://127.0.0.1:3000/paid' }),
+  );
+  assert(
+    out.ok && out.status === 200,
+    `in-browser extension auto-paid -> 200 (got ${out.status} ${out.error || ''})`,
+  );
+  assert(
+    JSON.parse(out.body).paid === true,
+    'resource body returned through the in-browser extension',
+  );
 
   console.log('6. Assert on-chain settle...');
   for (let i = 0; i < 50 && fac.ledger.size() === 0; i++) await sleep(40);
   assert(fac.ledger.size() === 1, 'facilitator received the metered charge');
   const results = await fac.service.flushAll();
   assert(results.length === 1 && results[0].ok, 'facilitator settled on-chain');
-  const creatorBal = await pub.readContract({ address: usdc, abi: usdcArt.abi, functionName: 'balanceOf', args: [CREATOR] });
+  const creatorBal = await pub.readContract({
+    address: usdc,
+    abi: usdcArt.abi,
+    functionName: 'balanceOf',
+    args: [CREATOR],
+  });
   assert(creatorBal === PRICE, `creator paid ${PRICE} on-chain (got ${creatorBal})`);
 
   await ctx.close();
   resourceServer.close();
   fac.server.close();
-  console.log('\nEXTENSION BROWSER E2E PASS: loaded MV3 SW (bundled viem+agent) -> auto-pay x402 -> on-chain settle -> creator paid');
+  console.log(
+    '\nEXTENSION BROWSER E2E PASS: loaded MV3 SW (bundled viem+agent) -> auto-pay x402 -> on-chain settle -> creator paid',
+  );
   process.exit(0);
 }
-main().catch((e) => { console.error('BROWSER E2E ERROR:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('BROWSER E2E ERROR:', e);
+  process.exit(1);
+});
