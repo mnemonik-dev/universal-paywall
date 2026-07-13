@@ -21,6 +21,8 @@ import type { Hex } from './types.js';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
+const HEX64_RE = /^(0x)?[0-9a-fA-F]{64}$/;
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UINT_RE = /^(0|[1-9][0-9]*)$/;
 
 export class PaymentServiceError extends Error {
@@ -53,6 +55,10 @@ export interface SessionPaymentServiceOptions {
 
 function same(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
+}
+
+function sameHex(a: string, b: string): boolean {
+  return a.toLowerCase().replace(/^0x/, '') === b.toLowerCase().replace(/^0x/, '');
 }
 
 function fail(code: string, status = 400): never {
@@ -384,10 +390,10 @@ export class SessionPaymentService {
       fail('session_binding_mismatch', 422);
     }
     if (
-      !same(session.workspace_hash, scope.workspace_hash) ||
+      !sameHex(session.workspace_hash, scope.workspace_hash) ||
       session.visibility !== scope.visibility ||
       !session.allowed_actions.includes(scope.action) ||
-      !same(binding.scope.workspace_hash ?? '', scope.workspace_hash) ||
+      !sameHex(binding.scope.workspace_hash ?? '', scope.workspace_hash) ||
       binding.scope.visibility !== scope.visibility ||
       binding.scope.action !== scope.action
     ) {
@@ -415,8 +421,7 @@ export class SessionPaymentService {
     if (
       !same(proof.from, binding.payer_wallet) ||
       !same(proof.to, binding.pay_to) ||
-      proof.value !== binding.amount ||
-      !same(proof.nonce, binding.nonce)
+      proof.value !== binding.amount
     ) {
       fail('exact_binding_mismatch', 422);
     }
@@ -458,10 +463,10 @@ export class SessionPaymentService {
     ) {
       fail('invalid_binding_address', 422);
     }
-    if (!BYTES32_RE.test(binding.nonce)) fail('invalid_binding_nonce', 422);
+    if (!UUID_RE.test(binding.nonce)) fail('invalid_binding_nonce', 422);
     if (
       binding.scope.workspace_hash !== undefined &&
-      !BYTES32_RE.test(binding.scope.workspace_hash)
+      !HEX64_RE.test(binding.scope.workspace_hash)
     ) {
       fail('invalid_binding_workspace_hash', 422);
     }

@@ -360,8 +360,7 @@ export class OnChainExactPayments implements ExactPaymentSettler {
     if (
       proof.authorization.from.toLowerCase() !== binding.payer_wallet.toLowerCase() ||
       proof.authorization.to.toLowerCase() !== binding.pay_to.toLowerCase() ||
-      proof.authorization.value !== binding.amount ||
-      proof.authorization.nonce.toLowerCase() !== binding.nonce.toLowerCase()
+      proof.authorization.value !== binding.amount
     ) {
       throw new Error('exact_reconciliation_binding_mismatch');
     }

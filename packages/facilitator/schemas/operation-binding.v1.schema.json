@@ -29,13 +29,13 @@
     "network": { "type": "string", "pattern": "^eip155:[0-9]+$" },
     "pay_to": { "$ref": "#/$defs/address" },
     "expires_at": { "type": "string", "format": "date-time" },
-    "nonce": { "$ref": "#/$defs/bytes32" },
+    "nonce": { "$ref": "#/$defs/uuid" },
     "scope": {
       "type": "object",
       "additionalProperties": false,
       "required": ["visibility", "action"],
       "properties": {
-        "workspace_hash": { "$ref": "#/$defs/bytes32" },
+        "workspace_hash": { "$ref": "#/$defs/hex64" },
         "visibility": { "type": "string", "minLength": 1 },
         "action": { "enum": ["manual", "pre_compaction", "session_end"] }
       }
@@ -44,6 +44,11 @@
   "$defs": {
     "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
     "bytes32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
-    "uint": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+    "hex64": { "type": "string", "pattern": "^(0x)?[0-9a-fA-F]{64}$" },
+    "uint": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
   }
 }

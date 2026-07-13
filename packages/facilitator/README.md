@@ -32,7 +32,9 @@ transaction. `scopeHash` commits to service, session, subject, network,
 workspace, visibility, and allowed checkpoint actions.
 
 Operation binding digests use `UP-OPBIND-1`: compact UTF-8 JSON with fields in
-the spec-defined order and a lowercase hex BLAKE3 hash. Receipts sign their
+the spec-defined order and a lowercase hex BLAKE3 hash. `operation_id` is a
+stable correlation ID, `nonce` is a UUID, and `scope.workspace_hash` is a 64
+character hex string with an optional `0x` prefix. Receipts sign their
 `UP-JCS-1` canonical payload (recursively sorted JSON keys) with Ed25519 and
 include a rotating `key_id`.
 

@@ -29,6 +29,7 @@ const ASSET = `0x${'44'.repeat(20)}` as Hex;
 const VAULT = `0x${'55'.repeat(20)}` as Hex;
 const FACTORY = `0x${'5f'.repeat(20)}` as Hex;
 const WORKSPACE = `0x${'66'.repeat(32)}` as Hex;
+const BINDING_WORKSPACE = '6666666666666666666666666666666666666666666666666666666666666666';
 const NOW = new Date('2026-07-13T12:00:00.000Z');
 const VALID_UNTIL = '2026-07-20T12:00:00.000Z';
 const TX = `0x${'77'.repeat(32)}` as Hex;
@@ -102,9 +103,9 @@ function binding(operationId = 'operation-1'): OperationBinding {
     network: config.network,
     pay_to: PAY_TO,
     expires_at: '2026-07-13T12:05:00.000Z',
-    nonce: `0x${'99'.repeat(32)}`,
+    nonce: '550e8400-e29b-41d4-a716-446655440000',
     scope: {
-      workspace_hash: WORKSPACE,
+      workspace_hash: BINDING_WORKSPACE,
       visibility: 'private',
       action: 'manual',
     },
@@ -337,7 +338,7 @@ describe('SessionPaymentService', () => {
             value: exactBinding.amount,
             validAfter: '0',
             validBefore: '9999999999',
-            nonce: exactBinding.nonce as Hex,
+            nonce: `0x${'99'.repeat(32)}` as Hex,
           },
         },
       },
