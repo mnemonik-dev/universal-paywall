@@ -29,9 +29,15 @@ export { OnChainSettler, createVaultResolver } from './settler.js';
 export { createFacilitatorServer } from './server.js';
 export type { ServerOptions } from './server.js';
 export { buildChain } from './chain.js';
-export { canonicalJson, operationDigest, sessionScopeHash, sha256Digest } from './canonical.js';
+export {
+  canonicalJson,
+  operationBindingJson,
+  operationDigest,
+  sessionScopeHash,
+  sha256Digest,
+} from './canonical.js';
 export { FilePaymentStore } from './payment-store.js';
-export type { StoredPayment, StoredQuote, StoredSession } from './payment-store.js';
+export type { PaymentStore, StoredPayment, StoredQuote, StoredSession } from './payment-store.js';
 export { ReceiptSigner } from './receipt.js';
 export type { ReceiptSignerOptions } from './receipt.js';
 export {
@@ -84,6 +90,7 @@ export type {
   SessionPolicy,
   SessionPolicyReader,
   SessionPolicyRegistrar,
+  SessionVaultVerifier,
   SettleRequest as SessionSettleRequest,
   SettlementInput as SessionSettlementInput,
   SettlementResult as SessionSettlementResult,

@@ -33,6 +33,7 @@
     "e2e:anvil": "tsx scripts/e2e-anvil.ts"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
     "viem": "^2.52.0"
   },
   "devDependencies": {

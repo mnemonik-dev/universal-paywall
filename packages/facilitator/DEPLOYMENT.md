@@ -18,6 +18,10 @@ and set `SESSION_RAIL_FROM_BLOCK` to its deployment block. Back up the payment
 store and Ed25519 receipt key independently. Test restore and on-chain
 reconciliation before enabling traffic.
 
+Pin `SESSION_STAKE_VAULT_FACTORY`; never accept a payer-supplied factory. Record
+the receipt endpoint's `public_key_base64url` in Mnemonic configuration rather
+than trusting a key fetched dynamically from the same payment connection.
+
 Required readiness checks include funded facilitator gas, RPC chain-ID pinning,
 receipt-key discovery, writable durable storage, session-vault reads, and a
 successful no-value reconciliation probe. Never reuse staging API credentials

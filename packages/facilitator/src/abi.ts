@@ -46,6 +46,27 @@ export const stakeVaultFactoryAbi = [
 export const sessionStakeVaultAbi = [
   {
     type: 'function',
+    name: 'payer',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'factory',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'usdc',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
     name: 'grantPolicyBySig',
     stateMutability: 'nonpayable',
     inputs: [
@@ -120,6 +141,16 @@ export const sessionStakeVaultAbi = [
   },
 ] as const;
 
+export const sessionStakeVaultFactoryAbi = [
+  {
+    type: 'function',
+    name: 'vaults',
+    stateMutability: 'view',
+    inputs: [{ name: 'payer', type: 'address' }],
+    outputs: [{ name: 'vault', type: 'address' }],
+  },
+] as const;
+
 export const erc20BalanceAbi = [
   {
     type: 'function',
@@ -127,6 +158,19 @@ export const erc20BalanceAbi = [
     stateMutability: 'view',
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: 'balance', type: 'uint256' }],
+  },
+] as const;
+
+export const erc20TransferAbi = [
+  {
+    type: 'event',
+    name: 'Transfer',
+    anonymous: false,
+    inputs: [
+      { name: 'from', type: 'address', indexed: true },
+      { name: 'to', type: 'address', indexed: true },
+      { name: 'value', type: 'uint256', indexed: false },
+    ],
   },
 ] as const;
 

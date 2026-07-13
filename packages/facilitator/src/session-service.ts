@@ -1,5 +1,5 @@
 import { canonicalJson, operationDigest, sessionScopeHash, sha256Digest } from './canonical.js';
-import type { FilePaymentStore, StoredPayment } from './payment-store.js';
+import type { PaymentStore, StoredPayment } from './payment-store.js';
 import { ReceiptSigner } from './receipt.js';
 import { verifySessionAuthorization, type SessionVerifierConfig } from './session-auth.js';
 import type {
@@ -13,6 +13,7 @@ import type {
   SessionPolicy,
   SessionPolicyReader,
   SessionPolicyRegistrar,
+  SessionVaultVerifier,
   SettleRequest,
   SettlementInput,
 } from './session-types.js';
@@ -34,12 +35,15 @@ export class PaymentServiceError extends Error {
 
 export interface SessionPaymentServiceConfig extends SessionVerifierConfig {
   quoteTtlSeconds: number;
+  factory: Hex;
+  maxSessionSeconds: number;
 }
 
 export interface SessionPaymentServiceOptions {
   config: SessionPaymentServiceConfig;
-  store: FilePaymentStore;
+  store: PaymentStore;
   policyReader: SessionPolicyReader;
+  vaultVerifier: SessionVaultVerifier;
   sessionRegistrar?: SessionPolicyRegistrar;
   sessionSettler: SessionOperationSettler;
   exactSettler?: ExactPaymentSettler;
@@ -61,19 +65,21 @@ function min(a: bigint, b: bigint): bigint {
 
 export class SessionPaymentService {
   readonly #config: SessionPaymentServiceConfig;
-  readonly #store: FilePaymentStore;
+  readonly #store: PaymentStore;
   readonly #policyReader: SessionPolicyReader;
+  readonly #vaultVerifier: SessionVaultVerifier;
   readonly #sessionRegistrar: SessionPolicyRegistrar | undefined;
   readonly #sessionSettler: SessionOperationSettler;
   readonly #exactSettler: ExactPaymentSettler | undefined;
   readonly #receiptSigner: ReceiptSigner;
   readonly #now: () => Date;
-  readonly #inflight = new Map<string, Promise<PaymentReceipt>>();
+  readonly #inflight = new Map<string, { fingerprint: Hex; promise: Promise<PaymentReceipt> }>();
 
   constructor(opts: SessionPaymentServiceOptions) {
     this.#config = opts.config;
     this.#store = opts.store;
     this.#policyReader = opts.policyReader;
+    this.#vaultVerifier = opts.vaultVerifier;
     this.#sessionRegistrar = opts.sessionRegistrar;
     this.#sessionSettler = opts.sessionSettler;
     this.#exactSettler = opts.exactSettler;
@@ -81,11 +87,17 @@ export class SessionPaymentService {
     this.#now = opts.now ?? (() => new Date());
   }
 
-  receiptKey(): { key_id: string; algorithm: 'Ed25519'; public_key_pem: string } {
+  receiptKey(): {
+    key_id: string;
+    algorithm: 'Ed25519';
+    public_key_pem: string;
+    public_key_base64url: string;
+  } {
     return {
       key_id: this.#receiptSigner.keyId(),
       algorithm: 'Ed25519',
       public_key_pem: this.#receiptSigner.publicKeyPem(),
+      public_key_base64url: this.#receiptSigner.publicKeyBase64Url(),
     };
   }
 
@@ -115,7 +127,16 @@ export class SessionPaymentService {
       binding,
       binding_digest: digest,
       accepts: [
-        { scheme: 'stake', protocol: 'universal-paywall-session-v1' },
+        {
+          scheme: 'stake',
+          protocol: 'universal-paywall-session-v1',
+          network: this.#config.network,
+          asset: this.#config.asset,
+          pay_to: this.#config.payTo,
+          facilitator: this.#config.facilitator,
+          factory: this.#config.factory,
+          max_valid_for_seconds: this.#config.maxSessionSeconds,
+        },
         ...(this.#exactSettler === undefined
           ? []
           : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
@@ -133,6 +154,13 @@ export class SessionPaymentService {
     const auth = request.authorization;
     if (verified.validUntil <= BigInt(Math.floor(this.#now().getTime() / 1000))) {
       fail('session_expired', 422);
+    }
+    const now = BigInt(Math.floor(this.#now().getTime() / 1000));
+    if (verified.validUntil - now > BigInt(this.#config.maxSessionSeconds)) {
+      fail('session_expiry_too_long', 422);
+    }
+    if (!(await this.#vaultVerifier.isTrustedVault(auth.vault, auth.payer_wallet))) {
+      fail('untrusted_session_vault', 422);
     }
     let policy = await this.#policyReader.read(auth.vault);
     try {
@@ -169,15 +197,49 @@ export class SessionPaymentService {
     const stored = this.#store.getSession(sessionId);
     if (stored === undefined) fail('session_not_found', 404);
     const policy = await this.#policyReader.read(stored.request.authorization.vault);
+    const auth = stored.request.authorization;
+    try {
+      this.#assertPolicy(
+        auth,
+        policy,
+        sessionScopeHash(auth),
+        BigInt(Math.floor(Date.parse(auth.valid_until) / 1000)),
+      );
+    } catch (error) {
+      if (error instanceof PaymentServiceError && error.code === 'onchain_policy_mismatch') {
+        return this.#sessionView(stored.request, policy, stored.created_at, 'superseded');
+      }
+      throw error;
+    }
     return this.#sessionView(stored.request, policy, stored.created_at);
   }
 
   settle(request: SettleRequest): Promise<PaymentReceipt> {
+    if (
+      typeof request !== 'object' ||
+      request === null ||
+      typeof request.binding !== 'object' ||
+      request.binding === null ||
+      typeof request.binding.operation_id !== 'string'
+    ) {
+      return Promise.reject(new PaymentServiceError('invalid_settle_request', 400));
+    }
     const operationId = request.binding.operation_id;
+    let fingerprint: Hex;
+    try {
+      fingerprint = sha256Digest(request);
+    } catch {
+      return Promise.reject(new PaymentServiceError('invalid_settle_request', 400));
+    }
     const running = this.#inflight.get(operationId);
-    if (running !== undefined) return running;
+    if (running !== undefined) {
+      if (running.fingerprint !== fingerprint) {
+        return Promise.reject(new PaymentServiceError('operation_id_conflict', 409));
+      }
+      return running.promise;
+    }
     const promise = this.#settle(request).finally(() => this.#inflight.delete(operationId));
-    this.#inflight.set(operationId, promise);
+    this.#inflight.set(operationId, { fingerprint, promise });
     return promise;
   }
 
@@ -207,6 +269,7 @@ export class SessionPaymentService {
             operation_id: stored.binding_digest as Hex,
             policy_epoch: this.#sessionEpoch(payment.session_id),
             amount: BigInt(stored.binding.amount),
+            pay_to: stored.binding.pay_to,
           })
         : await this.#requireExact().reconcile(stored.binding, payment.authorization);
     if (result.settled && result.tx_hash !== undefined) {
@@ -266,6 +329,7 @@ export class SessionPaymentService {
       operation_id: digest,
       policy_epoch: payment.scheme === 'stake' ? this.#sessionEpoch(payment.session_id) : 0n,
       amount: BigInt(binding.amount),
+      pay_to: binding.pay_to,
     };
 
     if (shouldReconcile) {
@@ -307,6 +371,9 @@ export class SessionPaymentService {
     const session = stored.request.authorization;
     const binding = request.binding;
     const scope = request.payment.authorization;
+    if (!(await this.#vaultVerifier.isTrustedVault(session.vault, session.payer_wallet))) {
+      fail('untrusted_session_vault', 422);
+    }
     if (
       !same(session.payer_wallet, binding.payer_wallet) ||
       session.payer_subject !== binding.payer_subject ||
@@ -319,7 +386,10 @@ export class SessionPaymentService {
     if (
       !same(session.workspace_hash, scope.workspace_hash) ||
       session.visibility !== scope.visibility ||
-      !session.allowed_actions.includes(scope.action)
+      !session.allowed_actions.includes(scope.action) ||
+      !same(binding.scope.workspace_hash ?? '', scope.workspace_hash) ||
+      binding.scope.visibility !== scope.visibility ||
+      binding.scope.action !== scope.action
     ) {
       fail('session_scope_violation', 422);
     }
@@ -365,7 +435,11 @@ export class SessionPaymentService {
       typeof binding.network !== 'string' ||
       typeof binding.pay_to !== 'string' ||
       typeof binding.expires_at !== 'string' ||
-      typeof binding.nonce !== 'string'
+      typeof binding.nonce !== 'string' ||
+      typeof binding.scope !== 'object' ||
+      binding.scope === null ||
+      typeof binding.scope.visibility !== 'string' ||
+      !['manual', 'pre_compaction', 'session_end'].includes(binding.scope.action)
     ) {
       fail('invalid_binding', 422);
     }
@@ -385,6 +459,13 @@ export class SessionPaymentService {
       fail('invalid_binding_address', 422);
     }
     if (!BYTES32_RE.test(binding.nonce)) fail('invalid_binding_nonce', 422);
+    if (
+      binding.scope.workspace_hash !== undefined &&
+      !BYTES32_RE.test(binding.scope.workspace_hash)
+    ) {
+      fail('invalid_binding_workspace_hash', 422);
+    }
+    if (binding.scope.visibility.length === 0) fail('invalid_binding_visibility', 422);
     if (!UINT_RE.test(binding.amount) || BigInt(binding.amount) === 0n)
       fail('invalid_binding_amount', 422);
     if (binding.network !== this.#config.network) fail('network_mismatch', 422);
@@ -464,10 +545,13 @@ export class SessionPaymentService {
     request: RegisterSessionRequest,
     policy: SessionPolicy,
     createdAt: string,
+    statusOverride?: PaidSession['status'],
   ): PaidSession {
     const auth = request.authorization;
     const now = BigInt(Math.floor(this.#now().getTime() / 1000));
-    const status = policy.revoked ? 'revoked' : policy.valid_until <= now ? 'expired' : 'active';
+    const status =
+      statusOverride ??
+      (policy.revoked ? 'revoked' : policy.valid_until <= now ? 'expired' : 'active');
     return {
       session_id: auth.session_id,
       status,
@@ -516,6 +600,12 @@ export class SessionPaymentService {
       operation_id: stored.binding.operation_id,
       scheme: stored.scheme,
       status: 'settled',
+      binding_digest: stored.binding_digest as Hex,
+      payer_wallet: stored.binding.payer_wallet,
+      amount: stored.binding.amount,
+      asset: stored.binding.asset,
+      network: stored.binding.network,
+      pay_to: stored.binding.pay_to,
       settlement_tx: txHash,
       settled_at: settledAt,
       receipt: this.#receiptSigner.sign(payload),

@@ -35,6 +35,12 @@ export class ReceiptSigner {
     return createPublicKey(this.#privateKey).export({ type: 'spki', format: 'pem' }).toString();
   }
 
+  publicKeyBase64Url(): string {
+    const key = createPublicKey(this.#privateKey).export({ format: 'jwk' });
+    if (key.x === undefined) throw new Error('receipt_public_key_missing');
+    return key.x;
+  }
+
   keyId(): string {
     return this.#keyId;
   }

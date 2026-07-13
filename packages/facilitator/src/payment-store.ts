@@ -42,6 +42,15 @@ export interface StoredQuote {
   created_at: string;
 }
 
+export interface PaymentStore {
+  getSession(sessionId: string): StoredSession | undefined;
+  putSession(sessionId: string, session: StoredSession): void;
+  getQuote(operationId: string): StoredQuote | undefined;
+  putQuote(operationId: string, quote: StoredQuote): void;
+  getPayment(operationId: string): StoredPayment | undefined;
+  putPayment(operationId: string, payment: StoredPayment): void;
+}
+
 interface StoreFile {
   version: 1;
   sessions: Record<string, StoredSession>;
@@ -59,7 +68,7 @@ function emptyStore(): StoreFile {
  * Deployments needing multiple writers should implement the same interface on a
  * transactional database with unique `(service_id, operation_id)` keys.
  */
-export class FilePaymentStore {
+export class FilePaymentStore implements PaymentStore {
   readonly #path: string;
   #data: StoreFile;
 
@@ -110,5 +119,11 @@ export class FilePaymentStore {
       closeSync(fd);
     }
     renameSync(temp, this.#path);
+    const directory = openSync(dirname(this.#path), 'r');
+    try {
+      fsyncSync(directory);
+    } finally {
+      closeSync(directory);
+    }
   }
 }

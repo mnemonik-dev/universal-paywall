@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
+import { blake3 } from '@noble/hashes/blake3';
+import { bytesToHex } from '@noble/hashes/utils';
 import { encodeAbiParameters, keccak256, parseAbiParameters, type Hex } from 'viem';
 import type { OperationBinding, SessionAuthorization } from './session-types.js';
 
 /**
- * UP-JCS-1: deterministic JSON for wire objects containing only JSON-safe
- * strings, booleans, arrays and plain objects. Object keys are sorted by code
- * point; undefined values are rejected rather than silently omitted.
+ * UP-JCS-1: deterministic JSON for internal objects (receipt payloads, session
+ * digests, concurrency fingerprints). Object keys are sorted by code point;
+ * undefined values are rejected rather than silently omitted.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
@@ -34,8 +36,39 @@ export function sha256Digest(value: unknown): Hex {
   return `0x${createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex')}`;
 }
 
+/**
+ * UP-OPBIND-1: operation binding serialization used for the V1 wire digest.
+ * Fields are serialized in the order defined by the Mnemonic/Universal Paywall
+ * integration spec so independent implementations produce identical BLAKE3
+ * digests. `workspace_hash` is omitted when undefined.
+ */
+export function operationBindingJson(binding: OperationBinding): string {
+  const scope: Record<string, unknown> = {
+    workspace_hash: binding.scope.workspace_hash,
+    visibility: binding.scope.visibility,
+    action: binding.scope.action,
+  };
+  if (scope.workspace_hash === undefined) {
+    delete scope.workspace_hash;
+  }
+  return JSON.stringify({
+    version: binding.version,
+    operation_id: binding.operation_id,
+    payer_subject: binding.payer_subject,
+    payer_wallet: binding.payer_wallet,
+    artifact_hash: binding.artifact_hash,
+    amount: binding.amount,
+    asset: binding.asset,
+    network: binding.network,
+    pay_to: binding.pay_to,
+    expires_at: binding.expires_at,
+    nonce: binding.nonce,
+    scope,
+  });
+}
+
 export function operationDigest(binding: OperationBinding): Hex {
-  return sha256Digest(binding);
+  return `0x${bytesToHex(blake3(Buffer.from(operationBindingJson(binding), 'utf8')))}`;
 }
 
 export function sessionScopeHash(auth: SessionAuthorization): Hex {

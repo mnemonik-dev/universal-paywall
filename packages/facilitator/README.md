@@ -31,9 +31,10 @@ through `grantPolicyBySig`; later session creation therefore needs no payer gas
 transaction. `scopeHash` commits to service, session, subject, network,
 workspace, visibility, and allowed checkpoint actions.
 
-Operation and receipt objects use `UP-JCS-1`: recursively sorted JSON object
-keys with ordinary JSON encoding. Operation digests are SHA-256. Receipts sign
-their canonical payload with Ed25519 and include a rotating `key_id`.
+Operation binding digests use `UP-OPBIND-1`: compact UTF-8 JSON with fields in
+the spec-defined order and a lowercase hex BLAKE3 hash. Receipts sign their
+`UP-JCS-1` canonical payload (recursively sorted JSON keys) with Ed25519 and
+include a rotating `key_id`.
 
 ## Run locally
 
@@ -42,11 +43,17 @@ Build and deploy `SessionStakeVaultFactory`, then configure:
 ```bash
 SERVICE_ID=mnemonic NETWORK=eip155:5042002 CHAIN_ID=5042002 \
 ARC_RPC_URL=http://127.0.0.1:8545 USDC_ADDRESS=0x... \
-FACILITATOR_KEY=0x... SERVICE_PAY_TO=0x... \
+SESSION_STAKE_VAULT_FACTORY=0x... FACILITATOR_KEY=0x... SERVICE_PAY_TO=0x... \
 SERVICE_API_KEYS=staging-key PAYMENT_STORE_PATH=./data/payments.json \
 RECEIPT_PRIVATE_KEY_FILE=./receipt-ed25519.pem RECEIPT_KEY_ID=staging-1 \
 npx up-session-facilitator
 ```
+
+The configured factory is a security boundary. Session registration and every
+settlement verify that `factory.vaults(payer)` matches the submitted vault and
+that the vault reports the expected payer, factory, and USDC asset. Set
+`MAX_SESSION_SECONDS` to the operator-approved upper bound (default: seven
+days).
 
 Set `EXACT_PAYMENTS_ENABLED=1`, `USDC_EIP712_NAME`, and
 `USDC_EIP712_VERSION` to enable the optional EIP-3009 path.

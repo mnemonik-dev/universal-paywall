@@ -15,7 +15,8 @@
     "network",
     "pay_to",
     "expires_at",
-    "nonce"
+    "nonce",
+    "scope"
   ],
   "properties": {
     "version": { "const": 1 },
@@ -28,7 +29,17 @@
     "network": { "type": "string", "pattern": "^eip155:[0-9]+$" },
     "pay_to": { "$ref": "#/$defs/address" },
     "expires_at": { "type": "string", "format": "date-time" },
-    "nonce": { "$ref": "#/$defs/bytes32" }
+    "nonce": { "$ref": "#/$defs/bytes32" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility", "action"],
+      "properties": {
+        "workspace_hash": { "$ref": "#/$defs/bytes32" },
+        "visibility": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["manual", "pre_compaction", "session_end"] }
+      }
+    }
   },
   "$defs": {
     "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },

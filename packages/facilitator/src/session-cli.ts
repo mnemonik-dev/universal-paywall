@@ -19,12 +19,14 @@ function main(): void {
   const facilitatorKey = env('FACILITATOR_KEY') as Hex;
   const facilitatorAddress = privateKeyToAccount(facilitatorKey).address;
   const asset = env('USDC_ADDRESS') as Hex;
+  const factory = env('SESSION_STAKE_VAULT_FACTORY') as Hex;
   const fromBlock = BigInt(process.env['SESSION_RAIL_FROM_BLOCK'] ?? '0');
   const chain = new OnChainSessionPayments({
     rpcUrl,
     chainId,
     facilitatorKey,
     asset,
+    factory,
     fromBlock,
   });
   const exactEnabled = process.env['EXACT_PAYMENTS_ENABLED'] === '1';
@@ -52,9 +54,12 @@ function main(): void {
       facilitator: facilitatorAddress,
       payTo: env('SERVICE_PAY_TO') as Hex,
       quoteTtlSeconds: Number(process.env['QUOTE_TTL_SECONDS'] ?? '300'),
+      factory,
+      maxSessionSeconds: Number(process.env['MAX_SESSION_SECONDS'] ?? '604800'),
     },
     store: new FilePaymentStore(env('PAYMENT_STORE_PATH')),
     policyReader: chain,
+    vaultVerifier: chain,
     sessionRegistrar: chain,
     sessionSettler: chain,
     ...(exact === undefined ? {} : { exactSettler: exact }),

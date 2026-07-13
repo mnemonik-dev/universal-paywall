@@ -27,6 +27,7 @@ const FACILITATOR = `0x${'22'.repeat(20)}` as Hex;
 const PAY_TO = `0x${'33'.repeat(20)}` as Hex;
 const ASSET = `0x${'44'.repeat(20)}` as Hex;
 const VAULT = `0x${'55'.repeat(20)}` as Hex;
+const FACTORY = `0x${'5f'.repeat(20)}` as Hex;
 const WORKSPACE = `0x${'66'.repeat(32)}` as Hex;
 const NOW = new Date('2026-07-13T12:00:00.000Z');
 const VALID_UNTIL = '2026-07-20T12:00:00.000Z';
@@ -40,6 +41,8 @@ const config: SessionPaymentServiceConfig = {
   facilitator: FACILITATOR,
   payTo: PAY_TO,
   quoteTtlSeconds: 600,
+  factory: FACTORY,
+  maxSessionSeconds: 7 * 24 * 60 * 60,
 };
 
 function authorization(): SessionAuthorization {
@@ -100,6 +103,11 @@ function binding(operationId = 'operation-1'): OperationBinding {
     pay_to: PAY_TO,
     expires_at: '2026-07-13T12:05:00.000Z',
     nonce: `0x${'99'.repeat(32)}`,
+    scope: {
+      workspace_hash: WORKSPACE,
+      visibility: 'private',
+      action: 'manual',
+    },
   };
 }
 
@@ -120,12 +128,20 @@ function stakeRequest(operationId = 'operation-1'): SettleRequest {
 }
 
 function harness(
-  opts: { storePath?: string; uncertainOnce?: boolean; includeExact?: boolean } = {},
+  opts: {
+    storePath?: string;
+    uncertainOnce?: boolean;
+    includeExact?: boolean;
+    trustedVault?: boolean;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'up-session-test-'));
   const storePath = opts.storePath ?? join(dir, 'payments.json');
   const sessionPolicy = policy();
   const policyReader: SessionPolicyReader = { read: vi.fn(async () => sessionPolicy) };
+  const vaultVerifier = {
+    isTrustedVault: vi.fn(async () => opts.trustedVault ?? true),
+  };
   const settled = new Map<Hex, Hex>();
   let uncertain = opts.uncertainOnce ?? false;
   const sessionSettler: SessionOperationSettler = {
@@ -154,12 +170,23 @@ function harness(
     config,
     store: new FilePaymentStore(storePath),
     policyReader,
+    vaultVerifier,
     sessionSettler,
     ...(opts.includeExact ? { exactSettler } : {}),
     receiptSigner: signer,
     now: () => NOW,
   });
-  return { service, sessionPolicy, sessionSettler, exactSettler, signer, privateKeyPem, storePath };
+  return {
+    service,
+    sessionPolicy,
+    sessionSettler,
+    exactSettler,
+    signer,
+    privateKeyPem,
+    storePath,
+    vaultVerifier,
+    policyReader,
+  };
 }
 
 describe('SessionPaymentService', () => {
@@ -169,6 +196,14 @@ describe('SessionPaymentService', () => {
     expect(session.status).toBe('active');
     expect(session.remaining).toBe('5000000');
     await expect(service.registerSession(await registration())).resolves.toEqual(session);
+  });
+
+  it('rejects a wallet-signed policy for a vault outside the configured factory', async () => {
+    const { service, policyReader } = harness({ trustedVault: false });
+    await expect(service.registerSession(await registration())).rejects.toThrow(
+      'untrusted_session_vault',
+    );
+    expect(policyReader.read).not.toHaveBeenCalled();
   });
 
   it('relays the same typed authorization when the on-chain policy is not installed yet', async () => {
@@ -187,6 +222,7 @@ describe('SessionPaymentService', () => {
         join(mkdtempSync(join(tmpdir(), 'up-register-test-')), 'store.json'),
       ),
       policyReader: { read: async () => current },
+      vaultVerifier: { isTrustedVault: async () => true },
       sessionRegistrar: registrar,
       sessionSettler: base.sessionSettler,
       receiptSigner: new ReceiptSigner({ privateKeyPem: base.privateKeyPem, keyId: 'test-key-1' }),
@@ -217,6 +253,28 @@ describe('SessionPaymentService', () => {
     ).toBe(true);
   });
 
+  it('rejects a conflicting request while the original operation is in flight', async () => {
+    const { service } = harness();
+    await service.registerSession(await registration());
+    const original = stakeRequest();
+    service.createQuote(original.binding);
+    const first = service.settle(original);
+    const conflicting = stakeRequest();
+    conflicting.binding.artifact_hash = 'different-artifact';
+    await expect(service.settle(conflicting)).rejects.toThrow('operation_id_conflict');
+    await expect(first).resolves.toMatchObject({ status: 'settled' });
+  });
+
+  it('reports a replaced on-chain policy as a superseded session', async () => {
+    const { service, sessionPolicy } = harness();
+    await service.registerSession(await registration());
+    sessionPolicy.epoch = 2n;
+    sessionPolicy.scope_hash = `0x${'aa'.repeat(32)}`;
+    await expect(service.getSession('session-1')).resolves.toMatchObject({
+      status: 'superseded',
+    });
+  });
+
   it('returns the durable receipt after a provider restart', async () => {
     const first = harness();
     await first.service.registerSession(await registration());
@@ -227,6 +285,7 @@ describe('SessionPaymentService', () => {
       config,
       store: new FilePaymentStore(first.storePath),
       policyReader: { read: async () => first.sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
       sessionSettler: first.sessionSettler,
       receiptSigner: new ReceiptSigner({ privateKeyPem: first.privateKeyPem, keyId: 'test-key-1' }),
       now: () => NOW,

@@ -11,7 +11,13 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { buildChain } from './chain.js';
 import { sessionScopeHash } from './canonical.js';
-import { eip3009Abi, erc20BalanceAbi, sessionStakeVaultAbi } from './abi.js';
+import {
+  eip3009Abi,
+  erc20BalanceAbi,
+  erc20TransferAbi,
+  sessionStakeVaultAbi,
+  sessionStakeVaultFactoryAbi,
+} from './abi.js';
 import type {
   ExactAuthorization,
   ExactPaymentSettler,
@@ -20,6 +26,7 @@ import type {
   SessionPolicy,
   SessionPolicyReader,
   SessionPolicyRegistrar,
+  SessionVaultVerifier,
   RegisterSessionRequest,
   SettlementInput,
   SettlementResult,
@@ -30,6 +37,7 @@ export interface SessionChainConfig {
   chainId: number;
   facilitatorKey: Hex;
   asset: Hex;
+  factory: Hex;
   fromBlock?: bigint;
 }
 
@@ -48,12 +56,17 @@ function classify(error: unknown): SettlementResult {
 }
 
 export class OnChainSessionPayments
-  implements SessionPolicyReader, SessionPolicyRegistrar, SessionOperationSettler
+  implements
+    SessionPolicyReader,
+    SessionPolicyRegistrar,
+    SessionOperationSettler,
+    SessionVaultVerifier
 {
   readonly #account: ReturnType<typeof privateKeyToAccount>;
   readonly #wallet: ReturnType<typeof createWalletClient>;
   readonly #public: ReturnType<typeof createPublicClient>;
   readonly #asset: Hex;
+  readonly #factory: Hex;
   readonly #fromBlock: bigint;
 
   constructor(config: SessionChainConfig) {
@@ -66,7 +79,44 @@ export class OnChainSessionPayments
     });
     this.#public = createPublicClient({ chain, transport: http(config.rpcUrl) });
     this.#asset = config.asset;
+    this.#factory = config.factory;
     this.#fromBlock = config.fromBlock ?? 0n;
+  }
+
+  async isTrustedVault(vault: Hex, payer: Hex): Promise<boolean> {
+    try {
+      const [registered, vaultPayer, vaultFactory, vaultAsset] = await Promise.all([
+        this.#public.readContract({
+          address: this.#factory,
+          abi: sessionStakeVaultFactoryAbi,
+          functionName: 'vaults',
+          args: [payer],
+        }),
+        this.#public.readContract({
+          address: vault,
+          abi: sessionStakeVaultAbi,
+          functionName: 'payer',
+        }),
+        this.#public.readContract({
+          address: vault,
+          abi: sessionStakeVaultAbi,
+          functionName: 'factory',
+        }),
+        this.#public.readContract({
+          address: vault,
+          abi: sessionStakeVaultAbi,
+          functionName: 'usdc',
+        }),
+      ]);
+      return (
+        registered.toLowerCase() === vault.toLowerCase() &&
+        vaultPayer.toLowerCase() === payer.toLowerCase() &&
+        vaultFactory.toLowerCase() === this.#factory.toLowerCase() &&
+        vaultAsset.toLowerCase() === this.#asset.toLowerCase()
+      );
+    } catch {
+      return false;
+    }
   }
 
   async read(vault: Hex): Promise<SessionPolicy> {
@@ -129,8 +179,9 @@ export class OnChainSessionPayments
   }
 
   async settle(input: SettlementInput): Promise<SettlementResult> {
+    let txHash: Hex;
     try {
-      const txHash = await this.#wallet.writeContract({
+      txHash = await this.#wallet.writeContract({
         address: input.vault,
         abi: sessionStakeVaultAbi,
         functionName: 'settleOperation',
@@ -138,6 +189,10 @@ export class OnChainSessionPayments
         account: this.#account,
         chain: this.#wallet.chain,
       });
+    } catch (error) {
+      return classify(error);
+    }
+    try {
       const receipt = await this.#public.waitForTransactionReceipt({
         hash: txHash,
         timeout: 30_000,
@@ -145,8 +200,8 @@ export class OnChainSessionPayments
       return receipt.status === 'success'
         ? { status: 'settled', tx_hash: txHash }
         : { status: 'failed', reason: 'receipt_reverted' };
-    } catch (error) {
-      return classify(error);
+    } catch {
+      return { status: 'uncertain', reason: 'settlement_confirmation_uncertain' };
     }
   }
 
@@ -167,9 +222,15 @@ export class OnChainSessionPayments
       toBlock: 'latest',
     });
     const event = events.at(-1);
-    return event === undefined
-      ? { settled: true }
-      : { settled: true, tx_hash: event.transactionHash };
+    if (event === undefined) return { settled: true };
+    if (
+      event.args.payTo?.toLowerCase() !== input.pay_to.toLowerCase() ||
+      event.args.amount !== input.amount ||
+      event.args.epoch !== input.policy_epoch
+    ) {
+      throw new Error('session_reconciliation_mismatch');
+    }
+    return { settled: true, tx_hash: event.transactionHash };
   }
 }
 
@@ -256,8 +317,9 @@ export class OnChainExactPayments implements ExactPaymentSettler {
     const yParity =
       signature.yParity ?? (signature.v === undefined ? undefined : Number(signature.v) - 27);
     if (yParity === undefined) return { status: 'failed', reason: 'invalid_exact_signature' };
+    let txHash: Hex;
     try {
-      const txHash = await this.#wallet.writeContract({
+      txHash = await this.#wallet.writeContract({
         address: this.#config.asset,
         abi: eip3009Abi,
         functionName: 'transferWithAuthorization',
@@ -275,6 +337,10 @@ export class OnChainExactPayments implements ExactPaymentSettler {
         account: this.#account,
         chain: this.#wallet.chain,
       });
+    } catch (error) {
+      return classify(error);
+    }
+    try {
       const receipt = await this.#public.waitForTransactionReceipt({
         hash: txHash,
         timeout: 30_000,
@@ -282,15 +348,23 @@ export class OnChainExactPayments implements ExactPaymentSettler {
       return receipt.status === 'success'
         ? { status: 'settled', tx_hash: txHash }
         : { status: 'failed', reason: 'receipt_reverted' };
-    } catch (error) {
-      return classify(error);
+    } catch {
+      return { status: 'uncertain', reason: 'settlement_confirmation_uncertain' };
     }
   }
 
   async reconcile(
-    _binding: OperationBinding,
+    binding: OperationBinding,
     proof: ExactAuthorization,
   ): Promise<{ settled: boolean; tx_hash?: Hex }> {
+    if (
+      proof.authorization.from.toLowerCase() !== binding.payer_wallet.toLowerCase() ||
+      proof.authorization.to.toLowerCase() !== binding.pay_to.toLowerCase() ||
+      proof.authorization.value !== binding.amount ||
+      proof.authorization.nonce.toLowerCase() !== binding.nonce.toLowerCase()
+    ) {
+      throw new Error('exact_reconciliation_binding_mismatch');
+    }
     const used = await this.#public.readContract({
       address: this.#config.asset,
       abi: eip3009Abi,
@@ -307,8 +381,21 @@ export class OnChainExactPayments implements ExactPaymentSettler {
       toBlock: 'latest',
     });
     const event = events.at(-1);
-    return event === undefined
-      ? { settled: true }
-      : { settled: true, tx_hash: event.transactionHash };
+    if (event === undefined) return { settled: true };
+    const transfers = await this.#public.getContractEvents({
+      address: this.#config.asset,
+      abi: erc20TransferAbi,
+      eventName: 'Transfer',
+      args: { from: binding.payer_wallet, to: binding.pay_to },
+      fromBlock: event.blockNumber,
+      toBlock: event.blockNumber,
+    });
+    const matchingTransfer = transfers.find(
+      (transfer) =>
+        transfer.transactionHash === event.transactionHash &&
+        transfer.args.value === BigInt(binding.amount),
+    );
+    if (matchingTransfer === undefined) throw new Error('exact_reconciliation_mismatch');
+    return { settled: true, tx_hash: event.transactionHash };
   }
 }

@@ -12,9 +12,16 @@ export interface OperationBinding {
   pay_to: Hex;
   expires_at: string;
   nonce: string;
+  scope: OperationScope;
 }
 
 export type CheckpointAction = 'manual' | 'pre_compaction' | 'session_end';
+
+export interface OperationScope {
+  workspace_hash?: Hex;
+  visibility: string;
+  action: CheckpointAction;
+}
 
 export interface SessionAuthorization {
   version: 1;
@@ -107,6 +114,12 @@ export interface PaymentReceipt {
   operation_id: string;
   scheme: 'stake' | 'exact';
   status: 'settled';
+  binding_digest: Hex;
+  payer_wallet: Hex;
+  amount: string;
+  asset: Hex;
+  network: string;
+  pay_to: Hex;
   settlement_tx: Hex;
   settled_at: string;
   receipt: SignedProviderReceipt;
@@ -123,7 +136,7 @@ export interface ProviderPaymentStatus {
 
 export interface PaidSession {
   session_id: string;
-  status: 'active' | 'revoked' | 'expired';
+  status: 'active' | 'revoked' | 'expired' | 'superseded';
   authorization: SessionAuthorization;
   remaining: string;
   funded_balance: string;
@@ -147,6 +160,10 @@ export interface SessionPolicyReader {
   read(vault: Hex): Promise<SessionPolicy>;
 }
 
+export interface SessionVaultVerifier {
+  isTrustedVault(vault: Hex, payer: Hex): Promise<boolean>;
+}
+
 export interface SessionPolicyRegistrar {
   register(request: RegisterSessionRequest): Promise<{ tx_hash: Hex }>;
 }
@@ -156,6 +173,7 @@ export interface SettlementInput {
   operation_id: Hex;
   policy_epoch: bigint;
   amount: bigint;
+  pay_to: Hex;
 }
 
 export type SettlementResult =

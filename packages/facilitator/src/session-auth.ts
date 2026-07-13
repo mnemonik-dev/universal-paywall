@@ -99,7 +99,10 @@ export async function verifySessionAuthorization(
   }
   if (
     auth.allowed_actions.length === 0 ||
-    new Set(auth.allowed_actions).size !== auth.allowed_actions.length
+    new Set(auth.allowed_actions).size !== auth.allowed_actions.length ||
+    !auth.allowed_actions.every((action) =>
+      ['manual', 'pre_compaction', 'session_end'].includes(action),
+    )
   ) {
     throw new Error('invalid_allowed_actions');
   }
