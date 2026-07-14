@@ -22,7 +22,6 @@ import type { Hex } from './types.js';
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
 const HEX64_RE = /^(0x)?[0-9a-fA-F]{64}$/;
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UINT_RE = /^(0|[1-9][0-9]*)$/;
 
 export class PaymentServiceError extends Error {
@@ -280,6 +279,36 @@ export class SessionPaymentService {
     return promise;
   }
 
+  async getQuoteByOperationId(operationId: string): Promise<{
+    quote_id: string;
+    binding: OperationBinding;
+    binding_digest: Hex;
+    accepts: Array<Record<string, unknown>>;
+  }> {
+    const quote = this.#store.getQuote(operationId);
+    if (quote === undefined) fail('quote_not_found', 404);
+    return {
+      quote_id: quote.quote_id,
+      binding: quote.binding,
+      binding_digest: quote.binding_digest as Hex,
+      accepts: [
+        {
+          scheme: 'stake',
+          protocol: 'universal-paywall-session-v1',
+          network: this.#config.network,
+          asset: this.#config.asset,
+          pay_to: this.#config.payTo,
+          facilitator: this.#config.facilitator,
+          factory: this.#config.factory,
+          max_valid_for_seconds: this.#config.maxSessionSeconds,
+        },
+        ...(this.#exactSettler === undefined
+          ? []
+          : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
+      ],
+    };
+  }
+
   async getPaymentStatus(operationId: string): Promise<ProviderPaymentStatus> {
     const stored = this.#store.getPayment(operationId);
     if (stored === undefined) fail('payment_not_found', 404);
@@ -292,6 +321,7 @@ export class SessionPaymentService {
     return {
       operation_id: operationId,
       status: stored.state,
+      binding: stored.binding,
       ...(stored.receipt !== undefined ? { receipt: stored.receipt } : {}),
       ...(stored.error !== undefined ? { error: stored.error } : {}),
     };
@@ -494,7 +524,7 @@ export class SessionPaymentService {
     ) {
       fail('invalid_binding_address', 422);
     }
-    if (!UUID_RE.test(binding.nonce)) fail('invalid_binding_nonce', 422);
+    if (!BYTES32_RE.test(binding.nonce)) fail('invalid_binding_nonce', 422);
     if (
       binding.scope.workspace_hash !== undefined &&
       !HEX64_RE.test(binding.scope.workspace_hash)

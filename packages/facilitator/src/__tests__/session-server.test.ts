@@ -20,6 +20,12 @@ describe('session payment HTTP API', () => {
     getSession: vi.fn(async (id: string) => ({ session_id: id, status: 'active' })),
     settle: vi.fn(async () => receipt),
     getPaymentStatus: vi.fn((id: string) => ({ operation_id: id, status: 'settled', receipt })),
+    getQuoteByOperationId: vi.fn((id: string) => ({
+      quote_id: 'q_1',
+      binding: { operation_id: id },
+      binding_digest: `0x${'22'.repeat(32)}`,
+      accepts: [{ scheme: 'exact' }],
+    })),
   };
 
   beforeEach(() => vi.clearAllMocks());
@@ -49,6 +55,9 @@ describe('session payment HTTP API', () => {
       let status = 200;
       let headers: Record<string, string> = {};
       const res = {
+        setHeader(_name: string, _value: string) {
+          return this;
+        },
         writeHead(nextStatus: number, nextHeaders: Record<string, string>) {
           status = nextStatus;
           headers = nextHeaders;
@@ -87,6 +96,14 @@ describe('session payment HTTP API', () => {
       inject('POST', '/v1/payments/settle', { binding: {}, payment: {} }, 'secret'),
     ).resolves.toMatchObject({ status: 200, body: { operation_id: 'op-1', status: 'settled' } });
     expect(fake.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a quote by operation id', async () => {
+    await expect(inject('GET', '/v1/quotes/op-1', undefined, 'secret')).resolves.toMatchObject({
+      status: 200,
+      body: { quote_id: 'q_1', accepts: [{ scheme: 'exact' }] },
+    });
+    expect(fake.getQuoteByOperationId).toHaveBeenCalledWith('op-1');
   });
 
   it('decodes status identifiers and preserves typed service errors', async () => {

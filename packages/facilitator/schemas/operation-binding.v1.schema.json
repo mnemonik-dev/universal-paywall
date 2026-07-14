@@ -29,7 +29,7 @@
     "network": { "type": "string", "pattern": "^eip155:[0-9]+$" },
     "pay_to": { "$ref": "#/$defs/address" },
     "expires_at": { "type": "string", "format": "date-time" },
-    "nonce": { "$ref": "#/$defs/uuid" },
+    "nonce": { "$ref": "#/$defs/bytes32" },
     "scope": {
       "type": "object",
       "additionalProperties": false,

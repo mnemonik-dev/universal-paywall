@@ -103,7 +103,7 @@ function binding(operationId = 'operation-1'): OperationBinding {
     network: config.network,
     pay_to: PAY_TO,
     expires_at: '2026-07-13T12:05:00.000Z',
-    nonce: '550e8400-e29b-41d4-a716-446655440000',
+    nonce: `0x${'55'.repeat(32)}`,
     scope: {
       workspace_hash: BINDING_WORKSPACE,
       visibility: 'private',

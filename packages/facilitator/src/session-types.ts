@@ -130,6 +130,8 @@ export type PaymentState = 'created' | 'settling' | 'settled' | 'failed_retryabl
 export interface ProviderPaymentStatus {
   operation_id: string;
   status: PaymentState;
+  /** The immutable operation binding this payment is for. */
+  binding?: OperationBinding;
   receipt?: PaymentReceipt;
   error?: string;
 }

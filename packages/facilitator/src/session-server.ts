@@ -60,6 +60,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function setCorsHeaders(res: ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
 /** Stable HTTP-only integration boundary for non-TypeScript services. */
 export function createSessionPaymentServer(
   service: SessionPaymentService,
@@ -83,7 +90,12 @@ async function handle(
   service: SessionPaymentService,
   keys: ReadonlySet<string>,
 ): Promise<void> {
+  setCorsHeaders(res);
   const url = new URL(req.url ?? '/', 'http://universal-paywall.local');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204).end();
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     json(res, 200, { ok: true, api: 'session-payments-v1' });
     return;
@@ -97,6 +109,13 @@ async function handle(
     return;
   }
 
+  if (req.method === 'GET' && url.pathname.startsWith('/v1/quotes/')) {
+    const id = segment(url, 2);
+    if (id === undefined || id.length === 0)
+      throw new PaymentServiceError('quote_not_found', 404);
+    json(res, 200, await service.getQuoteByOperationId(id));
+    return;
+  }
   if (req.method === 'POST' && url.pathname === '/v1/quotes') {
     const body = await readBody(req);
     if (!isRecord(body) || !isRecord(body['binding'])) {
