@@ -129,11 +129,34 @@ function stakeRequest(operationId = 'operation-1'): SettleRequest {
   };
 }
 
+function exactRequest(operationId = 'exact-operation'): SettleRequest {
+  const exactBinding = binding(operationId);
+  return {
+    binding: exactBinding,
+    payment: {
+      scheme: 'exact',
+      payer_wallet: payer.address,
+      authorization: {
+        signature: `0x${'ab'.repeat(65)}`,
+        authorization: {
+          from: payer.address,
+          to: PAY_TO,
+          value: exactBinding.amount,
+          validAfter: '0',
+          validBefore: '9999999999',
+          nonce: `0x${'99'.repeat(32)}` as Hex,
+        },
+      },
+    },
+  };
+}
+
 function harness(
   opts: {
     storePath?: string;
     uncertainOnce?: boolean;
     includeExact?: boolean;
+    exactRejectReason?: string;
     trustedVault?: boolean;
     enabledSchemes?: Array<'exact' | 'stake'>;
   } = {},
@@ -164,7 +187,11 @@ function harness(
   };
   const exactSettler: ExactPaymentSettler = {
     reconcile: vi.fn(async () => ({ settled: false })),
-    settle: vi.fn(async () => ({ status: 'settled', tx_hash: TX })),
+    settle: vi.fn(async () =>
+      opts.exactRejectReason === undefined
+        ? { status: 'settled' as const, tx_hash: TX }
+        : { status: 'rejected' as const, reason: opts.exactRejectReason },
+    ),
   };
   const keys = generateKeyPairSync('ed25519');
   const privateKeyPem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -340,29 +367,86 @@ describe('SessionPaymentService', () => {
 
   it('uses the same binding and receipt shape for one-time exact x402', async () => {
     const { service, exactSettler } = harness({ includeExact: true });
-    const exactBinding = binding('exact-operation');
-    const request: SettleRequest = {
-      binding: exactBinding,
-      payment: {
-        scheme: 'exact',
-        payer_wallet: payer.address,
-        authorization: {
-          signature: `0x${'ab'.repeat(65)}`,
-          authorization: {
-            from: payer.address,
-            to: PAY_TO,
-            value: exactBinding.amount,
-            validAfter: '0',
-            validBefore: '9999999999',
-            nonce: `0x${'99'.repeat(32)}` as Hex,
-          },
-        },
-      },
-    };
-    await service.createQuote(exactBinding);
+    const request = exactRequest();
+    await service.createQuote(request.binding);
     const receipt = await service.settle(request);
     expect(receipt.scheme).toBe('exact');
     expect(receipt.receipt.payload.binding_digest).toMatch(/^0x[0-9a-f]{64}$/);
     expect(exactSettler.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles fifty concurrent exact retries once and returns one receipt', async () => {
+    const { service, exactSettler } = harness({ includeExact: true, enabledSchemes: ['exact'] });
+    const request = exactRequest('exact-concurrent');
+    await service.createQuote(request.binding);
+    const receipts = await Promise.all(Array.from({ length: 50 }, () => service.settle(request)));
+    expect(exactSettler.settle).toHaveBeenCalledTimes(1);
+    expect(new Set(receipts.map((receipt) => canonicalJson(receipt))).size).toBe(1);
+  });
+
+  it('rejects an expired quote binding before accepting a payment proof', async () => {
+    const { service, exactSettler } = harness({ includeExact: true, enabledSchemes: ['exact'] });
+    const request = exactRequest('expired-exact');
+    request.binding.expires_at = '2026-07-13T11:59:59.000Z';
+    await expect(service.createQuote(request.binding)).rejects.toThrow('quote_expired');
+    expect(exactSettler.settle).not.toHaveBeenCalled();
+  });
+
+  it('records an insufficient-USDC wallet rejection once without creating a receipt', async () => {
+    const { service, exactSettler } = harness({
+      includeExact: true,
+      enabledSchemes: ['exact'],
+      exactRejectReason: 'insufficient_usdc',
+    });
+    const request = exactRequest('insufficient-usdc');
+    await service.createQuote(request.binding);
+    await expect(service.settle(request)).rejects.toThrow('insufficient_usdc');
+    await expect(service.settle(request)).rejects.toThrow('insufficient_usdc');
+    expect(exactSettler.settle).toHaveBeenCalledTimes(1);
+    await expect(service.getPaymentStatus(request.binding.operation_id)).resolves.toMatchObject({
+      status: 'rejected',
+      error: 'insufficient_usdc',
+    });
+  });
+
+  it('refuses replay proofs when any quote-bound exact-payment field changes', async () => {
+    const mutations: Array<[string, (request: SettleRequest) => void]> = [
+      ['artifact', (request) => { request.binding.artifact_hash = 'blake3:altered'; }],
+      ['subject', (request) => { request.binding.payer_subject = 'other-subject'; }],
+      ['wallet', (request) => { request.binding.payer_wallet = `0x${'aa'.repeat(20)}` as Hex; }],
+      ['amount', (request) => { request.binding.amount = '1001'; }],
+      ['payee', (request) => { request.binding.pay_to = `0x${'bb'.repeat(20)}` as Hex; }],
+      ['network', (request) => { request.binding.network = 'eip155:1'; }],
+      ['nonce', (request) => { request.binding.nonce = `0x${'cc'.repeat(32)}` as Hex; }],
+      ['expiry', (request) => { request.binding.expires_at = '2026-07-13T12:04:00.000Z'; }],
+    ];
+    for (const [field, mutate] of mutations) {
+      const { service, exactSettler } = harness({ includeExact: true, enabledSchemes: ['exact'] });
+      const original = exactRequest(`replay-${field}`);
+      await service.createQuote(original.binding);
+      const replay = structuredClone(original);
+      mutate(replay);
+      await expect(service.settle(replay)).rejects.toThrow();
+      expect(exactSettler.settle).not.toHaveBeenCalled();
+    }
+  });
+
+  it('returns an exact receipt after provider restart without resettling', async () => {
+    const first = harness({ includeExact: true, enabledSchemes: ['exact'] });
+    const request = exactRequest('exact-restart');
+    await first.service.createQuote(request.binding);
+    const receipt = await first.service.settle(request);
+    const second = new SessionPaymentService({
+      config: { ...config, enabledSchemes: ['exact'] },
+      store: new FilePaymentStore(first.storePath),
+      policyReader: { read: async () => first.sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
+      sessionSettler: first.sessionSettler,
+      exactSettler: first.exactSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: first.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(second.settle(request)).resolves.toEqual(receipt);
+    expect(first.exactSettler.settle).toHaveBeenCalledTimes(1);
   });
 });
