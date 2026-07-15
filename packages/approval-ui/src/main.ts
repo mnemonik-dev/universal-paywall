@@ -40,6 +40,14 @@ interface Quote {
   binding: Binding;
 }
 
+interface OperationStatus {
+  operation_id: string;
+  state: string;
+  quote_id: string | null;
+  expires_at: string | null;
+  receipt: unknown | null;
+}
+
 interface NativeCurrency {
   name: string;
   symbol: string;
@@ -97,6 +105,16 @@ async function loadQuote(): Promise<Quote> {
     throw new Error(`Failed to load quote: ${res.status} ${body}`);
   }
   return (await res.json()) as Quote;
+}
+
+async function loadOperationStatus(): Promise<OperationStatus> {
+  if (!operationId) throw new Error("missing operation_id");
+  const res = await fetch(`/api/operations/${encodeURIComponent(operationId)}`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to load operation status: ${res.status} ${body}`);
+  }
+  return (await res.json()) as OperationStatus;
 }
 
 function detectEthereumProvider(): EIP1193Provider {
@@ -295,6 +313,18 @@ async function init() {
   }
 
   try {
+    const operation = await loadOperationStatus();
+    if (operation.operation_id !== operationId) {
+      throw new Error("Operation ID mismatch in payment status.");
+    }
+    if (operation.state === "payment_ready" || operation.state === "anchored") {
+      UI.operationId.textContent = operationId;
+      hideLoading();
+      UI.approveBtn.disabled = true;
+      UI.approveBtn.textContent = "Payment settled";
+      showStatus("Payment is already settled. Return to Mnemonic to resume anchoring.", false);
+      return;
+    }
     const quote = await loadQuote();
     const binding = quote.binding;
     if (!binding) {
@@ -337,8 +367,12 @@ UI.approveBtn.addEventListener("click", async () => {
     }
     const quote = await loadQuote();
     await signAndSettle(quote.binding);
-    showStatus("Payment approved and settled.", false);
-    UI.approveBtn.textContent = "Approved";
+    const operation = await loadOperationStatus();
+    if (operation.state !== "payment_ready" && operation.state !== "anchored") {
+      throw new Error(`Unexpected post-settlement state: ${operation.state}`);
+    }
+    showStatus("Payment settled. Return to Mnemonic to resume anchoring.", false);
+    UI.approveBtn.textContent = "Payment settled";
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     showStatus(`Approval failed: ${msg}`, true);
