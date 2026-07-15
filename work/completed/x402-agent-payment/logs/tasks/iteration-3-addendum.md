@@ -28,14 +28,14 @@ T9 (tests): SecurityLogger emissions are tested from `core.test.ts` only. `verif
 function verifyEip3009Authorization(
   payload: PaymentPayload,
   opts: {
-    expectedVaultAddress: `0x${string}`,
-    expectedNetwork: string,
-    maxAmountRequired: bigint,
-    publicClient: PublicClient,
-    nonceStore: NonceStore,
-    nowMs: number,    // injectable for tests; defaults to Date.now()
-  }
-): Promise<{ ok: true } | { ok: false, error: VerifyError }>
+    expectedVaultAddress: `0x${string}`;
+    expectedNetwork: string;
+    maxAmountRequired: bigint;
+    publicClient: PublicClient;
+    nonceStore: NonceStore;
+    nowMs: number; // injectable for tests; defaults to Date.now()
+  },
+): Promise<{ ok: true } | { ok: false; error: VerifyError }>;
 ```
 
 `nonceStore` lives in `opts`, NOT a third argument. T8 calls with the 2-arg shape.
@@ -53,19 +53,20 @@ Per T8 spec: `payerHash = '0x' + keccak256(authorization.from).slice(2, 10)`. Th
 ## 6. Settlement classifier shape (T7 settle.ts)
 
 `settle.ts` returns:
+
 ```ts
 type SettleResult =
   | { ok: true; txHash: `0x${string}`; payer: `0x${string}` }
   | { ok: false; reason: SettleReason; details?: { gasEstimate?: bigint; balance?: bigint } };
 
 type SettleReason =
-  | 'rpc_timeout'           // RPC fetch hung / timed out (mapped from RpcRequestError / fetch timeout)
-  | 'rpc_5xx'               // RPC returned 5xx
-  | 'gas_estimate_revert'   // estimateGas / simulateContract reverted
-  | 'mine_timeout'           // waitForTransactionReceipt threw WaitForTransactionReceiptTimeoutError
-  | 'receipt_reverted'       // receipt.status === 'reverted'
-  | 'relayer_no_balance'     // proactive USDC balanceOf check OR reactive insufficient gas error
-  | 'authorization_already_used_onchain';  // USDC reverted with "FiatTokenV2: authorization is used or canceled" (string match)
+  | 'rpc_timeout' // RPC fetch hung / timed out (mapped from RpcRequestError / fetch timeout)
+  | 'rpc_5xx' // RPC returned 5xx
+  | 'gas_estimate_revert' // estimateGas / simulateContract reverted
+  | 'mine_timeout' // waitForTransactionReceipt threw WaitForTransactionReceiptTimeoutError
+  | 'receipt_reverted' // receipt.status === 'reverted'
+  | 'relayer_no_balance' // proactive USDC balanceOf check OR reactive insufficient gas error
+  | 'authorization_already_used_onchain'; // USDC reverted with "FiatTokenV2: authorization is used or canceled" (string match)
 ```
 
 For `authorization_already_used_onchain`: do **NOT** use a 4-byte selector. Circle FiatTokenV2 uses `require()` with a string reason. Classifier matches the revert string substring `"authorization is used"` (case-insensitive). If the revert reason cannot be decoded, fall back to `receipt_reverted`.
@@ -73,6 +74,7 @@ For `authorization_already_used_onchain`: do **NOT** use a 4-byte selector. Circ
 ## 7. Relayer balance threshold (canonical)
 
 Proactive check before `writeContract`:
+
 ```ts
 const relayerBalance = await publicClient.readContract({
   abi: erc20Abi,
@@ -80,7 +82,7 @@ const relayerBalance = await publicClient.readContract({
   functionName: 'balanceOf',
   args: [relayerAddress],
 });
-const MIN_RELAYER_USDC_BALANCE = 1_000_000n;  // 1 USDC (6 decimals)
+const MIN_RELAYER_USDC_BALANCE = 1_000_000n; // 1 USDC (6 decimals)
 if (relayerBalance < MIN_RELAYER_USDC_BALANCE) {
   return { ok: false, reason: 'relayer_no_balance', details: { balance: relayerBalance } };
 }
@@ -114,14 +116,17 @@ T10 forked-e2e tests do NOT use the in-process Hardhat network (no HTTP). Instea
 
 ```ts
 // In test setup (beforeAll):
-const hardhatNode = spawn('npx', ['hardhat', 'node', '--port', String(TEST_PORT)], { cwd: 'contracts' });
-await waitForPort(TEST_PORT, { timeout: 30_000 });  // poll readiness, 30s max
+const hardhatNode = spawn('npx', ['hardhat', 'node', '--port', String(TEST_PORT)], {
+  cwd: 'contracts',
+});
+await waitForPort(TEST_PORT, { timeout: 30_000 }); // poll readiness, 30s max
 // Use viem PublicClient with http(`http://127.0.0.1:${TEST_PORT}`)
 ```
 
 Alternative: use viem's `custom(hre.network.provider)` transport in tests. Pick the spawn approach — it's closer to production.
 
 Set Mocha timeout in the `describe` callback (use `function()`, not arrow):
+
 ```ts
 describe('forked e2e', function () {
   this.timeout(60_000);
@@ -132,6 +137,7 @@ describe('forked e2e', function () {
 ## 11. `__dirname` replacement for ESM tests
 
 In any ESM test file that needs the source directory:
+
 ```ts
 import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -164,6 +170,7 @@ If a mock needs to be compiled by Hardhat for use in tests, place it under `cont
 The factory `register()` reentrancy invariant cannot be tested as originally written because `PaymentVaultImpl.initialize()` does not call back to the developer EOA (no callback path exists).
 
 Replacement: a **structural invariant** test that asserts `factory.register()` uses checks-effects-interactions (CEI) order. Specifically:
+
 - The line that writes `vaults[msg.sender] = vault` MUST happen AFTER `Clones.cloneDeterministic(...)` and BEFORE `IPaymentVault(vault).initialize(...)`.
 - Verify by reading the contract source via Slither or a simple regex-based source check.
 

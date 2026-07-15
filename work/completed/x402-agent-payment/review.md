@@ -75,7 +75,7 @@ Mostly relevant, with one strategic deviation:
 
 - The design has the **agent** submit its own on-chain tx, then pass `tx_hash`;
   the middleware verifies the receipt (D2/D3). Standard **x402**
-  (Coinbase/Circle) is the inverse: the client sends a *signed authorization* in
+  (Coinbase/Circle) is the inverse: the client sends a _signed authorization_ in
   `X-PAYMENT` and the **server/facilitator settles** it on-chain. D2 explicitly
   rejects that settlement model.
 - Yet the user-spec claims "**any x402-compatible agent works**" and T10/T14 use

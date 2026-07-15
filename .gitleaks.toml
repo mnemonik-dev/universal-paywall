@@ -8,4 +8,11 @@ useDefault = true
 # only ever control accounts on a local anvil node. The forked-e2e suite
 # hardcodes them so contributors can run the test offline without invoking
 # `anvil --print-mnemonic` first (SEC-T10-01).
-paths = ['''packages/middleware/src/__tests__/integration/forked-e2e\.test\.ts''']
+paths = [
+  '''packages/middleware/src/__tests__/integration/forked-e2e\.test\.ts''',
+  '''packages/peertube-plugin/smoke-npm-install\.mjs''',
+]
+regexes = [
+  '''0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
+  '''PEERTUBE_SECRETS_PEERTUBE=0123456789abcdef0123456789abcdef''',
+]

@@ -31,7 +31,10 @@ export interface ImmichProxyOptions {
 }
 
 /** Parses a shared-asset-resolve request into `{ assetId, share }`, or null. */
-export function parseAssetResolve(method: string | undefined, url: URL): { assetId: string; share: string } | null {
+export function parseAssetResolve(
+  method: string | undefined,
+  url: URL,
+): { assetId: string; share: string } | null {
   if (method !== 'GET') return null;
   const m = ASSET_FILE_RE.exec(url.pathname);
   const assetId = m?.[1];
@@ -42,7 +45,9 @@ export function parseAssetResolve(method: string | undefined, url: URL): { asset
 }
 
 /** Builds a Node request handler that proxies to Immich and meters shared resolves. */
-export function createImmichProxy(opts: ImmichProxyOptions): (req: IncomingMessage, res: ServerResponse) => void {
+export function createImmichProxy(
+  opts: ImmichProxyOptions,
+): (req: IncomingMessage, res: ServerResponse) => void {
   const upstream = opts.upstreamUrl.replace(/\/+$/, '');
   const doFetch = opts.fetchImpl ?? fetch;
   const dedupeMs = opts.dedupeMs ?? 60_000;
@@ -56,7 +61,9 @@ export function createImmichProxy(opts: ImmichProxyOptions): (req: IncomingMessa
     seen.set(key, now);
     try {
       const url = `${upstream}/api/assets/${assetId}?key=${encodeURIComponent(share)}`;
-      const meta = (await (await doFetch(url, { headers: { accept: 'application/json' } })).json()) as {
+      const meta = (await (
+        await doFetch(url, { headers: { accept: 'application/json' } })
+      ).json()) as {
         ownerId?: string;
         exifInfo?: { artist?: string } | null;
       };
@@ -87,7 +94,10 @@ export function createImmichProxy(opts: ImmichProxyOptions): (req: IncomingMessa
     const url = new URL(req.url ?? '/', 'http://localhost');
     const resolve = parseAssetResolve(req.method, url);
 
-    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : Readable.toWeb(req) as ReadableStream;
+    const body =
+      req.method === 'GET' || req.method === 'HEAD'
+        ? undefined
+        : (Readable.toWeb(req) as ReadableStream);
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) {
       if (v === undefined || k === 'host' || k === 'connection') continue;

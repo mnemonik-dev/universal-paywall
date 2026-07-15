@@ -54,7 +54,8 @@ For every platform the mapping is the same: `resolvePayer(userId) → payer wall
 → payee wallet`, then `sdk.charge()`. The platform-specific work is only **how you
 observe the event**.
 
-### Music — Navidrome / Subsonic family  (sidecar, no PR)
+### Music — Navidrome / Subsonic family (sidecar, no PR)
+
 - **Repo:** `navidrome/navidrome` (+ gonic, ampache, airsonic). **Anchor:**
   `model/scrobble.go`, `persistence/scrobble_repository.go`, the Subsonic
   `scrobble.view` endpoint, the SQLite `scrobbles` table.
@@ -68,7 +69,8 @@ observe the event**.
   a `charge` reaches the facilitator and settles on anvil.
 - **PR?** No — permissionless sidecar.
 
-### Live video — Owncast  (sidecar, no PR)
+### Live video — Owncast (sidecar, no PR)
+
 - **Repo:** `owncast/owncast`. **Anchor:** `services/webhooks/webhooks.go`
   (`userJoined`/`userParted`), `services/stream/stats.go` (15s prune).
 - **Mechanism:** register our `/owncast` endpoint in Owncast's **webhook admin UI**
@@ -78,7 +80,8 @@ observe the event**.
   confirm `(parted-joined)*rate` settles. (Proven on anvil already.)
 - **PR?** No.
 
-### VOD — Jellyfin  (sidecar via official plugin, no PR)
+### VOD — Jellyfin (sidecar via official plugin, no PR)
+
 - **Repo:** `jellyfin/jellyfin` + `jellyfin/jellyfin-plugin-webhook`. **Anchor:**
   `Jellyfin.Api/Controllers/PlaystateController.cs`; the Webhook plugin's
   `PlaybackProgressNotifier`/`PlaybackStopNotifier`.
@@ -90,7 +93,8 @@ observe the event**.
 - **Verify:** `docker run jellyfin`, install webhook plugin, play+stop, confirm minutes settle.
 - **PR?** No — uses the existing plugin.
 
-### Feeds — RSSHub / LLM crawler  (middleware or crawler-side, no PR)
+### Feeds — RSSHub / LLM crawler (middleware or crawler-side, no PR)
+
 - **Repo:** `DIYgod/RSSHub`. **Anchor:** `lib/types.ts` (`DataItem.link`/`author`),
   `lib/middleware/`.
 - **Mechanism (prefer the crawler boundary):** in an LLM crawler/agent, when an
@@ -101,7 +105,8 @@ observe the event**.
 - **Verify:** run RSSHub, fetch a feed, simulate a citation event → settle.
 - **PR?** No — ship inside the crawler framework.
 
-### Photo — Immich  (reverse-proxy / access-log wrapper, no PR)
+### Photo — Immich (reverse-proxy / access-log wrapper, no PR)
+
 - **Repo:** `immich-app/immich`. **Anchor:** `server/src/controllers/shared-link.controller.ts`
   (`GET /shared-link/:id`); `Asset.ownerId` + EXIF `Artist`.
 - **Mechanism:** put a reverse proxy / access-log tail in front of
@@ -114,7 +119,8 @@ observe the event**.
   event handler/route. Build it next to this guide.
 - **PR?** No.
 
-### Federated VOD — PeerTube  (PUBLISH a plugin — not a core PR)
+### Federated VOD — PeerTube (PUBLISH a plugin — not a core PR)
+
 - **Repo:** `Chocobozzz/PeerTube`. **Context:** plugin loader; `req.rawBody`
   [PR #6300](https://github.com/Chocobozzz/PeerTube/pull/6300) enabled Stripe-style
   webhooks; 7-year demand in [#1586](https://github.com/Chocobozzz/PeerTube/issues/1586).
@@ -125,7 +131,8 @@ observe the event**.
 - **Verify:** `docker run peertube`, install the local plugin, view a video, confirm settle.
 - **PR?** Publish a plugin (not a core PR). Optionally PR docs/examples upstream.
 
-### Fediverse — Mastodon  (run a PROVIDER — not a core PR)
+### Fediverse — Mastodon (run a PROVIDER — not a core PR)
+
 - **Repo:** `mastodon/mastodon`. **Context:** `GET /api/v1/donation_campaigns`
   ([#37880](https://github.com/mastodon/mastodon/pull/37880), merged) fetches+caches
   an EXTERNAL campaign source; companion banner UI
@@ -139,11 +146,13 @@ observe the event**.
 - **PR?** No — fill the sanctioned external slot; optionally contribute to #36102.
 
 ## 3. Not our model (skip)
+
 - **Podcasting** (Castopod/AntennaPod) — Podcasting 2.0 `<podcast:value>` puts wallet
   routing in the feed XML; protocol-level, not a sidecar.
 - **Ghost** — payment-native by design.
 
 ## 4. Definition of done per platform
+
 1. A running sidecar/plugin/provider observing real events from a real instance.
 2. A consumer that staked + granted via `@universal-paywall/agent`.
 3. An observed event → `charge` → facilitator batch → on-chain `settle` → payee paid.
@@ -151,6 +160,7 @@ observe the event**.
 5. Docs: how an operator installs + configures it; a Docker/compose recipe.
 
 ## 5. Cross-cutting TODOs that unblock all platforms
+
 - Real `resolvePayer`/`resolveCreator` **registry** (MusicBrainz MBID, EXIF Artist,
   ActivityPub actor, author URL → wallet) — currently `mapResolver(staticMap)`.
 - Hosted facilitator + deployed `StakeVaultFactory` on a real testnet (Arc) so

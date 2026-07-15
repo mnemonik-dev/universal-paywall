@@ -38,8 +38,12 @@ export function buildGateRuntime(opts: StakePaywallOptions): GateRuntime {
     ...(opts.description !== undefined ? { description: opts.description } : {}),
   };
 
-  const client = createPaywallClient({ facilitatorUrl: opts.facilitator.url, apiKey: opts.facilitator.apiKey });
-  const onChargeError = opts.onChargeError ?? ((err: unknown) => console.error('charge_report_failed', err));
+  const client = createPaywallClient({
+    facilitatorUrl: opts.facilitator.url,
+    apiKey: opts.facilitator.apiKey,
+  });
+  const onChargeError =
+    opts.onChargeError ?? ((err: unknown) => console.error('charge_report_failed', err));
 
   return { deps, cfg, client, onChargeError };
 }

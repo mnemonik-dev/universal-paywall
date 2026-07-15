@@ -1,0 +1,43 @@
+{
+  "authorization": {
+    "version": 1,
+    "service_id": "mnemonic",
+    "session_id": "session-fixture-1",
+    "payer_subject": "subject-fixture",
+    "payer_wallet": "0x1111111111111111111111111111111111111111",
+    "vault": "0x2222222222222222222222222222222222222222",
+    "facilitator": "0x3333333333333333333333333333333333333333",
+    "pay_to": "0x4444444444444444444444444444444444444444",
+    "cap": "5000000",
+    "per_operation_ceiling": "50000",
+    "valid_until": "2026-07-20T12:00:00.000Z",
+    "network": "eip155:5042002",
+    "asset": "0x3600000000000000000000000000000000000000",
+    "policy_epoch": "1",
+    "workspace_hash": "0x5555555555555555555555555555555555555555555555555555555555555555",
+    "visibility": "private",
+    "allowed_actions": ["manual", "pre_compaction"],
+    "nonce": "0x6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "scope_hash": "0xba53c6a76ea756576c72c8c353d705a43910e647b69361edcb9fd5dbbb9f258c",
+  "typed_data_digest": "0x2693e5f80cb9edf801be2eb3d09edac173e37a3c4e289144a9a961d07b12a039",
+  "operation_binding": {
+    "version": 1,
+    "operation_id": "operation-fixture-1",
+    "payer_subject": "subject-fixture",
+    "payer_wallet": "0x1111111111111111111111111111111111111111",
+    "artifact_hash": "blake3:fixture",
+    "amount": "1000",
+    "asset": "0x3600000000000000000000000000000000000000",
+    "network": "eip155:5042002",
+    "pay_to": "0x4444444444444444444444444444444444444444",
+    "expires_at": "2026-07-13T12:05:00.000Z",
+    "nonce": "550e8400-e29b-41d4-a716-446655440000",
+    "scope": {
+      "workspace_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+      "visibility": "private",
+      "action": "manual"
+    }
+  },
+  "operation_digest": "0xcd34a78d0ecd2da665371da3390af8fd8bc87747cc4ed2050924419ef9df8e43"
+}

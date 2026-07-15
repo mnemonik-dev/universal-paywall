@@ -46,7 +46,13 @@ const pub = createPublicClient({ chain, transport: http(RPC) });
 async function deploy(walletKey, art, args) {
   const account = privateKeyToAccount(walletKey);
   const wallet = createWalletClient({ account, chain, transport: http(RPC) });
-  const hash = await wallet.deployContract({ abi: art.abi, bytecode: art.bytecode, args, account, chain });
+  const hash = await wallet.deployContract({
+    abi: art.abi,
+    bytecode: art.bytecode,
+    args,
+    account,
+    chain,
+  });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   if (!receipt.contractAddress) throw new Error('no contract address');
   return receipt.contractAddress;
@@ -81,7 +87,12 @@ async function main() {
 
   console.log('createVault(payer)...');
   await send(DEPLOYER, factory, factoryArt.abi, 'createVault', [payer]);
-  const vault = await pub.readContract({ address: factory, abi: factoryArt.abi, functionName: 'vaults', args: [payer] });
+  const vault = await pub.readContract({
+    address: factory,
+    abi: factoryArt.abi,
+    functionName: 'vaults',
+    args: [payer],
+  });
 
   const STAKE = 1_000_000n;
   const CAP = 600_000n;
@@ -108,14 +119,30 @@ async function main() {
   const results = await service.flushAll();
   assert(results.length === 1 && results[0].ok, 'batched settlement succeeded on-chain');
 
-  const creatorBal = await pub.readContract({ address: usdc, abi: mockUsdc.abi, functionName: 'balanceOf', args: [CREATOR] });
+  const creatorBal = await pub.readContract({
+    address: usdc,
+    abi: mockUsdc.abi,
+    functionName: 'balanceOf',
+    args: [CREATOR],
+  });
   assert(creatorBal === 150_000n, `creator received aggregated 150000 (got ${creatorBal})`);
 
-  const policy = await pub.readContract({ address: vault, abi: vaultArt.abi, functionName: 'policy' });
+  const policy = await pub.readContract({
+    address: vault,
+    abi: vaultArt.abi,
+    functionName: 'policy',
+  });
   assert(policy[2] === 150_000n, `vault spent == 150000 (got ${policy[2]})`);
 
-  const withdrawable = await pub.readContract({ address: vault, abi: vaultArt.abi, functionName: 'withdrawable' });
-  assert(withdrawable === STAKE - CAP, `payer withdrawable == ${STAKE - CAP} (got ${withdrawable})`);
+  const withdrawable = await pub.readContract({
+    address: vault,
+    abi: vaultArt.abi,
+    functionName: 'withdrawable',
+  });
+  assert(
+    withdrawable === STAKE - CAP,
+    `payer withdrawable == ${STAKE - CAP} (got ${withdrawable})`,
+  );
 
   console.log('\nE2E PASS: deposit → grant → charge → batched on-chain settle → balances correct');
 }

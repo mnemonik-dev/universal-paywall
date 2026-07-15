@@ -1,14 +1,14 @@
 ---
 feature: creator-platform-integrations
 doc: integration-patterns
-question: "how to integrate a paywall WITHOUT touching the platform?"
+question: 'how to integrate a paywall WITHOUT touching the platform?'
 ---
 
 # Integrating a Paywall Without Touching the Platform
 
 The core principle: **attach at a boundary the platform already exposes** — its
 config, its outbound events, its request path, its plugin loader, its external-data
-slots, or the client — and translate the platform's *existing* event stream into a
+slots, or the client — and translate the platform's _existing_ event stream into a
 metered charge on a shared settlement rail. The platform's source is never modified.
 
 ```
@@ -23,6 +23,7 @@ edited (and none was even needed: forks are reference-only).
 ## The six permissionless attachment patterns
 
 ### 1. Existing-config redirect — point the platform's own config at us
+
 The platform already speaks a protocol to some upstream; we implement that protocol
 and the operator redirects one config value to us. The platform can't tell.
 
@@ -32,14 +33,16 @@ and the operator redirects one config value to us. The platform can't tell.
   → MusicBrainz artist → on-chain settle. Zero Navidrome change.
 
 ### 2. Outbound-event subscriber (sidecar) — register for events it already emits
+
 The platform has a webhook/notification mechanism; we register our endpoint.
 
 - **Owncast (live):** register our `/owncast` URL via the admin webhook API for
   `USER_JOINED`/`USER_PARTED`. **Verified:** live stream + real chat join/part → presence bill → settle.
-- **Jellyfin (VOD):** install the *official* first-party Webhook plugin, point it at
+- **Jellyfin (VOD):** install the _official_ first-party Webhook plugin, point it at
   `/jellyfin` for `PlaybackStop`. **Verified:** real playback stop → per-minute bill → settle.
 
 ### 3. Reverse proxy / wrapper — sit in the request path, never inside the app
+
 Put a transparent proxy in front; observe the requests that matter and meter them.
 
 - **Immich (photo):** `createImmichProxy` proxies to Immich and, on each external
@@ -50,7 +53,8 @@ Put a transparent proxy in front; observe the requests that matter and meter the
   citation when an answer is grounded in a fetched item. **Verified:** live RSSHub item → toll → settle.
 
 ### 4. Published plugin — fill the platform's sanctioned plugin slot
-Where the platform has a plugin loader, ship a *published* plugin (not a core edit);
+
+Where the platform has a plugin loader, ship a _published_ plugin (not a core edit);
 the operator installs it.
 
 - **PeerTube (federated VOD):** `peertube-plugin-universal-paywall` registers the
@@ -59,6 +63,7 @@ the operator installs it.
   bundle so it has no unpublished dependency).
 
 ### 5. External provider — serve the data the platform fetches
+
 The platform fetches an external source; we run that source.
 
 - **Mastodon (fediverse):** the instance points `DONATION_CAMPAIGNS_URL` at our
@@ -66,7 +71,8 @@ The platform fetches an external source; we run that source.
   through the rail. **Verified:** provider campaign → donation → on-chain settle to the instance.
 
 ### 6. Consumer/payer-side adaptor — nothing on the platform at all
-Pay on the *user's* behalf from the client.
+
+Pay on the _user's_ behalf from the client.
 
 - **Browser extension** (`@universal-paywall/extension`, MV3): auto-pays x402
   paywalls via the payer agent; other extensions/pages request paid fetches via a
@@ -83,15 +89,15 @@ Pay on the *user's* behalf from the client.
   non-custodial, no protocol rent, no fee in the rail.
 - **A resolver registry (the moat):** `resolvePayer` / `resolveCreator` map a
   platform-native id → wallet (e.g. MusicBrainz `recording_mbid → artist_mbid →
-  wallet`, live-validated). Unknown ids are metered-and-skipped, never charged wrong.
+wallet`, live-validated). Unknown ids are metered-and-skipped, never charged wrong.
 
 ## Why not just submit a PR to the platform?
 
-For #1–#6 a core PR is the *wrong* shape — a permissionless attachment needs no
+For #1–#6 a core PR is the _wrong_ shape — a permissionless attachment needs no
 upstream change. Empirically, upstreams merge server-admin donation pointers but
 reject per-user payment plumbing, so the durable integration is one you ship
 yourself at a boundary the platform already exposes. The only artifacts the operator
-installs (Jellyfin webhook plugin, PeerTube plugin) are *published* into sanctioned
+installs (Jellyfin webhook plugin, PeerTube plugin) are _published_ into sanctioned
 extension points — still not edits to the platform's source.
 
 ## Decision guide — pick the attachment for a new platform

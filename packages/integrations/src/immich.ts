@@ -30,7 +30,8 @@ export function handleSharedLinkResolve(
   reporter: Reporter,
   opts: SharedLinkOptions,
 ): Promise<ReportOutcome> {
-  const creatorKey = ev.exifArtist !== undefined && ev.exifArtist.length > 0 ? ev.exifArtist : ev.ownerId;
+  const creatorKey =
+    ev.exifArtist !== undefined && ev.exifArtist.length > 0 ? ev.exifArtist : ev.ownerId;
   return reporter.report({
     payerKey: ev.resolverId,
     creatorKey,

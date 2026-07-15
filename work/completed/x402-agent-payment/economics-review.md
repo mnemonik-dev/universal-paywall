@@ -37,13 +37,13 @@ Per-payment, end to end (verified against code):
 
 ### Who pays whom
 
-| Party | Pays | Receives |
-|---|---|---|
-| Agent | the price (e.g. 0.01 USDC) | the resource |
-| Relayer (= developer in self-host) | **gas, in USDC, unreimbursed** | nothing |
-| Developer's vault | — | full payment (gross) |
-| Developer (on withdraw) | 0.5% platform fee | `gross − fee` |
-| Platform | nothing at runtime | 0.5% on withdraw |
+| Party                              | Pays                           | Receives             |
+| ---------------------------------- | ------------------------------ | -------------------- |
+| Agent                              | the price (e.g. 0.01 USDC)     | the resource         |
+| Relayer (= developer in self-host) | **gas, in USDC, unreimbursed** | nothing              |
+| Developer's vault                  | —                              | full payment (gross) |
+| Developer (on withdraw)            | 0.5% platform fee              | `gross − fee`        |
+| Platform                           | nothing at runtime             | 0.5% on withdraw     |
 
 ## The holes
 
@@ -53,11 +53,11 @@ Task 3 spike (`decisions.md`, Task 3) measured `transferWithAuthorization` at
 **1212–1290 micro-USDC**. Against a **0.01 USDC = 10,000 micro-USDC** payment that
 is **~12–13%** of the payment. The platform fee is **0.5%**.
 
-| Item | Per $0.01 payment | % of payment |
-|---|---|---|
-| Gas (measured) | ~1,250 micro-USDC | **~12.6%** |
-| Platform fee (0.5%) | 50 micro-USDC | 0.5% |
-| To developer (net) | ~9,950 micro-USDC | 99.5% (before their own gas) |
+| Item                | Per $0.01 payment | % of payment                 |
+| ------------------- | ----------------- | ---------------------------- |
+| Gas (measured)      | ~1,250 micro-USDC | **~12.6%**                   |
+| Platform fee (0.5%) | 50 micro-USDC     | 0.5%                         |
+| To developer (net)  | ~9,950 micro-USDC | 99.5% (before their own gas) |
 
 The "$0.01 per call" example and the fee model are not reconcilable as-is.
 
@@ -74,7 +74,7 @@ facilitator. So the runtime cost-bearer (relayer) and the revenue-earner
   and earns 0.5% → **loses ~12% on every payment.** The response doc
   (`external-analysis-response.md` §E.3) says the fee exists "for sustainability
   of the hosted tier," but 0.5% cannot cover 12.6% gas. Break-even needs a
-  >12.6% fee — worse than Stripe, which kills the value proposition.
+  > 12.6% fee — worse than Stripe, which kills the value proposition.
 
 ### 3. The self-hosted relayer is operationally fragile
 
@@ -88,8 +88,8 @@ failing. This contradicts the "add one line of code and get paid" DX promise in
 
 ### 4. The "free tier" (no vault, no fee) is described but NOT implemented
 
-`external-analysis-response.md` §E.3 claims: *"free tier can set
-`payTo = developerEoa` directly, paid tier uses the vault."* The code does not do
+`external-analysis-response.md` §E.3 claims: _"free tier can set
+`payTo = developerEoa` directly, paid tier uses the vault."_ The code does not do
 this. `core.ts:439–518` always resolves `payTo` from
 `factory.vaults(developerEoa)`; if the vault is not deployed it returns
 `vault_not_deployed` and the agent must wait. **The vault — and therefore the

@@ -4,7 +4,7 @@
 # at donation_url via the agent + facilitator.
 services:
   up-provider:
-    image: universal-paywall/integrations:dev   # TODO: build (see deploy/README.md)
+    image: universal-paywall/integrations:dev # TODO: build (see deploy/README.md)
     environment:
       PLATFORM: mastodon
       CAMPAIGN_DONATION_URL: ${CAMPAIGN_DONATION_URL:?set donor stake/checkout url}
@@ -12,9 +12,9 @@ services:
       CAMPAIGN_BANNER_MESSAGE: ${CAMPAIGN_BANNER_MESSAGE:-Support this instance — settles onchain via Universal Paywall}
       # CAMPAIGN_AMOUNTS: '{"one_time":{"USD":[5,10,25]},"monthly":{"USD":[5]}}'
       # CAMPAIGN_DEFAULT_CURRENCY: USD
-      PORT: "8410"
+      PORT: '8410'
     ports:
-      - "8410:8410"
+      - '8410:8410'
 
   # A Mastodon instance pointed at the provider. Full Mastodon compose (db, redis,
   # sidekiq, streaming) is omitted; this shows only the wiring env.

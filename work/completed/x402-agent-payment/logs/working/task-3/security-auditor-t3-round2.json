@@ -3,9 +3,7 @@
   "task": "3",
   "round": 2,
   "commits_reviewed": ["3a9fbd3", "75e0399"],
-  "files_audited": [
-    "contracts/scripts/verify-usdc-eip3009.ts"
-  ],
+  "files_audited": ["contracts/scripts/verify-usdc-eip3009.ts"],
   "round1_findings_resolution": [
     {
       "id": "SEC-T3-01",

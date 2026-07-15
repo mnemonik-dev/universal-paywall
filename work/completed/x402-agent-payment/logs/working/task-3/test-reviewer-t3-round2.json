@@ -57,24 +57,62 @@
     "acceptanceCriteriaChecked": [
       { "criterion": "Script exists, TypeScript-typed, runs under tsx", "status": "pass" },
       { "criterion": "Uses viem only, no hre.ethers, no Hardhat imports", "status": "pass" },
-      { "criterion": "Reads name(), version(), decimals() from USDC on Arc Testnet", "status": "pass" },
-      { "criterion": "Selector self-check toFunctionSelector(...) === 0xe3ee160e", "status": "pass" },
-      { "criterion": "Proves authorizationState and transferWithAuthorization exist", "status": "pass" },
+      {
+        "criterion": "Reads name(), version(), decimals() from USDC on Arc Testnet",
+        "status": "pass"
+      },
+      {
+        "criterion": "Selector self-check toFunctionSelector(...) === 0xe3ee160e",
+        "status": "pass"
+      },
+      {
+        "criterion": "Proves authorizationState and transferWithAuthorization exist",
+        "status": "pass"
+      },
       { "criterion": "Estimates gas and converts to USDC cost", "status": "pass" },
       { "criterion": "Stdout JSON shape correct, notes key omitted when empty", "status": "pass" },
-      { "criterion": "Exit non-zero if supportsEip3009 === false or decimals !== 6", "status": "pass", "note": "Now fires BEFORE artifact write and stdout — correctly ordered." },
-      { "criterion": "Prints warning (exit 0) if gasCostExceedsThreshold === true", "status": "pass" },
+      {
+        "criterion": "Exit non-zero if supportsEip3009 === false or decimals !== 6",
+        "status": "pass",
+        "note": "Now fires BEFORE artifact write and stdout — correctly ordered."
+      },
+      {
+        "criterion": "Prints warning (exit 0) if gasCostExceedsThreshold === true",
+        "status": "pass"
+      },
       { "criterion": "arc-testnet-usdc-domain.json written with matching shape", "status": "pass" },
-      { "criterion": "dual-decimal notes entry emitted when conversion performed", "status": "pass" },
+      {
+        "criterion": "dual-decimal notes entry emitted when conversion performed",
+        "status": "pass"
+      },
       { "criterion": "Gas fallback path emits notes entry", "status": "pass" },
-      { "criterion": "Script header documents consumer contract (T6 reads notes at module load)", "status": "pass" },
-      { "criterion": "Spike outcomes recorded in decisions.md", "status": "pass", "note": "Confirmed by teammate: written in commit 46600be." },
-      { "criterion": "No secrets / private keys leaked to stdout even on error path", "status": "pass", "note": "scrubUrls() added as additional defense." },
+      {
+        "criterion": "Script header documents consumer contract (T6 reads notes at module load)",
+        "status": "pass"
+      },
+      {
+        "criterion": "Spike outcomes recorded in decisions.md",
+        "status": "pass",
+        "note": "Confirmed by teammate: written in commit 46600be."
+      },
+      {
+        "criterion": "No secrets / private keys leaked to stdout even on error path",
+        "status": "pass",
+        "note": "scrubUrls() added as additional defense."
+      },
       { "criterion": "RPC retry up to 3 times with backoff", "status": "pass" },
-      { "criterion": "gasPrice unavailable → notes entry + sentinel sampleGasCost", "status": "pass", "note": "Fixed in this round." },
+      {
+        "criterion": "gasPrice unavailable → notes entry + sentinel sampleGasCost",
+        "status": "pass",
+        "note": "Fixed in this round."
+      },
       { "criterion": "Stdout/artifact JSON shape byte-identical in field set", "status": "pass" },
       { "criterion": "Sanity-check band applied to dual-decimal result", "status": "pass" },
-      { "criterion": "Hard blockers fire before artifact write", "status": "pass", "note": "Fixed in this round." }
+      {
+        "criterion": "Hard blockers fire before artifact write",
+        "status": "pass",
+        "note": "Fixed in this round."
+      }
     ]
   },
   "severityCounts": {

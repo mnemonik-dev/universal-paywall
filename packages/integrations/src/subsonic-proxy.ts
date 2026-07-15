@@ -32,7 +32,9 @@ export function isScrobbleSubmission(url: URL): boolean {
 }
 
 /** Builds a Node request handler that proxies to a Subsonic server and meters scrobbles. */
-export function createSubsonicProxy(opts: SubsonicProxyOptions): (req: IncomingMessage, res: ServerResponse) => void {
+export function createSubsonicProxy(
+  opts: SubsonicProxyOptions,
+): (req: IncomingMessage, res: ServerResponse) => void {
   const upstream = opts.upstreamUrl.replace(/\/+$/, '');
   const doFetch = opts.fetchImpl ?? fetch;
 
@@ -47,7 +49,10 @@ export function createSubsonicProxy(opts: SubsonicProxyOptions): (req: IncomingM
     const url = new URL(req.url ?? '/', 'http://localhost');
     const meter = isScrobbleSubmission(url) ? parseSubsonicScrobble(url.searchParams) : null;
 
-    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : (Readable.toWeb(req) as ReadableStream);
+    const body =
+      req.method === 'GET' || req.method === 'HEAD'
+        ? undefined
+        : (Readable.toWeb(req) as ReadableStream);
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) {
       if (v === undefined || k === 'host' || k === 'connection') continue;

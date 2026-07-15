@@ -50,6 +50,7 @@ export function createMusicBrainzResolver(opts: MusicBrainzResolverOptions): Res
 ```
 
 Design rules:
+
 - **Cache aggressively** (recording->artist is immutable) and **rate-limit** to
   respect WS/2; prefer the local fork in CI/e2e to avoid the public limiter.
 - **Fallback:** if a scrobble already carries `artist_mbids` (it usually does — see
@@ -87,7 +88,7 @@ sidecar falls back to a direct `CREATOR_WALLETS` lookup (no MBID resolution).
 
 - **Unit:** `npm test -w @universal-paywall/integrations` (musicbrainz.test.ts).
 - **Live:** point the resolver at `https://musicbrainz.org/ws/2` with a known
-  `recording_mbid`; it returns the credited artist's wallet, caches the
-  recording->artist mapping, and returns `null` for unknowns. Prefer the local fork
-  for repeated/CI runs. See the testing plan (MusicBrainz/Navidrome row).
+`recording_mbid`; it returns the credited artist's wallet, caches the
+recording->artist mapping, and returns `null` for unknowns. Prefer the local fork
+for repeated/CI runs. See the testing plan (MusicBrainz/Navidrome row).
 </content>

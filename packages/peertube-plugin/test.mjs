@@ -62,12 +62,24 @@ async function main() {
   assert(typeof viewHook === 'function', 'register() registered the action:api.video.viewed hook');
 
   // Fire a view with a known payer header.
-  await viewHook({ video: { channelId: 'chan1', uuid: 'vid-uuid-1' }, req: { headers: { 'x-payer-user': 'alice' } } });
+  await viewHook({
+    video: { channelId: 'chan1', uuid: 'vid-uuid-1' },
+    req: { headers: { 'x-payer-user': 'alice' } },
+  });
   assert(charges.length === 1, 'a view produced exactly one charge');
-  assert(charges[0].payer === PAYER, `payer resolved to the viewer wallet (got ${charges[0].payer})`);
-  assert(charges[0].creator === CREATOR, `creator resolved to the channel wallet (got ${charges[0].creator})`);
+  assert(
+    charges[0].payer === PAYER,
+    `payer resolved to the viewer wallet (got ${charges[0].payer})`,
+  );
+  assert(
+    charges[0].creator === CREATOR,
+    `creator resolved to the channel wallet (got ${charges[0].creator})`,
+  );
   assert(charges[0].amount === '2000', `amount is the configured price (got ${charges[0].amount})`);
-  assert(String(charges[0].ref).startsWith('peertube:vid-uuid-1:'), 'ref is per-view (peertube:<uuid>:<ts>)');
+  assert(
+    String(charges[0].ref).startsWith('peertube:vid-uuid-1:'),
+    'ref is per-view (peertube:<uuid>:<ts>)',
+  );
 
   // Unknown payer (anonymous) is metered-and-skipped (no charge).
   await viewHook({ video: { channelId: 'chan1', uuid: 'vid-uuid-2' }, req: { headers: {} } });
@@ -78,13 +90,21 @@ async function main() {
   await plugin.register({
     registerSetting: () => {},
     settingsManager: { getSetting: async () => '' },
-    registerHook: ({ target, handler }) => { if (target === 'action:api.video.viewed') viewHook2 = handler; },
+    registerHook: ({ target, handler }) => {
+      if (target === 'action:api.video.viewed') viewHook2 = handler;
+    },
   });
-  await viewHook2({ video: { channelId: 'chan1', uuid: 'v3' }, req: { headers: { 'x-payer-user': 'alice' } } });
+  await viewHook2({
+    video: { channelId: 'chan1', uuid: 'v3' },
+    req: { headers: { 'x-payer-user': 'alice' } },
+  });
   assert(charges.length === 1, 'unconfigured plugin makes no charge');
 
   fac.close();
   console.log(`\nPEERTUBE PLUGIN TEST PASS (${passed} assertions)`);
   process.exit(0);
 }
-main().catch((e) => { console.error('TEST ERROR:', e); process.exit(1); });
+main().catch((e) => {
+  console.error('TEST ERROR:', e);
+  process.exit(1);
+});

@@ -66,8 +66,9 @@ export function buildDonationCampaign(
   query: DonationCampaignQuery = {},
 ): DonationCampaign | null {
   if (opts.campaign === null) return null;
-  const locale = query.locale !== null && query.locale !== undefined && query.locale !== ''
-    ? query.locale
-    : (opts.defaultLocale ?? 'en');
+  const locale =
+    query.locale !== null && query.locale !== undefined && query.locale !== ''
+      ? query.locale
+      : (opts.defaultLocale ?? 'en');
   return { ...opts.campaign, locale };
 }

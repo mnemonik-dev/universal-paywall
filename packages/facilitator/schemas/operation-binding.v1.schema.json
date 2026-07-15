@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-paywall.example/schemas/operation-binding.v1.schema.json",
+  "title": "Universal Paywall Operation Binding V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "operation_id",
+    "payer_subject",
+    "payer_wallet",
+    "artifact_hash",
+    "amount",
+    "asset",
+    "network",
+    "pay_to",
+    "expires_at",
+    "nonce",
+    "scope"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "operation_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "payer_subject": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "payer_wallet": { "$ref": "#/$defs/address" },
+    "artifact_hash": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "amount": { "$ref": "#/$defs/uint" },
+    "asset": { "$ref": "#/$defs/address" },
+    "network": { "type": "string", "pattern": "^eip155:[0-9]+$" },
+    "pay_to": { "$ref": "#/$defs/address" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "nonce": { "$ref": "#/$defs/bytes32" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility", "action"],
+      "properties": {
+        "workspace_hash": { "$ref": "#/$defs/hex64" },
+        "visibility": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["manual", "pre_compaction", "session_end"] }
+      }
+    }
+  },
+  "$defs": {
+    "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "bytes32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "hex64": { "type": "string", "pattern": "^(0x)?[0-9a-fA-F]{64}$" },
+    "uint": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    }
+  }
+}

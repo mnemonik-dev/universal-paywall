@@ -34,7 +34,14 @@ function wire(channel, external) {
   if (!channel) return;
   channel.addListener((msg, sender, sendResponse) => {
     getHandler()
-      .then((handle) => handle(msg, { external, id: sender && sender.id, origin: sender && sender.origin, url: sender && sender.url }))
+      .then((handle) =>
+        handle(msg, {
+          external,
+          id: sender && sender.id,
+          origin: sender && sender.origin,
+          url: sender && sender.url,
+        }),
+      )
       .then(sendResponse)
       .catch((e) => sendResponse({ ok: false, error: e && e.message ? e.message : 'error' }));
     return true; // async sendResponse

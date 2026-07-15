@@ -28,7 +28,13 @@ import { createPublicClient, createWalletClient, defineChain, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts';
 import { createFacilitator } from '@universal-paywall/facilitator';
 import { createPayerAgent } from '@universal-paywall/agent';
-import { createReporter, createSidecarServer, mapResolver, OwncastPresenceMeter, owncastRoute } from '../dist/index.js';
+import {
+  createReporter,
+  createSidecarServer,
+  mapResolver,
+  OwncastPresenceMeter,
+  owncastRoute,
+} from '../dist/index.js';
 
 const RPC = 'http://127.0.0.1:8545';
 const CHAIN_ID = 31337;
@@ -60,7 +66,13 @@ function artifact(p) {
 async function deploy(key, art, args) {
   const account = privateKeyToAccount(key);
   const w = createWalletClient({ account, chain, transport: http(RPC) });
-  const hash = await w.deployContract({ abi: art.abi, bytecode: art.bytecode, args, account, chain });
+  const hash = await w.deployContract({
+    abi: art.abi,
+    bytecode: art.bytecode,
+    args,
+    account,
+    chain,
+  });
   return (await pub.waitForTransactionReceipt({ hash })).contractAddress;
 }
 async function send(key, address, abi, fn, args) {
@@ -122,8 +134,19 @@ async function main() {
   await send(DEPLOYER, usdc, mockUsdc.abi, 'mint', [viewer, 2_000_000n]);
 
   console.log('Viewer stakes + grants (agent helper)...');
-  const agent = createPayerAgent({ rpcUrl: RPC, chainId: CHAIN_ID, payerKey: PAYER_KEY, stakeVaultFactory: factory, usdc });
-  await agent.ensureGrant({ facilitator: facilitatorAddr, stakeVaultFactory: factory, recommendedCap: CAP, validForSeconds: 3600 });
+  const agent = createPayerAgent({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    payerKey: PAYER_KEY,
+    stakeVaultFactory: factory,
+    usdc,
+  });
+  await agent.ensureGrant({
+    facilitator: facilitatorAddr,
+    stakeVaultFactory: factory,
+    recommendedCap: CAP,
+    validForSeconds: 3600,
+  });
 
   console.log('Start facilitator...');
   const fac = createFacilitator({
@@ -143,7 +166,10 @@ async function main() {
     resolvePayer: mapResolver({ [VIEWER_ID]: viewer }),
     resolveCreator: mapResolver({ streamer: STREAMER }),
   });
-  const meter = new OwncastPresenceMeter(reporter, { ratePerSecond: RATE, streamerKey: 'streamer' });
+  const meter = new OwncastPresenceMeter(reporter, {
+    ratePerSecond: RATE,
+    streamerKey: 'streamer',
+  });
   const sidecar = createSidecarServer([owncastRoute(meter)]);
   await new Promise((res) => sidecar.listen(SIDECAR_PORT, () => res(null)));
 
@@ -152,19 +178,32 @@ async function main() {
   assert(joined.status === 200, `sidecar accepted USER_JOINED webhook over HTTP (200)`);
   const parted = await postWebhook(owncastWebhook('USER_PARTED', PART_AT));
   assert(parted.status === 200, `sidecar accepted USER_PARTED webhook over HTTP (200)`);
-  assert(parted.json?.status === 'charged', `sidecar reported a presence charge (got ${parted.json?.status})`);
-  assert(BigInt(parted.json?.amount ?? 0) === 60n * RATE, `charge amount is 60s * rate = ${60n * RATE}`);
+  assert(
+    parted.json?.status === 'charged',
+    `sidecar reported a presence charge (got ${parted.json?.status})`,
+  );
+  assert(
+    BigInt(parted.json?.amount ?? 0) === 60n * RATE,
+    `charge amount is 60s * rate = ${60n * RATE}`,
+  );
 
   const results = await fac.service.flushAll();
   assert(results.length === 1 && results[0].ok, 'facilitator settled the sidecar charge on-chain');
 
-  const streamerBal = await pub.readContract({ address: usdc, abi: mockUsdc.abi, functionName: 'balanceOf', args: [STREAMER] });
+  const streamerBal = await pub.readContract({
+    address: usdc,
+    abi: mockUsdc.abi,
+    functionName: 'balanceOf',
+    args: [STREAMER],
+  });
   const expected = 60n * RATE;
   assert(streamerBal === expected, `streamer paid ${expected} on-chain (got ${streamerBal})`);
 
   sidecar.close();
   fac.server.close();
-  console.log('\nOWNCAST ACCEPTANCE PASS: real webhook bytes -> HTTP sidecar -> facilitator -> on-chain settle -> streamer paid');
+  console.log(
+    '\nOWNCAST ACCEPTANCE PASS: real webhook bytes -> HTTP sidecar -> facilitator -> on-chain settle -> streamer paid',
+  );
   process.exit(0);
 }
 

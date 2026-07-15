@@ -21,7 +21,11 @@ export interface ScrobbleOptions {
 }
 
 /** Reports one scrobble as a per-listen charge. */
-export function handleScrobble(ev: ScrobbleEvent, reporter: Reporter, opts: ScrobbleOptions): Promise<ReportOutcome> {
+export function handleScrobble(
+  ev: ScrobbleEvent,
+  reporter: Reporter,
+  opts: ScrobbleOptions,
+): Promise<ReportOutcome> {
   return reporter.report({
     payerKey: ev.userId,
     creatorKey: ev.mediaFileId,

@@ -33,13 +33,21 @@ describe('parseGrantRequirements', () => {
   });
 
   it('returns null for a bare payer_required challenge (no recommendedCap)', () => {
-    const body = { x402Version: 1, error: 'payer_required', grant: { facilitator: FAC, stakeVaultFactory: FACTORY } };
+    const body = {
+      x402Version: 1,
+      error: 'payer_required',
+      grant: { facilitator: FAC, stakeVaultFactory: FACTORY },
+    };
     expect(parseGrantRequirements(body)).toBeNull();
   });
 
   it('returns null on malformed bodies', () => {
     expect(parseGrantRequirements(null)).toBeNull();
     expect(parseGrantRequirements({})).toBeNull();
-    expect(parseGrantRequirements({ grant: { facilitator: 'nope', stakeVaultFactory: FACTORY, recommendedCap: '1' } })).toBeNull();
+    expect(
+      parseGrantRequirements({
+        grant: { facilitator: 'nope', stakeVaultFactory: FACTORY, recommendedCap: '1' },
+      }),
+    ).toBeNull();
   });
 });

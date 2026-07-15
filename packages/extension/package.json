@@ -12,10 +12,10 @@
   },
   "dependencies": {
     "@universal-paywall/agent": "*",
-    "viem": "^2.0.0"
+    "viem": "^2.55.1"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0",
+    "esbuild": "^0.28.1",
     "playwright": "^1.40.0"
   }
 }

@@ -28,6 +28,8 @@ typechain-types/
 .fastembed_cache/
 .husky/_/
 .npmrc
+.claude/
+.claude-flow/
 
 # Foundry contracts workspace artifacts
 contracts/out/
@@ -36,3 +38,6 @@ contracts/broadcast/
 contracts/.env
 contracts/node_modules/
 contracts/lcov.info
+
+# Generated ABI copies exported during build
+packages/middleware/src/abi/*.json

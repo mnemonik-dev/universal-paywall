@@ -15,15 +15,15 @@ creator-side sidecars (it pays the paywalls they meter).
 
 ## Layout
 
-| File | Role |
-|---|---|
-| `src/handler.js` | **core** message router over a `PayerAgent` (`up:status` / `up:ensureGrant` / `up:fetch`) — runtime-independent, unit-tested |
-| `src/bridge.js` | typed client (`upFetch`, `status`, `ensureGrant`) over an injected `send` |
-| `src/messages.js` | the message contract both ends share |
-| `src/background.js` | MV3 service worker: builds the agent, wires `onMessage` + `onMessageExternal` |
-| `src/content.js` | injects `window.universalPaywall` (page bridge) |
-| `src/config.js` | config (`chrome.storage`) + **signer construction** |
-| `manifest.json` | MV3 manifest |
+| File                | Role                                                                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/handler.js`    | **core** message router over a `PayerAgent` (`up:status` / `up:ensureGrant` / `up:fetch`) — runtime-independent, unit-tested |
+| `src/bridge.js`     | typed client (`upFetch`, `status`, `ensureGrant`) over an injected `send`                                                    |
+| `src/messages.js`   | the message contract both ends share                                                                                         |
+| `src/background.js` | MV3 service worker: builds the agent, wires `onMessage` + `onMessageExternal`                                                |
+| `src/content.js`    | injects `window.universalPaywall` (page bridge)                                                                              |
+| `src/config.js`     | config (`chrome.storage`) + **signer construction**                                                                          |
+| `manifest.json`     | MV3 manifest                                                                                                                 |
 
 ## The signer (no raw keys)
 

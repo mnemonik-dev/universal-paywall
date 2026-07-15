@@ -42,14 +42,14 @@ run** (Owncast, Navidrome, Jellyfin, PeerTube, Mastodon, RSSHub, Immich, …).
 
 ```
 packages/agent/            # @universal-paywall/agent — payer: stake, grant policy, fetchWithPaywall
-packages/facilitator/      # @universal-paywall/facilitator — batches metered charges, settles on-chain (up-facilitator CLI)
+packages/facilitator/      # batching rail + synchronous paid-session API (up-session-facilitator)
 packages/integrations/     # @universal-paywall/integrations — creator-side sidecars/plugins/providers (up-integration CLI)
 packages/extension/        # @universal-paywall/extension — payer-side MV3 browser-extension adaptor
 packages/peertube-plugin/  # peertube-plugin-universal-paywall — published PeerTube view-hook plugin
 packages/sdk/              # @universal-paywall/sdk — shared client/types
 packages/resource-adapter/ # @universal-paywall/resource-adapter — x402 resource helper
 packages/middleware/       # @universal-paywall/middleware — legacy per-payment x402 middleware (see History)
-contracts/                 # Foundry: rail/ (StakeVault, StakeVaultFactory) + legacy PaymentVault/Factory
+contracts/                 # Foundry: streaming StakeVault + fixed-payee SessionStakeVault rails
 ```
 
 ## Key Commands
@@ -76,6 +76,9 @@ RATE=1000 npx up-integration
 # Run the facilitator
 FACILITATOR_KEY=0x... STAKE_VAULT_FACTORY=0x... npx up-facilitator
 
+# Run the synchronous session API (see packages/facilitator/README.md for env)
+npx up-session-facilitator
+
 # End-to-end on-chain money loops (need anvil :8545 + built contracts)
 npm run e2e:anvil    -w @universal-paywall/integrations   # full vertical: stake → event → settle
 npm run e2e:owncast  -w @universal-paywall/integrations   # Owncast L4 over real HTTP
@@ -89,18 +92,18 @@ Every integration attaches **without modifying the platform** — it uses one of
 permissionless patterns (config-redirect, event-sidecar, reverse-proxy, published
 plugin, external provider, payer-side adaptor).
 
-| Platform | Vertical | Attach surface | Pattern |
-|---|---|---|---|
-| Owncast | Live video | admin webhook → sidecar | event-sidecar |
-| Navidrome | Music | `ND_LISTENBRAINZ_BASEURL` → ListenBrainz-shaped sidecar | config-redirect |
-| Subsonic (gonic, …) | Music | scrobble endpoint → sidecar | config-redirect |
-| Jellyfin | VOD | official Webhook plugin → sidecar | event-sidecar |
-| RSSHub | Feeds | crawler/citation boundary → sidecar | event-sidecar |
-| Immich | Photo | reverse proxy meters shared-link resolves | reverse-proxy |
-| Mastodon | Fediverse | `DONATION_CAMPAIGNS_URL` → campaign provider | external provider |
-| PeerTube | Federated VOD | published `action:api.video.viewed` plugin | published plugin |
-| MusicBrainz | Registry/resolver | WS/2 `recording_mbid → artist_mbid → wallet` | resolver (the moat) |
-| Any browser extension | Payer side | `agent.fetchWithPaywall` + MV3 messaging bridge | payer-side adaptor |
+| Platform              | Vertical          | Attach surface                                          | Pattern             |
+| --------------------- | ----------------- | ------------------------------------------------------- | ------------------- |
+| Owncast               | Live video        | admin webhook → sidecar                                 | event-sidecar       |
+| Navidrome             | Music             | `ND_LISTENBRAINZ_BASEURL` → ListenBrainz-shaped sidecar | config-redirect     |
+| Subsonic (gonic, …)   | Music             | scrobble endpoint → sidecar                             | config-redirect     |
+| Jellyfin              | VOD               | official Webhook plugin → sidecar                       | event-sidecar       |
+| RSSHub                | Feeds             | crawler/citation boundary → sidecar                     | event-sidecar       |
+| Immich                | Photo             | reverse proxy meters shared-link resolves               | reverse-proxy       |
+| Mastodon              | Fediverse         | `DONATION_CAMPAIGNS_URL` → campaign provider            | external provider   |
+| PeerTube              | Federated VOD     | published `action:api.video.viewed` plugin              | published plugin    |
+| MusicBrainz           | Registry/resolver | WS/2 `recording_mbid → artist_mbid → wallet`            | resolver (the moat) |
+| Any browser extension | Payer side        | `agent.fetchWithPaywall` + MV3 messaging bridge         | payer-side adaptor  |
 
 All ten are verified against **real Docker'd instances** with on-chain settlement;
 see the documentation below.

@@ -2,7 +2,7 @@
 feature: creator-platform-integrations
 doc: testing-plan
 created: 2026-06-21
-question: "how do we know Universal Paywall actually works with each platform?"
+question: 'how do we know Universal Paywall actually works with each platform?'
 ---
 
 # Testing Plan — Per-Integration Verification
@@ -12,12 +12,12 @@ is "done" only when its layer-4 money loop settles on-chain.
 
 ## The four test layers
 
-| Layer | What it proves | Tools | Where |
-|---|---|---|---|
-| **L1 Unit** | the adapter maps a platform event -> the right `charge` args | vitest | `packages/integrations/src/__tests__` |
-| **L2 Sidecar-contract** | the running sidecar answers real platform-shaped HTTP correctly (status, body, headers) | node `fetch` against `createSidecarServer` | per-platform smoke script |
-| **L3 Real-instance** | a real platform instance, wired per its recipe, actually calls our sidecar on a real event | Docker compose (`deploy/<platform>/`) | local / CI-with-services |
-| **L4 Anvil money loop** | the full chain: stake+grant -> event -> charge -> facilitator batch -> `settle` -> **payee balance increases** | anvil + `e2e:anvil` | `scripts/e2e-integration-anvil.ts` |
+| Layer                   | What it proves                                                                                                 | Tools                                      | Where                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------- |
+| **L1 Unit**             | the adapter maps a platform event -> the right `charge` args                                                   | vitest                                     | `packages/integrations/src/__tests__` |
+| **L2 Sidecar-contract** | the running sidecar answers real platform-shaped HTTP correctly (status, body, headers)                        | node `fetch` against `createSidecarServer` | per-platform smoke script             |
+| **L3 Real-instance**    | a real platform instance, wired per its recipe, actually calls our sidecar on a real event                     | Docker compose (`deploy/<platform>/`)      | local / CI-with-services              |
+| **L4 Anvil money loop** | the full chain: stake+grant -> event -> charge -> facilitator batch -> `settle` -> **payee balance increases** | anvil + `e2e:anvil`                        | `scripts/e2e-integration-anvil.ts`    |
 
 L1+L2 run in CI on every push (fast, hermetic). L3+L4 are the acceptance gates per
 platform (heavier; run on the platform branch).
@@ -49,17 +49,17 @@ platform's event shape, then reuses the same stake/grant/settle/assert spine.
 
 ## Per-platform test matrix
 
-| Platform | Trigger (L3) | Sidecar observation | Expected charge | L2 contract check | L4 status |
-|---|---|---|---|---|---|
-| **Owncast** | viewer joins+parts chat | `POST /owncast` USER_JOINED/PARTED | `(parted-joined) x ratePerSecond` | webhook body -> `charged` | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness) |
-| **Navidrome** | play a track (or hit scrobble) | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz) |
-| **Jellyfin** | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop | `floor(minutes) x ratePerMinute` | PlaybackStop bills, Progress doesn't | **L3+L4 PASS** (real instance + official plugin) |
-| **RSSHub** | crawler cites a fetched item | `POST /citation` | `toll` per citation | author -> creator | **L3+L4 PASS** (live RSSHub item) |
-| **Mastodon** | instance fetches campaigns | `GET /api/v1/donation_campaigns` | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset | **L2 + full-stack L3 + donation L4 PASS** (live Mastodon fetched our provider) |
-| **PeerTube** | view a video (plugin) | plugin `action:api.video.viewed` -> reporter | `pricePerView` | plugin hook fires once/view | **L3+L4 PASS** (real PeerTube 7.3.0 + real headless-browser player -> counted view -> settle) |
-| **MusicBrainz** | resolve `recording_mbid` | resolver call inside `resolveCreator` | n/a (registry); enables Navidrome payout | mbid->artist->wallet; unknown->null | **PASS** (8 unit + live WS/2) |
-| **Subsonic** (gonic family) | scrobble a track | `createSubsonicProxy` in front of the server | `ratePerPlay` per submission | proxied + metered | **L3+L4 PASS** (live gonic) |
-| **Browser extension** | browse to an x402 resource | `agent.fetchWithPaywall` 402 -> grant -> retry | grant `cap`-bounded | `onMessageExternal` returns paid 200 | **node E2E + BROWSER E2E PASS**: bundled MV3 loaded in headless Chromium, in-SW agent auto-pays -> on-chain settle |
+| Platform                    | Trigger (L3)                          | Sidecar observation                                  | Expected charge                                    | L2 contract check                                 | L4 status                                                                                                          |
+| --------------------------- | ------------------------------------- | ---------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Owncast**                 | viewer joins+parts chat               | `POST /owncast` USER_JOINED/PARTED                   | `(parted-joined) x ratePerSecond`                  | webhook body -> `charged`                         | **L3+L4 PASS** (real instance; `e2e:owncast` + live-docker harness)                                                |
+| **Navidrome**               | play a track (or hit scrobble)        | `POST /1/submit-listens` (+ `GET /1/validate-token`) | `ratePerListen` per `single` listen                | token links; `playing_now` skipped; mbid->creator | **L3+L4 PASS** (real instance + live MusicBrainz)                                                                  |
+| **Jellyfin**                | play+stop via official webhook plugin | `POST /jellyfin` PlaybackStop                        | `floor(minutes) x ratePerMinute`                   | PlaybackStop bills, Progress doesn't              | **L3+L4 PASS** (real instance + official plugin)                                                                   |
+| **RSSHub**                  | crawler cites a fetched item          | `POST /citation`                                     | `toll` per citation                                | author -> creator                                 | **L3+L4 PASS** (live RSSHub item)                                                                                  |
+| **Mastodon**                | instance fetches campaigns            | `GET /api/v1/donation_campaigns`                     | n/a (provider); donations settle at `donation_url` | 200 echoes `locale`; 204 when unset               | **L2 + full-stack L3 + donation L4 PASS** (live Mastodon fetched our provider)                                     |
+| **PeerTube**                | view a video (plugin)                 | plugin `action:api.video.viewed` -> reporter         | `pricePerView`                                     | plugin hook fires once/view                       | **L3+L4 PASS** (real PeerTube 7.3.0 + real headless-browser player -> counted view -> settle)                      |
+| **MusicBrainz**             | resolve `recording_mbid`              | resolver call inside `resolveCreator`                | n/a (registry); enables Navidrome payout           | mbid->artist->wallet; unknown->null               | **PASS** (8 unit + live WS/2)                                                                                      |
+| **Subsonic** (gonic family) | scrobble a track                      | `createSubsonicProxy` in front of the server         | `ratePerPlay` per submission                       | proxied + metered                                 | **L3+L4 PASS** (live gonic)                                                                                        |
+| **Browser extension**       | browse to an x402 resource            | `agent.fetchWithPaywall` 402 -> grant -> retry       | grant `cap`-bounded                                | `onMessageExternal` returns paid 200              | **node E2E + BROWSER E2E PASS**: bundled MV3 loaded in headless Chromium, in-SW agent auto-pays -> on-chain settle |
 
 ## L2 contract checks (write one per platform)
 
@@ -114,11 +114,12 @@ run in CI without Docker.
 ## Mastodon full-stack L3 — done (2026-06-22)
 
 `scripts/e2e-mastodon-live-docker.mjs`: a live full-stack **Mastodon v4.x** (postgres
-+ redis + Rails/puma), bootstrapped with generated secrets + an approved Owner user
-+ a read-scope OAuth token, configured with `DONATION_CAMPAIGNS_URL` -> our provider,
-**actually fetched our provider** (logged the real query
-`?environment=production&locale=en&platform=web&seed=N`) and returned our campaign
-(id, echoed locale, nested `amounts`) to the authenticated client — 200. PASS.
+
+- redis + Rails/puma), bootstrapped with generated secrets + an approved Owner user
+- a read-scope OAuth token, configured with `DONATION_CAMPAIGNS_URL` -> our provider,
+  **actually fetched our provider** (logged the real query
+  `?environment=production&locale=en&platform=web&seed=N`) and returned our campaign
+  (id, echoed locale, nested `amounts`) to the authenticated client — 200. PASS.
 
 Real operator requirements surfaced by the live run (documented in the harness):
 production `force_ssl` (use `X-Forwarded-Proto: https`); the SSRF guard
@@ -142,6 +143,7 @@ settle. **PASS** — streamer paid `60s x rate`.
   amounts -> decimal strings); added an HTTP regression test. This bug affected
   **all** charge-returning routes (owncast/subsonic/jellyfin/rsshub/immich), so the
   fix unblocks every platform's real-HTTP path, not just Owncast.
+
 ## Owncast REAL L3 — done (2026-06-21)
 
 Docker **does** work in this environment — the daemon just isn't started by
@@ -201,7 +203,7 @@ Via `scripts/e2e-jellyfin-live-docker.mjs` against a live
 3. Reported a real playback start + stop (`POST /Sessions/Playing[/Stopped]`,
    `PositionTicks=1_200_000_000`) -> `ISessionManager.PlaybackStopped` -> plugin POST.
 4. **The plugin's real payload matched the route exactly:** `NotificationType:
-   "PlaybackStop"`, `UserId`, `ItemId`, `PlaybackPositionTicks:1200000000` (plus
+"PlaybackStop"`, `UserId`, `ItemId`, `PlaybackPositionTicks:1200000000` (plus
    lots of extra fields we ignore). Billed 2 min x 1000 -> **creator paid 2000
    micro-USDC on-chain.** PASS.
 

@@ -2,7 +2,14 @@ import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { buildChain } from './chain.js';
 import { stakeVaultAbi, stakeVaultFactoryAbi } from './abi.js';
-import type { FacilitatorConfig, Hex, SettleResult, SettlementBatch, Settler, VaultResolver } from './types.js';
+import type {
+  FacilitatorConfig,
+  Hex,
+  SettleResult,
+  SettlementBatch,
+  Settler,
+  VaultResolver,
+} from './types.js';
 
 function classifyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -26,7 +33,11 @@ export class OnChainSettler implements Settler {
   constructor(config: FacilitatorConfig) {
     const chain = buildChain(config.chainId, config.rpcUrl);
     this.account = privateKeyToAccount(config.facilitatorKey);
-    this.wallet = createWalletClient({ account: this.account, chain, transport: http(config.rpcUrl) });
+    this.wallet = createWalletClient({
+      account: this.account,
+      chain,
+      transport: http(config.rpcUrl),
+    });
     this.pub = createPublicClient({ chain, transport: http(config.rpcUrl) });
   }
 

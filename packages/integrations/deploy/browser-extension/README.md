@@ -1,8 +1,8 @@
 # Browser-extension adaptor (payer-side)
 
-The first **consumer-side** integration. Every other recipe attaches a *creator*
+The first **consumer-side** integration. Every other recipe attaches a _creator_
 platform (the payee) to the rail; this one lets **any browser extension** become a
-*payer* — auto-paying x402 paywalls and tipping creators on the user's behalf —
+_payer_ — auto-paying x402 paywalls and tipping creators on the user's behalf —
 without reimplementing the rail. It complements the creator sidecars: extension
 pays -> facilitator -> creator sidecar's payee gets settled.
 
@@ -44,11 +44,11 @@ packages/extension/
 
 Messaging API (typed in `bridge.ts`):
 
-| Message | Action |
-|---|---|
-| `up:fetch { url, init }` | `agent.fetchWithPaywall` -> serialized `Response` |
-| `up:ensureGrant { cap, validUntil }` | establish/refresh the facilitator grant |
-| `up:status` | vault address, balance, current grant, spend-so-far |
+| Message                              | Action                                              |
+| ------------------------------------ | --------------------------------------------------- |
+| `up:fetch { url, init }`             | `agent.fetchWithPaywall` -> serialized `Response`   |
+| `up:ensureGrant { cap, validUntil }` | establish/refresh the facilitator grant             |
+| `up:status`                          | vault address, balance, current grant, spend-so-far |
 
 ## Status: BUILT (gap #5)
 

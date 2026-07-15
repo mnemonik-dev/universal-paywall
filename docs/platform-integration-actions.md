@@ -1,13 +1,13 @@
 # Platform Integration — Action List
 
-**Purpose:** one place that says, for each target platform, *exactly what "integrate
-the Universal Paywall" means* — the attachment pattern, the operator action, the
+**Purpose:** one place that says, for each target platform, _exactly what "integrate
+the Universal Paywall" means_ — the attachment pattern, the operator action, the
 billable event, how the creator's wallet is resolved, the developer work required,
 and the acceptance bar. Review this and mark the platforms to proceed with.
 
 > **Read this first — there is no single "paywall plugin."** The paywall is the
 > **rail** (`StakeVault` + facilitator, non-custodial, feeless, on-chain). Per
-> platform we build the *smallest adapter* that turns that platform's own event
+> platform we build the _smallest adapter_ that turns that platform's own event
 > into a metered charge. **We never edit the platform's source.** For most
 > platforms the operator installs no code at all — they flip a config value or put
 > our proxy in the request path. Only PeerTube and WordPress are literally "install
@@ -20,7 +20,7 @@ and the acceptance bar. Review this and mark the platforms to proceed with.
   plugin · 5 = external provider · 6 = payer-side client.
 - **Operator action** = the single thing a platform owner does to "integrate" — this
   is what the phrase actually means for that platform.
-- **Effort** = net-new developer work (adapter/plugin), *not* counting booting the
+- **Effort** = net-new developer work (adapter/plugin), _not_ counting booting the
   Docker image for L3.
 - **Acceptance bar** for "integrated / done" (same for every platform): L1 unit +
   L2 HTTP contract + **L3** real upstream instance drives the event + **L4** payee's
@@ -28,16 +28,16 @@ and the acceptance bar. Review this and mark the platforms to proceed with.
 
 ## Status snapshot (already integrated — for reference)
 
-| Platform | Pattern | Status |
-|---|---|---|
-| Owncast (live video) | 2 | L3+L4 PASS |
-| Navidrome (music) | 1 | L3+L4 PASS |
-| Jellyfin (VOD) | 2 | L3+L4 PASS |
-| RSSHub (feeds) | 3 | L3+L4 PASS |
-| Immich (photos) | 3 | L3+L4 PASS |
-| Mastodon (fediverse) | 5 | L3 (real-docker) + donation-L4 PASS |
-| PeerTube (federated VOD) | 4 | Published plugin; installs/registers on real 7.3.0 |
-| Browser extension (payer) | 6 | Headless + browser E2E PASS |
+| Platform                  | Pattern | Status                                             |
+| ------------------------- | ------- | -------------------------------------------------- |
+| Owncast (live video)      | 2       | L3+L4 PASS                                         |
+| Navidrome (music)         | 1       | L3+L4 PASS                                         |
+| Jellyfin (VOD)            | 2       | L3+L4 PASS                                         |
+| RSSHub (feeds)            | 3       | L3+L4 PASS                                         |
+| Immich (photos)           | 3       | L3+L4 PASS                                         |
+| Mastodon (fediverse)      | 5       | L3 (real-docker) + donation-L4 PASS                |
+| PeerTube (federated VOD)  | 4       | Published plugin; installs/registers on real 7.3.0 |
+| Browser extension (payer) | 6       | Headless + browser E2E PASS                        |
 
 Subsonic reverse-proxy (`subsonic-proxy.ts`) and its live-docker harness already
 exist from PR #7 — the Subsonic family is mostly a "boot + verify" task, not new code.
@@ -52,6 +52,7 @@ that platform.
 ## Wave 1 — reuse existing adapters (fast; proves the adapters generalize)
 
 ### Subsonic family (gonic, airsonic-advanced, ampache, supysonic)
+
 - **Pattern:** 1 (config-redirect) or 3 (reverse-proxy).
 - **Operator action:** point the Subsonic client / scrobble target at our sidecar,
   **or** run `subsonic-proxy` in front of the server; clients hit the proxy URL.
@@ -69,6 +70,7 @@ that platform.
 - **Blockers/notes:** none. Lowest-risk win; proves the "Subsonic family" claim.
 
 ### Funkwhale (federated music)
+
 - **Pattern:** 1 (config-redirect).
 - **Operator action:** Funkwhale speaks the Subsonic API and can scrobble to
   ListenBrainz — point that target at our sidecar.
@@ -86,6 +88,7 @@ that platform.
   bonus, not required for the money loop.
 
 ### Emby (VOD)
+
 - **Pattern:** 2 (event-webhook sidecar).
 - **Operator action:** enable Emby's built-in **Webhooks**, point it at our sidecar.
 - **Billable event:** `playback.stop` (Emby webhook payload).
@@ -103,6 +106,7 @@ that platform.
   free build emits `playback.stop`.
 
 ### PhotoPrism (photos)
+
 - **Pattern:** 3 (reverse-proxy).
 - **Operator action:** run our proxy in front; meter shared-album asset fetches.
 - **Billable event:** external resolve of a shared photo/original.
@@ -121,6 +125,7 @@ that platform.
 ## Wave 2 — net-new adapters, existing patterns
 
 ### Plex (VOD, largest install base)
+
 - **Pattern:** 2 (event-webhook sidecar).
 - **Operator action:** add our URL under Plex **Settings → Webhooks**.
 - **Billable event:** `media.stop` / `media.scrobble` (multipart form: JSON `payload`
@@ -139,11 +144,12 @@ that platform.
   anvil, and document the token requirement. Flag this before committing time.
 
 ### Nextcloud (files / shares — huge self-host base)
+
 - **Pattern:** 2 (webhook) or 3 (reverse-proxy). Pick one after a spike.
 - **Operator action:**
-  - *Pattern 2:* enable the built-in **webhook_listeners** app and register our URL
+  - _Pattern 2:_ enable the built-in **webhook_listeners** app and register our URL
     for the file-access event; **or**
-  - *Pattern 3:* proxy public share downloads (`/s/<token>/download`).
+  - _Pattern 3:_ proxy public share downloads (`/s/<token>/download`).
 - **Billable event:** public-share file download (proxy) or a file-access webhook.
 - **Creator resolver:** share owner (uid) → wallet.
 - **Unit / price:** per-download license fee.
@@ -161,6 +167,7 @@ that platform.
 ## Wave 3 — published plugin (heaviest; new language/package)
 
 ### WordPress (largest CMS)
+
 - **Pattern:** 4 (published plugin).
 - **Operator action:** install our plugin from the WP admin, set wallet + price.
 - **Billable event:** paywalled post view / `template_redirect` on gated content
@@ -193,7 +200,7 @@ that platform.
   `scripts/e2e-*-live-docker.mjs`.
 - **CI stays hermetic:** L1+L2 run on every push; L3+L4 are the per-platform
   acceptance gate (Docker + anvil), run on the platform branch.
-- **No platform edits:** any installed artifact is a *published* plugin (PeerTube,
+- **No platform edits:** any installed artifact is a _published_ plugin (PeerTube,
   WordPress) or the platform's own official add-on (Jellyfin webhook) — never a source
   change. The `mnemonik-dev/*` platform forks are reference-only.
 

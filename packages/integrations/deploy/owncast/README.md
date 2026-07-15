@@ -18,6 +18,7 @@ is **proven end-to-end on anvil**.
 
    Subscribe it to `USER_JOINED` and `USER_PARTED`, pointed at
    `http://up-sidecar:8410/owncast`.
+
 3. A viewer joins the stream's chat (after staking + granting via the agent).
 4. On part, the sidecar charges `(parted - joined) * RATE` micro-USDC to the
    streamer and the facilitator batches + settles.
@@ -47,4 +48,4 @@ bytes match the sidecar shape; 14s presence -> streamer paid 14000 on-chain. The
 `docker-compose.yml` + `register-webhook.sh` are the operator-facing equivalents.
 
 > Owncast dev admin creds for local testing: `admin` / `abc123` (Basic auth).
-</content>
+> </content>

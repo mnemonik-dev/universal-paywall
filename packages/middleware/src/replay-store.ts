@@ -51,8 +51,7 @@ export interface InsertInput {
 }
 
 export type CheckAndInsertResult =
-  | { accepted: true }
-  | { accepted: false; reason: 'nonce_already_used' | 'authorization_expired' };
+  { accepted: true } | { accepted: false; reason: 'nonce_already_used' | 'authorization_expired' };
 
 export interface NonceStoreOptions {
   maxEntries?: number;

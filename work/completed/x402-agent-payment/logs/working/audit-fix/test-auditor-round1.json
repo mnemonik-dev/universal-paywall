@@ -45,7 +45,7 @@
       "branches_pct": 88.88,
       "functions_pct": 100.0,
       "delta_lines_vs_round_0": -0.18,
-      "delta_branches_vs_round_0": -0.30,
+      "delta_branches_vs_round_0": -0.3,
       "target_lines_pct": 85,
       "verdict": "PASS"
     },

@@ -41,7 +41,13 @@ function artifact(p) {
 async function deploy(key, art, args) {
   const account = privateKeyToAccount(key);
   const w = createWalletClient({ account, chain, transport: http(RPC) });
-  const hash = await w.deployContract({ abi: art.abi, bytecode: art.bytecode, args, account, chain });
+  const hash = await w.deployContract({
+    abi: art.abi,
+    bytecode: art.bytecode,
+    args,
+    account,
+    chain,
+  });
   return (await pub.waitForTransactionReceipt({ hash })).contractAddress;
 }
 async function send(key, address, abi, fn, args) {
@@ -72,8 +78,19 @@ async function main() {
   await send(DEPLOYER, usdc, mockUsdc.abi, 'mint', [viewer, 2_000_000n]);
 
   console.log('Viewer stakes + grants (agent helper)...');
-  const agent = createPayerAgent({ rpcUrl: RPC, chainId: CHAIN_ID, payerKey: PAYER_KEY, stakeVaultFactory: factory, usdc });
-  await agent.ensureGrant({ facilitator: facilitatorAddr, stakeVaultFactory: factory, recommendedCap: CAP, validForSeconds: 3600 });
+  const agent = createPayerAgent({
+    rpcUrl: RPC,
+    chainId: CHAIN_ID,
+    payerKey: PAYER_KEY,
+    stakeVaultFactory: factory,
+    usdc,
+  });
+  await agent.ensureGrant({
+    facilitator: facilitatorAddr,
+    stakeVaultFactory: factory,
+    recommendedCap: CAP,
+    validForSeconds: 3600,
+  });
 
   console.log('Start facilitator + build Owncast sidecar reporter...');
   const fac = createFacilitator({
@@ -92,22 +109,35 @@ async function main() {
     resolvePayer: mapResolver({ viewer1: viewer }),
     resolveCreator: mapResolver({ streamer: STREAMER }),
   });
-  const meter = new OwncastPresenceMeter(reporter, { ratePerSecond: RATE, streamerKey: 'streamer' });
+  const meter = new OwncastPresenceMeter(reporter, {
+    ratePerSecond: RATE,
+    streamerKey: 'streamer',
+  });
 
   console.log('Owncast: viewer present for 60s...');
   await meter.handle({ type: 'USER_JOINED', eventData: { user: { id: 'viewer1' } } }, 1000);
-  const outcome = await meter.handle({ type: 'USER_PARTED', eventData: { user: { id: 'viewer1' } } }, 1060);
+  const outcome = await meter.handle(
+    { type: 'USER_PARTED', eventData: { user: { id: 'viewer1' } } },
+    1060,
+  );
   assert(outcome?.status === 'charged', 'sidecar reported a 60s presence charge');
 
   const results = await fac.service.flushAll();
   assert(results.length === 1 && results[0].ok, 'facilitator settled the sidecar charge on-chain');
 
-  const streamerBal = await pub.readContract({ address: usdc, abi: mockUsdc.abi, functionName: 'balanceOf', args: [STREAMER] });
+  const streamerBal = await pub.readContract({
+    address: usdc,
+    abi: mockUsdc.abi,
+    functionName: 'balanceOf',
+    args: [STREAMER],
+  });
   const expected = 60n * RATE;
   assert(streamerBal === expected, `streamer paid ${expected} on-chain (got ${streamerBal})`);
 
   fac.server.close();
-  console.log('\nINTEGRATION E2E PASS: Owncast event → sidecar → facilitator → on-chain settle → streamer paid');
+  console.log(
+    '\nINTEGRATION E2E PASS: Owncast event → sidecar → facilitator → on-chain settle → streamer paid',
+  );
   process.exit(0);
 }
 

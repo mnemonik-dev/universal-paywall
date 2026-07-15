@@ -16,19 +16,19 @@ import { createReporter, mapResolver } from '@universal-paywall/integrations';
 const reporter = createReporter({
   facilitatorUrl: 'https://facilitator.example',
   apiKey: process.env.UP_API_KEY!,
-  resolvePayer: mapResolver({ alice: '0xPayer…' }),   // userId → wallet (the registry/moat)
+  resolvePayer: mapResolver({ alice: '0xPayer…' }), // userId → wallet (the registry/moat)
   resolveCreator: mapResolver({ 'track-1': '0xArtist…' }), // contentId → wallet
 });
 ```
 
 ## Verticals
 
-| Vertical | Import | Event → charge |
-|---|---|---|
-| Music (Subsonic/Navidrome) | `handleScrobble`, `parseSubsonicScrobble` | per scrobble → per-listen |
-| Live video (Owncast) | `OwncastPresenceMeter` | `userJoined`/`userParted` → per-second |
-| VOD (Jellyfin) | `handleJellyfinEvent` | `PlaybackStop` → per-minute |
-| Feeds (RSSHub) | `handleCitation` | grounding citation → per-citation toll |
+| Vertical                   | Import                                    | Event → charge                         |
+| -------------------------- | ----------------------------------------- | -------------------------------------- |
+| Music (Subsonic/Navidrome) | `handleScrobble`, `parseSubsonicScrobble` | per scrobble → per-listen              |
+| Live video (Owncast)       | `OwncastPresenceMeter`                    | `userJoined`/`userParted` → per-second |
+| VOD (Jellyfin)             | `handleJellyfinEvent`                     | `PlaybackStop` → per-minute            |
+| Feeds (RSSHub)             | `handleCitation`                          | grounding citation → per-citation toll |
 
 ```ts
 // Owncast example

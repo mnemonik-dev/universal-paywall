@@ -23,7 +23,13 @@ const cfg: GateConfig = {
 function deps(over: Partial<GateDeps> = {}): GateDeps {
   return {
     resolveVault: async () => VAULT,
-    readPolicy: async () => ({ facilitator: FAC, cap: 1_000_000n, spent: 0n, validUntil: 2_000n, epoch: 1n }),
+    readPolicy: async () => ({
+      facilitator: FAC,
+      cap: 1_000_000n,
+      spent: 0n,
+      validUntil: 2_000n,
+      epoch: 1n,
+    }),
     recoverPayer: async () => PAYER,
     now: () => NOW_MS,
     ...over,
@@ -59,7 +65,8 @@ describe('evaluateAccess', () => {
   it('401 when the proof timestamp is outside the window', async () => {
     const res = await evaluateAccess({ ...goodHeaders, timestamp: '0' }, deps(), cfg);
     expect(res.allow).toBe(false);
-    if (!res.allow) expect((res.body as { error: string }).error).toBe('proof_timestamp_out_of_window');
+    if (!res.allow)
+      expect((res.body as { error: string }).error).toBe('proof_timestamp_out_of_window');
   });
 
   it('401 when the recovered signer != payer', async () => {
@@ -71,13 +78,25 @@ describe('evaluateAccess', () => {
   it('402 with a stake-scheme challenge when there is no grant', async () => {
     const res = await evaluateAccess(
       goodHeaders,
-      deps({ readPolicy: async () => ({ facilitator: ZERO, cap: 0n, spent: 0n, validUntil: 0n, epoch: 0n }) }),
+      deps({
+        readPolicy: async () => ({
+          facilitator: ZERO,
+          cap: 0n,
+          spent: 0n,
+          validUntil: 0n,
+          epoch: 0n,
+        }),
+      }),
       cfg,
     );
     expect(res.allow).toBe(false);
     if (!res.allow) {
       expect(res.status).toBe(402);
-      const body = res.body as { error: string; reason: string; accepts: Array<{ scheme: string }> };
+      const body = res.body as {
+        error: string;
+        reason: string;
+        accepts: Array<{ scheme: string }>;
+      };
       expect(body.error).toBe('payment_required');
       expect(body.reason).toBe('no_grant');
       expect(body.accepts[0]!.scheme).toBe('stake');
@@ -87,7 +106,15 @@ describe('evaluateAccess', () => {
   it('402 when grant headroom is below the price', async () => {
     const res = await evaluateAccess(
       goodHeaders,
-      deps({ readPolicy: async () => ({ facilitator: FAC, cap: 5_000n, spent: 0n, validUntil: 2_000n, epoch: 1n }) }),
+      deps({
+        readPolicy: async () => ({
+          facilitator: FAC,
+          cap: 5_000n,
+          spent: 0n,
+          validUntil: 2_000n,
+          epoch: 1n,
+        }),
+      }),
       cfg,
     );
     expect(res.allow).toBe(false);
