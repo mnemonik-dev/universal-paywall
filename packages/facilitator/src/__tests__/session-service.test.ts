@@ -155,6 +155,7 @@ function harness(
   opts: {
     storePath?: string;
     uncertainOnce?: boolean;
+    exactUncertainOnce?: boolean;
     includeExact?: boolean;
     exactRejectReason?: string;
     trustedVault?: boolean;
@@ -170,6 +171,8 @@ function harness(
   };
   const settled = new Map<Hex, Hex>();
   let uncertain = opts.uncertainOnce ?? false;
+  let exactUncertain = opts.exactUncertainOnce ?? false;
+  let exactSettled = false;
   const sessionSettler: SessionOperationSettler = {
     reconcile: vi.fn(async (input) => {
       const tx = settled.get(input.operation_id);
@@ -186,12 +189,21 @@ function harness(
     }),
   };
   const exactSettler: ExactPaymentSettler = {
-    reconcile: vi.fn(async () => ({ settled: false })),
-    settle: vi.fn(async () =>
-      opts.exactRejectReason === undefined
-        ? { status: 'settled' as const, tx_hash: TX }
-        : { status: 'rejected' as const, reason: opts.exactRejectReason },
+    reconcile: vi.fn(async () =>
+      exactSettled ? { settled: true, tx_hash: TX } : { settled: false },
     ),
+    settle: vi.fn(async () => {
+      if (opts.exactRejectReason !== undefined) {
+        return { status: 'failed' as const, reason: opts.exactRejectReason };
+      }
+      if (exactUncertain) {
+        exactUncertain = false;
+        exactSettled = true;
+        return { status: 'uncertain' as const, reason: 'rpc_timeout' };
+      }
+      exactSettled = true;
+      return { status: 'settled' as const, tx_hash: TX };
+    }),
   };
   const keys = generateKeyPairSync('ed25519');
   const privateKeyPem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -366,12 +378,20 @@ describe('SessionPaymentService', () => {
   });
 
   it('uses the same binding and receipt shape for one-time exact x402', async () => {
-    const { service, exactSettler } = harness({ includeExact: true });
+    const { service, exactSettler, signer } = harness({ includeExact: true });
     const request = exactRequest();
     await service.createQuote(request.binding);
     const receipt = await service.settle(request);
     expect(receipt.scheme).toBe('exact');
     expect(receipt.receipt.payload.binding_digest).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(
+      verify(
+        null,
+        Buffer.from(canonicalJson(receipt.receipt.payload), 'utf8'),
+        signer.publicKeyPem(),
+        Buffer.from(receipt.receipt.signature.value, 'base64url'),
+      ),
+    ).toBe(true);
     expect(exactSettler.settle).toHaveBeenCalledTimes(1);
   });
 
@@ -448,5 +468,33 @@ describe('SessionPaymentService', () => {
     });
     await expect(second.settle(request)).resolves.toEqual(receipt);
     expect(first.exactSettler.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles an uncertain exact settlement after provider restart without a second charge', async () => {
+    const first = harness({
+      includeExact: true,
+      enabledSchemes: ['exact'],
+      exactUncertainOnce: true,
+    });
+    const request = exactRequest('exact-uncertain-restart');
+    await first.service.createQuote(request.binding);
+    await expect(first.service.settle(request)).rejects.toThrow('rpc_timeout');
+
+    const second = new SessionPaymentService({
+      config: { ...config, enabledSchemes: ['exact'] },
+      store: new FilePaymentStore(first.storePath),
+      policyReader: { read: async () => first.sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
+      sessionSettler: first.sessionSettler,
+      exactSettler: first.exactSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: first.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(second.getPaymentStatus(request.binding.operation_id)).resolves.toMatchObject({
+      status: 'settled',
+      receipt: { scheme: 'exact', settlement_tx: TX },
+    });
+    expect(first.exactSettler.settle).toHaveBeenCalledTimes(1);
+    expect(first.exactSettler.reconcile).toHaveBeenCalledTimes(1);
   });
 });
