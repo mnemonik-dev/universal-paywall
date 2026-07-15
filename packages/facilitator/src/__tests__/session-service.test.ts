@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
-import { canonicalJson, sessionScopeHash } from '../canonical.js';
+import { canonicalJson, operationDigest, sessionScopeHash } from '../canonical.js';
 import { FilePaymentStore } from '../payment-store.js';
 import { ReceiptSigner } from '../receipt.js';
 import { sessionTypedData } from '../session-auth.js';
@@ -156,6 +156,7 @@ function harness(
     storePath?: string;
     uncertainOnce?: boolean;
     exactUncertainOnce?: boolean;
+    exactAlreadySettled?: boolean;
     includeExact?: boolean;
     exactRejectReason?: string;
     trustedVault?: boolean;
@@ -172,7 +173,7 @@ function harness(
   const settled = new Map<Hex, Hex>();
   let uncertain = opts.uncertainOnce ?? false;
   let exactUncertain = opts.exactUncertainOnce ?? false;
-  let exactSettled = false;
+  let exactSettled = opts.exactAlreadySettled ?? false;
   const sessionSettler: SessionOperationSettler = {
     reconcile: vi.fn(async (input) => {
       const tx = settled.get(input.operation_id);
@@ -413,7 +414,7 @@ describe('SessionPaymentService', () => {
   });
 
   it('records an insufficient-USDC wallet rejection once without creating a receipt', async () => {
-    const { service, exactSettler } = harness({
+    const { service, exactSettler, storePath, sessionPolicy, sessionSettler, privateKeyPem } = harness({
       includeExact: true,
       enabledSchemes: ['exact'],
       exactRejectReason: 'insufficient_usdc',
@@ -427,6 +428,18 @@ describe('SessionPaymentService', () => {
       status: 'rejected',
       error: 'insufficient_usdc',
     });
+    const afterRestart = new SessionPaymentService({
+      config: { ...config, enabledSchemes: ['exact'] },
+      store: new FilePaymentStore(storePath),
+      policyReader: { read: async () => sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
+      sessionSettler,
+      exactSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(afterRestart.settle(request)).rejects.toThrow('insufficient_usdc');
+    expect(exactSettler.settle).toHaveBeenCalledTimes(1);
   });
 
   it('refuses replay proofs when any quote-bound exact-payment field changes', async () => {
@@ -468,6 +481,64 @@ describe('SessionPaymentService', () => {
     });
     await expect(second.settle(request)).resolves.toEqual(receipt);
     expect(first.exactSettler.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles created and settling exact records safely after a provider restart', async () => {
+    const created = harness({ includeExact: true, enabledSchemes: ['exact'] });
+    const createdRequest = exactRequest('exact-created-restart');
+    const createdQuote = await created.service.createQuote(createdRequest.binding);
+    new FilePaymentStore(created.storePath).putPayment(createdRequest.binding.operation_id, {
+      binding: createdRequest.binding,
+      binding_digest: createdQuote.binding_digest,
+      scheme: 'exact',
+      payment: createdRequest.payment,
+      state: 'created',
+      updated_at: NOW.toISOString(),
+    });
+    const afterCreatedRestart = new SessionPaymentService({
+      config: { ...config, enabledSchemes: ['exact'] },
+      store: new FilePaymentStore(created.storePath),
+      policyReader: { read: async () => created.sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
+      sessionSettler: created.sessionSettler,
+      exactSettler: created.exactSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: created.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(afterCreatedRestart.settle(createdRequest)).resolves.toMatchObject({ status: 'settled' });
+    expect(created.exactSettler.settle).toHaveBeenCalledTimes(1);
+
+    const settling = harness({
+      includeExact: true,
+      enabledSchemes: ['exact'],
+      exactAlreadySettled: true,
+    });
+    const settlingRequest = exactRequest('exact-settling-restart');
+    const settlingQuote = await settling.service.createQuote(settlingRequest.binding);
+    new FilePaymentStore(settling.storePath).putPayment(settlingRequest.binding.operation_id, {
+      binding: settlingRequest.binding,
+      binding_digest: settlingQuote.binding_digest,
+      scheme: 'exact',
+      payment: settlingRequest.payment,
+      state: 'settling',
+      updated_at: NOW.toISOString(),
+    });
+    const afterSettlingRestart = new SessionPaymentService({
+      config: { ...config, enabledSchemes: ['exact'] },
+      store: new FilePaymentStore(settling.storePath),
+      policyReader: { read: async () => settling.sessionPolicy },
+      vaultVerifier: { isTrustedVault: async () => true },
+      sessionSettler: settling.sessionSettler,
+      exactSettler: settling.exactSettler,
+      receiptSigner: new ReceiptSigner({ privateKeyPem: settling.privateKeyPem, keyId: 'test-key-1' }),
+      now: () => NOW,
+    });
+    await expect(afterSettlingRestart.settle(settlingRequest)).resolves.toMatchObject({
+      status: 'settled',
+      binding_digest: operationDigest(settlingRequest.binding),
+    });
+    expect(settling.exactSettler.reconcile).toHaveBeenCalledTimes(1);
+    expect(settling.exactSettler.settle).not.toHaveBeenCalled();
   });
 
   it('reconciles an uncertain exact settlement after provider restart without a second charge', async () => {
