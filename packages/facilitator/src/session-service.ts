@@ -38,6 +38,12 @@ export interface SessionPaymentServiceConfig extends SessionVerifierConfig {
   quoteTtlSeconds: number;
   factory: Hex;
   maxSessionSeconds: number;
+  /**
+   * Hosted Phase 1 deliberately supports only one-time exact payments.
+   * Stake remains opt-in until its separate reservation/reconciliation
+   * hardening gate is approved.
+   */
+  enabledSchemes?: ReadonlyArray<'exact' | 'stake'>;
 }
 
 export interface SessionPaymentServiceOptions {
@@ -94,6 +100,36 @@ export class SessionPaymentService {
     this.#receiptSigner = opts.receiptSigner;
     this.#now = opts.now ?? (() => new Date());
     this.#logError = opts.logError ?? ((message, error) => console.error(message, error));
+  }
+
+  #stakeEnabled(): boolean {
+    return this.#config.enabledSchemes?.includes('stake') ?? false;
+  }
+
+  #exactEnabled(): boolean {
+    return (this.#config.enabledSchemes?.includes('exact') ?? true) && this.#exactSettler !== undefined;
+  }
+
+  #quoteAccepts(): Array<Record<string, unknown>> {
+    return [
+      ...(this.#exactEnabled()
+        ? [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]
+        : []),
+      ...(this.#stakeEnabled()
+        ? [
+            {
+              scheme: 'stake',
+              protocol: 'universal-paywall-session-v1',
+              network: this.#config.network,
+              asset: this.#config.asset,
+              pay_to: this.#config.payTo,
+              facilitator: this.#config.facilitator,
+              factory: this.#config.factory,
+              max_valid_for_seconds: this.#config.maxSessionSeconds,
+            },
+          ]
+        : []),
+    ];
   }
 
   async #withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -158,26 +194,13 @@ export class SessionPaymentService {
         quote_id: quoteId,
         binding,
         binding_digest: digest,
-        accepts: [
-          {
-            scheme: 'stake',
-            protocol: 'universal-paywall-session-v1',
-            network: this.#config.network,
-            asset: this.#config.asset,
-            pay_to: this.#config.payTo,
-            facilitator: this.#config.facilitator,
-            factory: this.#config.factory,
-            max_valid_for_seconds: this.#config.maxSessionSeconds,
-          },
-          ...(this.#exactSettler === undefined
-            ? []
-            : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
-        ],
+        accepts: this.#quoteAccepts(),
       };
     });
   }
 
   async registerSession(request: RegisterSessionRequest): Promise<PaidSession> {
+    if (!this.#stakeEnabled()) fail('stake_payment_disabled', 403);
     const auth = request.authorization;
     return this.#withLock(`session:${auth.session_id}`, async () => {
       let verified: Awaited<ReturnType<typeof verifySessionAuthorization>>;
@@ -291,21 +314,7 @@ export class SessionPaymentService {
       quote_id: quote.quote_id,
       binding: quote.binding,
       binding_digest: quote.binding_digest as Hex,
-      accepts: [
-        {
-          scheme: 'stake',
-          protocol: 'universal-paywall-session-v1',
-          network: this.#config.network,
-          asset: this.#config.asset,
-          pay_to: this.#config.payTo,
-          facilitator: this.#config.facilitator,
-          factory: this.#config.factory,
-          max_valid_for_seconds: this.#config.maxSessionSeconds,
-        },
-        ...(this.#exactSettler === undefined
-          ? []
-          : [{ scheme: 'exact', protocol: 'x402', authorization: 'eip3009' }]),
-      ],
+      accepts: this.#quoteAccepts(),
     };
   }
 
@@ -555,6 +564,7 @@ export class SessionPaymentService {
       fail('invalid_payment_authorization', 422);
     }
     if (payment.scheme === 'stake') {
+      if (!this.#stakeEnabled()) fail('stake_payment_disabled', 403);
       const scope = payment.authorization;
       if (
         typeof payment.session_id !== 'string' ||
@@ -568,6 +578,7 @@ export class SessionPaymentService {
       }
       return;
     }
+    if (!this.#exactEnabled()) fail('exact_payment_disabled', 503);
     const proof = payment.authorization;
     const authorization = proof?.authorization;
     if (

@@ -44,6 +44,7 @@ const config: SessionPaymentServiceConfig = {
   quoteTtlSeconds: 600,
   factory: FACTORY,
   maxSessionSeconds: 7 * 24 * 60 * 60,
+  enabledSchemes: ['exact', 'stake'],
 };
 
 function authorization(): SessionAuthorization {
@@ -134,6 +135,7 @@ function harness(
     uncertainOnce?: boolean;
     includeExact?: boolean;
     trustedVault?: boolean;
+    enabledSchemes?: Array<'exact' | 'stake'>;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'up-session-test-'));
@@ -168,7 +170,7 @@ function harness(
   const privateKeyPem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   const signer = new ReceiptSigner({ privateKeyPem, keyId: 'test-key-1' });
   const service = new SessionPaymentService({
-    config,
+    config: { ...config, ...(opts.enabledSchemes === undefined ? {} : { enabledSchemes: opts.enabledSchemes }) },
     store: new FilePaymentStore(storePath),
     policyReader,
     vaultVerifier,
@@ -191,6 +193,20 @@ function harness(
 }
 
 describe('SessionPaymentService', () => {
+  it('defaults hosted quotes to one exact payment and rejects stake without its explicit gate', async () => {
+    const { service } = harness({ includeExact: true, enabledSchemes: ['exact'] });
+    const quote = await service.createQuote(binding('phase-1-exact'));
+    expect(quote.accepts).toEqual([
+      { scheme: 'exact', protocol: 'x402', authorization: 'eip3009' },
+    ]);
+    await expect(service.registerSession(await registration())).rejects.toThrow(
+      'stake_payment_disabled',
+    );
+    await expect(service.settle(stakeRequest('phase-1-stake'))).rejects.toThrow(
+      'stake_payment_disabled',
+    );
+  });
+
   it('validates a wallet-signed session against its funded on-chain policy', async () => {
     const { service } = harness();
     const session = await service.registerSession(await registration());

@@ -64,18 +64,18 @@ function main(): void {
     factory,
     fromBlock,
   });
-  const exactEnabled = process.env['EXACT_PAYMENTS_ENABLED'] === '1';
-  const exact = exactEnabled
-    ? new OnChainExactPayments({
-        rpcUrl,
-        chainId,
-        facilitatorKey,
-        asset,
-        eip712Name: env('USDC_EIP712_NAME'),
-        eip712Version: env('USDC_EIP712_VERSION'),
-        fromBlock,
-      })
-    : undefined;
+  if (process.env['EXACT_PAYMENTS_ENABLED'] !== '1') {
+    throw new Error('invalid env: EXACT_PAYMENTS_ENABLED=1 is required for the Phase 1 exact-only rail');
+  }
+  const exact = new OnChainExactPayments({
+    rpcUrl,
+    chainId,
+    facilitatorKey,
+    asset,
+    eip712Name: env('USDC_EIP712_NAME'),
+    eip712Version: env('USDC_EIP712_VERSION'),
+    fromBlock,
+  });
   const signer = new ReceiptSigner({
     privateKeyPem: readRestrictedFile(env('RECEIPT_PRIVATE_KEY_FILE'), 'RECEIPT_PRIVATE_KEY_FILE'),
     keyId: env('RECEIPT_KEY_ID'),
@@ -99,13 +99,16 @@ function main(): void {
         'MAX_SESSION_SECONDS',
         31_536_000,
       ),
+      // Phase 1 is deliberately exact-only. Stake must not become available
+      // merely because its vault environment is configured.
+      enabledSchemes: ['exact'],
     },
     store: new FilePaymentStore(env('PAYMENT_STORE_PATH')),
     policyReader: chain,
     vaultVerifier: chain,
     sessionRegistrar: chain,
     sessionSettler: chain,
-    ...(exact === undefined ? {} : { exactSettler: exact }),
+    exactSettler: exact,
     receiptSigner: signer,
   });
   const apiKeys = env('SERVICE_API_KEYS')
