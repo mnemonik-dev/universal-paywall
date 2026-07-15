@@ -1,4 +1,4 @@
-name: publish-facilitator-image
+name: publish-paywall-staging-images
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'packages/facilitator/**'
+      - 'packages/approval-ui/**'
       - '.github/workflows/publish-facilitator-image.yml'
   workflow_dispatch:
     inputs:
@@ -55,3 +56,12 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/universal-paywall-facilitator:${{ steps.tag.outputs.value }}
             ghcr.io/${{ github.repository_owner }}/universal-paywall-facilitator:staging
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/approval-ui/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-approval-ui:${{ steps.tag.outputs.value }}
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-approval-ui:staging
