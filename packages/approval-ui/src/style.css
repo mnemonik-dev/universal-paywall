@@ -1,0 +1,67 @@
+/* Part of @universal-paywall/approval-ui */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  max-width: 480px;
+  margin: 40px auto;
+  padding: 0 20px;
+  color: #111;
+}
+
+h1 {
+  font-size: 20px;
+  margin-bottom: 24px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.field {
+  margin: 12px 0;
+}
+
+.label {
+  color: #666;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  word-break: break-all;
+  font-size: 14px;
+}
+
+button {
+  padding: 12px 24px;
+  font-size: 16px;
+  margin-top: 20px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: #111;
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#status {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+#status.ok {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+#status.err {
+  background: #fce8e8;
+  color: #a50e0e;
+}

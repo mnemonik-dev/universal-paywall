@@ -1,0 +1,21 @@
+{
+  "name": "@universal-paywall/extension",
+  "version": "0.0.1",
+  "description": "Browser-extension adaptor (MV3): auto-pay x402 paywalls via @universal-paywall/agent; expose paid fetches to pages and other extensions.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs",
+    "e2e:anvil": "node e2e-anvil.mjs",
+    "e2e:browser": "node e2e-browser.mjs"
+  },
+  "dependencies": {
+    "@universal-paywall/agent": "*",
+    "viem": "^2.55.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "playwright": "^1.40.0"
+  }
+}

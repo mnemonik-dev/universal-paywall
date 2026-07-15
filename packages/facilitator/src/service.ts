@@ -1,6 +1,13 @@
 import { buildBatch } from './batcher.js';
 import { ChargeLedger } from './ledger.js';
-import type { ChargeRequest, Hex, RecordedCharge, SettleResult, Settler, VaultResolver } from './types.js';
+import type {
+  ChargeRequest,
+  Hex,
+  RecordedCharge,
+  SettleResult,
+  Settler,
+  VaultResolver,
+} from './types.js';
 
 export interface ServiceOptions {
   ledger: ChargeLedger;

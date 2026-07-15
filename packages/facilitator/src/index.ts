@@ -29,8 +29,40 @@ export { OnChainSettler, createVaultResolver } from './settler.js';
 export { createFacilitatorServer } from './server.js';
 export type { ServerOptions } from './server.js';
 export { buildChain } from './chain.js';
+export {
+  canonicalJson,
+  operationBindingJson,
+  operationDigest,
+  sessionScopeHash,
+  sha256Digest,
+} from './canonical.js';
+export { FilePaymentStore } from './payment-store.js';
+export type { PaymentStore, StoredPayment, StoredQuote, StoredSession } from './payment-store.js';
+export { ReceiptSigner } from './receipt.js';
+export type { ReceiptSignerOptions } from './receipt.js';
+export {
+  allowedActionsHash,
+  sessionTypedData,
+  verifySessionAuthorization,
+} from './session-auth.js';
+export type { SessionVerifierConfig } from './session-auth.js';
+export { OnChainExactPayments, OnChainSessionPayments } from './session-chain.js';
+export type { ExactChainConfig, SessionChainConfig } from './session-chain.js';
+export { PaymentServiceError, SessionPaymentService } from './session-service.js';
+export type {
+  SessionPaymentServiceConfig,
+  SessionPaymentServiceOptions,
+} from './session-service.js';
+export { createSessionPaymentServer } from './session-server.js';
+export type { SessionServerOptions } from './session-server.js';
 export { build402Body, checkGrant, createPolicyReader } from './x402.js';
-export type { Build402Opts, GrantCheck, OnChainPolicy, Payment402Body, PolicyReader } from './x402.js';
+export type {
+  Build402Opts,
+  GrantCheck,
+  OnChainPolicy,
+  Payment402Body,
+  PolicyReader,
+} from './x402.js';
 export type {
   ChargeRequest,
   FacilitatorConfig,
@@ -41,3 +73,27 @@ export type {
   Settler,
   VaultResolver,
 } from './types.js';
+export type {
+  CheckpointAction,
+  ExactAuthorization,
+  ExactPaymentSettler,
+  OperationBinding,
+  PaidSession,
+  PaymentAuthorization,
+  PaymentReceipt,
+  PaymentState,
+  ProviderPaymentStatus,
+  RegisterSessionRequest,
+  SessionAuthorization,
+  SessionOperationAuthorization,
+  SessionOperationSettler,
+  SessionPolicy,
+  SessionPolicyReader,
+  SessionPolicyRegistrar,
+  SessionVaultVerifier,
+  SettleRequest as SessionSettleRequest,
+  SettlementInput as SessionSettlementInput,
+  SettlementResult as SessionSettlementResult,
+  SignedProviderReceipt,
+  SignedReceiptPayload,
+} from './session-types.js';

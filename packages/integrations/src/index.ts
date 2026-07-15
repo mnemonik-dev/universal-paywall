@@ -1,8 +1,22 @@
 export { createReporter, mapResolver } from './core.js';
-export type { Hex, Reporter, ReporterConfig, ReportInput, ReportOutcome, Resolve } from './core.js';
+export type {
+  Hex,
+  MaybePromise,
+  Reporter,
+  ReporterConfig,
+  ReportInput,
+  ReportOutcome,
+  Resolve,
+} from './core.js';
+
+export { createMusicBrainzResolver } from './musicbrainz.js';
+export type { MusicBrainzResolverOptions } from './musicbrainz.js';
 
 export { handleScrobble, parseSubsonicScrobble } from './subsonic.js';
 export type { ScrobbleEvent, ScrobbleOptions } from './subsonic.js';
+
+export { createSubsonicProxy, isScrobbleSubmission } from './subsonic-proxy.js';
+export type { SubsonicProxyOptions } from './subsonic-proxy.js';
 
 export { OwncastPresenceMeter } from './owncast.js';
 export type { OwncastEventType, OwncastMeterOptions, OwncastWebhookEvent } from './owncast.js';
@@ -16,6 +30,27 @@ export type { CitationEvent, CitationOptions } from './rsshub.js';
 export { handleSharedLinkResolve } from './immich.js';
 export type { SharedLinkOptions, SharedLinkResolveEvent } from './immich.js';
 
+export { createImmichProxy, parseAssetResolve } from './immich-proxy.js';
+export type { ImmichProxyOptions } from './immich-proxy.js';
+
+export { handleListenSubmit, listenCreatorKey, parseListenToken } from './listenbrainz.js';
+export type {
+  ListenAdditionalInfo,
+  ListenBrainzOptions,
+  ListenPayloadItem,
+  ListenSubmission,
+  ListenTrackMetadata,
+} from './listenbrainz.js';
+
+export { buildDonationCampaign } from './mastodon.js';
+export type {
+  CampaignAmounts,
+  CampaignTemplate,
+  DonationCampaign,
+  DonationCampaignOptions,
+  DonationCampaignQuery,
+} from './mastodon.js';
+
 export {
   createSidecarServer,
   subsonicRoute,
@@ -23,5 +58,8 @@ export {
   jellyfinRoute,
   citationRoute,
   immichRoute,
+  listenBrainzRoutes,
+  mastodonCampaignRoute,
+  RouteResponse,
 } from './serve.js';
 export type { Route, RouteHandler, SidecarServerOptions } from './serve.js';

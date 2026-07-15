@@ -15,15 +15,15 @@ doc's open questions with concrete, scoped defaults, then implements the core.
 
 ## Locked decisions (resolving the design's open questions)
 
-| Open question | MVP decision |
-|---|---|
-| Charge-auth model | **API-key at the facilitator** (creator authenticates to the facilitator); on-chain authorization is the facilitator address registered in the payer's policy. Creator-signed receipts = documented future hardening. |
-| Session-key mechanism | **The policy designates a `facilitator` address.** That address is the delegated authority ("session key"). It calls `settle()` directly, so the tx signature *is* the authorization. No separate AA framework. |
-| Settlement primitive | **Locked prepaid stake** in a payer-owned `StakeVault`. The facilitator settles batches against it; the payer reclaims the unencumbered remainder anytime and everything after expiry. |
-| Payout target | **Direct transfer to the creator's address** (feeless, x402-pure). Per-creator counterfactual payout vaults / revenue-splitting = future extension. |
-| Allowed-payee restriction | **Bounded by `cap` only** for MVP (worst-case loss = payer-chosen cap). Merkle/registry payee allowlist = documented next hardening. |
-| Deposit funding | **`approve` + `deposit`** (ERC-20 pull). Gasless EIP-3009 `receiveWithAuthorization` funding = future enhancement. |
-| Fee | **None in the rail.** Fee lives at the facilitator layer (off-chain, market-set). |
+| Open question             | MVP decision                                                                                                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Charge-auth model         | **API-key at the facilitator** (creator authenticates to the facilitator); on-chain authorization is the facilitator address registered in the payer's policy. Creator-signed receipts = documented future hardening. |
+| Session-key mechanism     | **The policy designates a `facilitator` address.** That address is the delegated authority ("session key"). It calls `settle()` directly, so the tx signature _is_ the authorization. No separate AA framework.       |
+| Settlement primitive      | **Locked prepaid stake** in a payer-owned `StakeVault`. The facilitator settles batches against it; the payer reclaims the unencumbered remainder anytime and everything after expiry.                                |
+| Payout target             | **Direct transfer to the creator's address** (feeless, x402-pure). Per-creator counterfactual payout vaults / revenue-splitting = future extension.                                                                   |
+| Allowed-payee restriction | **Bounded by `cap` only** for MVP (worst-case loss = payer-chosen cap). Merkle/registry payee allowlist = documented next hardening.                                                                                  |
+| Deposit funding           | **`approve` + `deposit`** (ERC-20 pull). Gasless EIP-3009 `receiveWithAuthorization` funding = future enhancement.                                                                                                    |
+| Fee                       | **None in the rail.** Fee lives at the facilitator layer (off-chain, market-set).                                                                                                                                     |
 
 ## On-chain rail (this commit)
 
@@ -41,6 +41,7 @@ contracts/test/rail/
 ```
 
 ### Non-custodial guarantees (enforced on-chain)
+
 - Only `payer` can withdraw the remainder; the facilitator can never move funds to
   itself beyond the payer-set `cap`, and never touch the unencumbered balance.
 - The facilitator's authority is bounded by `{cap, validUntil}` and revocable.

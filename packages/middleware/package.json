@@ -1,6 +1,6 @@
 {
   "name": "@universal-paywall/middleware",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "exports": {
     ".": {
@@ -18,6 +18,7 @@
   },
   "sideEffects": false,
   "scripts": {
+    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
@@ -27,15 +28,14 @@
     "test": "UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests",
     "test:coverage": "UP_SUPPRESS_T3_NOTES=1 vitest run --coverage",
     "test:e2e": "UP_SUPPRESS_T3_NOTES=1 vitest run src/__tests__/integration/ --passWithNoTests",
-    "//audit-vitest": "vitest pinned to ^1.5 per task-1 spec; GHSA-5xrq-8626-4rwp requires vitest --ui — do NOT add --ui scripts until upgrade to >=3.2.6",
-    "//prepublishOnly": "guard against accidental publish before Task 16; Task 16 removes this and runs the real release pipeline",
-    "prepublishOnly": "echo 'Use Task 16 release pipeline. Do not publish directly.' && exit 1"
+    "//audit-vitest": "vitest upgraded to ^3.2.7 to resolve GHSA-4w7w-66w2-5vf9 and related vite advisories",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
-    "viem": "^2.52.0"
+    "viem": "^2.55.1"
   },
   "peerDependencies": {
-    "fastify": "^4.0.0 || ^5.0.0"
+    "fastify": "^5.10.0"
   },
   "peerDependenciesMeta": {
     "fastify": {
@@ -43,18 +43,17 @@
     }
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "ajv": "^8.12.0",
-    "fastify": "^4.28.0",
+    "fastify": "^5.10.0",
     "pino": "^9.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.5.0",
+    "vitest": "^3.2.7",
     "winston": "^3.11.0"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }

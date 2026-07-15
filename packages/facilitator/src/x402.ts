@@ -119,7 +119,8 @@ export async function checkGrant(
   const now = BigInt(opts.now ?? Math.floor(Date.now() / 1000));
   if (p.validUntil <= now) return { ok: false, reason: 'grant_expired' };
   const remaining = p.cap > p.spent ? p.cap - p.spent : 0n;
-  if (remaining < opts.minRemaining) return { ok: false, reason: 'insufficient_remaining', remaining };
+  if (remaining < opts.minRemaining)
+    return { ok: false, reason: 'insufficient_remaining', remaining };
   return { ok: true, remaining };
 }
 
@@ -150,4 +151,3 @@ export function createPolicyReader(config: { rpcUrl: string; chainId: number }):
     }
   };
 }
-

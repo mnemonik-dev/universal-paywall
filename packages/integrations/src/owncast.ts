@@ -42,7 +42,10 @@ export class OwncastPresenceMeter {
   ) {}
 
   /** Returns the report outcome on a part with a recorded join, else null. */
-  async handle(ev: OwncastWebhookEvent, now: number = Math.floor(Date.now() / 1000)): Promise<ReportOutcome | null> {
+  async handle(
+    ev: OwncastWebhookEvent,
+    now: number = Math.floor(Date.now() / 1000),
+  ): Promise<ReportOutcome | null> {
     const userId = ev.eventData.user.id;
     const ts = toSeconds(ev.eventData.timestamp, now);
 

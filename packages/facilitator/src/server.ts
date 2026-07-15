@@ -106,7 +106,11 @@ async function handle(
     const results = await service.flushAll();
     json(res, 200, {
       settled: results.length,
-      results: results.map((r) => ({ ok: r.ok, txHash: r.txHash ?? null, reason: r.reason ?? null })),
+      results: results.map((r) => ({
+        ok: r.ok,
+        txHash: r.txHash ?? null,
+        reason: r.reason ?? null,
+      })),
     });
     return;
   }

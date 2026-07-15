@@ -19,7 +19,9 @@ function headerValue(req: FastifyRequest, name: string): string | undefined {
  * no active grant); an `onResponse` reports metered usage after a successful
  * response.
  */
-export function fastifyStakePaywall(opts: StakePaywallOptions): (fastify: FastifyInstance) => Promise<void> {
+export function fastifyStakePaywall(
+  opts: StakePaywallOptions,
+): (fastify: FastifyInstance) => Promise<void> {
   const { deps, cfg, client, onChargeError } = buildGateRuntime(opts);
   const allowed = new WeakMap<FastifyRequest, Hex>();
 

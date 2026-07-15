@@ -1,4 +1,9 @@
-import { build402Body, checkGrant, type Hex, type PolicyReader } from '@universal-paywall/facilitator';
+import {
+  build402Body,
+  checkGrant,
+  type Hex,
+  type PolicyReader,
+} from '@universal-paywall/facilitator';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
@@ -43,8 +48,7 @@ export interface AccessHeaders {
 }
 
 export type AccessDecision =
-  | { allow: true; payer: Hex; vault: Hex }
-  | { allow: false; status: number; body: unknown };
+  { allow: true; payer: Hex; vault: Hex } | { allow: false; status: number; body: unknown };
 
 export const PROOF_PREFIX = 'universal-paywall';
 

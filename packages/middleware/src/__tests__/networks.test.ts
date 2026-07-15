@@ -26,8 +26,8 @@ describe('NETWORKS registry', () => {
     expect(NETWORKS['arc-testnet']).toBe(NETWORKS['eip155:5042002']);
   });
 
-  it('arc-testnet row has enabled false until Task 11', () => {
-    expect(NETWORKS['arc-testnet'].enabled).toBe(false);
+  it('arc-testnet row is enabled after Task 16 live deploy', () => {
+    expect(NETWORKS['arc-testnet'].enabled).toBe(true);
   });
 
   it('arc-testnet row uses the canonical USDC address', () => {

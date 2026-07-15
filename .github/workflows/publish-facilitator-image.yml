@@ -1,0 +1,67 @@
+name: publish-paywall-staging-images
+
+on:
+  push:
+    branches: [main]
+    tags: ['facilitator-v*']
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'packages/facilitator/**'
+      - 'packages/approval-ui/**'
+      - '.github/workflows/publish-facilitator-image.yml'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Optional immutable image tag (default: SHA)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Select immutable tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_SHA}}"
+          [[ "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || {
+            echo '::error::image_tag must be a Docker tag-safe, non-empty value'; exit 1;
+          }
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/facilitator/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-facilitator:${{ steps.tag.outputs.value }}
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-facilitator:staging
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/approval-ui/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-approval-ui:${{ steps.tag.outputs.value }}
+            ghcr.io/${{ github.repository_owner }}/universal-paywall-approval-ui:staging

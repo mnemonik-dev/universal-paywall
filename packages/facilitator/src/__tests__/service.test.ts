@@ -7,7 +7,10 @@ const PAYER = '0x1111111111111111111111111111111111111111' as Hex;
 const VAULT = '0x9999999999999999999999999999999999999999' as Hex;
 const A = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Hex;
 
-function makeService(settler: Settler, opts?: { maxCharges?: number; maxAgeMs?: number; now?: () => number }) {
+function makeService(
+  settler: Settler,
+  opts?: { maxCharges?: number; maxAgeMs?: number; now?: () => number },
+) {
   const ledger = new ChargeLedger();
   const service = new FacilitatorService({
     ledger,
@@ -22,7 +25,9 @@ function makeService(settler: Settler, opts?: { maxCharges?: number; maxAgeMs?: 
 describe('FacilitatorService', () => {
   it('rejects non-positive amounts', () => {
     const { service } = makeService({ settle: async () => ({ ok: true }) });
-    expect(() => service.charge({ payer: PAYER, creator: A, amount: 0n })).toThrow('amount_must_be_positive');
+    expect(() => service.charge({ payer: PAYER, creator: A, amount: 0n })).toThrow(
+      'amount_must_be_positive',
+    );
   });
 
   it('flushes a payer into one batched settlement', async () => {
@@ -44,7 +49,9 @@ describe('FacilitatorService', () => {
   });
 
   it('requeues charges when settlement fails', async () => {
-    const { ledger, service } = makeService({ settle: async () => ({ ok: false, reason: 'rpc_timeout' }) });
+    const { ledger, service } = makeService({
+      settle: async () => ({ ok: false, reason: 'rpc_timeout' }),
+    });
     service.charge({ payer: PAYER, creator: A, amount: 100n });
 
     const result = await service.flushPayer(PAYER);

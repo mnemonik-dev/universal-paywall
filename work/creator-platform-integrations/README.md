@@ -4,7 +4,7 @@ status: sidecars-implemented
 created: 2026-06-17
 branch: feat/creator-platform-integrations
 base: feat/facilitator-rail
-source: "Canteen — The Distribution Bootstrap for Payments Founders (2026-05-28)"
+source: 'Canteen — The Distribution Bootstrap for Payments Founders (2026-05-28)'
 source_url: https://thecanteenapp.com/analysis/2026/05/28/distribution-bootstrap-payments-founders.html
 ---
 
@@ -29,15 +29,15 @@ Core** under all the verticals.
 
 Our `feat/facilitator-rail` is exactly that core:
 
-| Article requirement | Our rail |
-|---|---|
-| Non-custodial, no protocol rent | `StakeVault` + factory: feeless, ownerless, pauseless |
+| Article requirement                                     | Our rail                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| Non-custodial, no protocol rent                         | `StakeVault` + factory: feeless, ownerless, pauseless               |
 | Rail-level **batched** settlement (dissolves fee floor) | facilitator aggregates charges → one `settle(creators[],amounts[])` |
-| Per-event settlement | `StakeVault.settle` per batch; SDK `charge()` per event |
-| Permissionless integration | external swappable facilitator; sidecars call the SDK |
-| Sidecar "reads a settlement-grade event stream" | this package: scrobble / webhook / feed adapters |
-| Payee registry = moat | injectable `resolvePayer` / `resolveCreator` resolvers |
-| Chain-agnostic Settlement Core (#8) | `NETWORKS`-style config; EIP-3009 on any USDC chain |
+| Per-event settlement                                    | `StakeVault.settle` per batch; SDK `charge()` per event             |
+| Permissionless integration                              | external swappable facilitator; sidecars call the SDK               |
+| Sidecar "reads a settlement-grade event stream"         | this package: scrobble / webhook / feed adapters                    |
+| Payee registry = moat                                   | injectable `resolvePayer` / `resolveCreator` resolvers              |
+| Chain-agnostic Settlement Core (#8)                     | `NETWORKS`-style config; EIP-3009 on any USDC chain                 |
 
 **Conclusion:** the rail is the article's Settlement Core (#8); this batch builds
 the attachment sidecars (#1–7). A consumer pre-stakes + grants via
@@ -53,8 +53,9 @@ verticals the "way to integrate" is **a sidecar you ship yourself**, not a PR in
 the upstream repo.
 
 Therefore:
+
 - **Sidecar verticals (music, live, VOD, feeds, photo):** implemented here as
-  runnable adapters that attach via each platform's *existing public API*. No
+  runnable adapters that attach via each platform's _existing public API_. No
   upstream PR is needed or appropriate.
 - **Plugin / provider verticals (PeerTube plugin loader, Mastodon
   donation-campaigns API):** the integration is a **plugin/provider you publish**,

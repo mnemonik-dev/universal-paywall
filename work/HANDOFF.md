@@ -17,11 +17,11 @@ end-to-end on a local chain across every actor. External-repo PRs are **not** do
 
 ## Branch map
 
-| Branch | Contents | Base |
-|---|---|---|
-| `main` | production (mostly empty scaffold) | — |
-| `dev` | **old paradigm** impl (`packages/middleware`, `PaymentSplitterFactory`) + all review docs in `work/x402-agent-payment/` | main |
-| `feat/facilitator-rail` | **new rail**: contracts + facilitator + sdk + resource-adapter + agent; `work/facilitator-rail/` | dev |
+| Branch                               | Contents                                                                                                                            | Base                  |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `main`                               | production (mostly empty scaffold)                                                                                                  | —                     |
+| `dev`                                | **old paradigm** impl (`packages/middleware`, `PaymentSplitterFactory`) + all review docs in `work/x402-agent-payment/`             | main                  |
+| `feat/facilitator-rail`              | **new rail**: contracts + facilitator + sdk + resource-adapter + agent; `work/facilitator-rail/`                                    | dev                   |
 | `feat/creator-platform-integrations` | **sidecars**: `packages/integrations` + `work/creator-platform-integrations/`; this is the most advanced branch (inherits the rail) | feat/facilitator-rail |
 
 > Work continues on `feat/creator-platform-integrations` (it contains everything).
@@ -32,27 +32,32 @@ end-to-end on a local chain across every actor. External-repo PRs are **not** do
 
 The original `x402-agent-payment` design was reviewed and found to have real
 gaps. The new rail resolves them. Evidence trail in `work/x402-agent-payment/`:
+
 - `review.md` — spec logic/relevance findings (replay flaw, x402 model contradiction, Base→Arc inconsistencies).
 - `economics-review.md` — **the decisive one**: per-payment gas ≈ 12.6% of a $0.01 payment vs a 0.5% fee; relayer fragility; mandatory fee; no min-withdraw.
 - `external-analysis.md` + `external-analysis-response.md` — the Canteen "Distribution Bootstrap" thesis and how it maps (full thesis map with links).
 - `work/facilitator-rail/facilitator-rail-design.md` — the new paradigm (the design doc that drove the implementation).
 
-**Carried-forward decision:** the old-paradigm docs (`tech-spec.md`, `decisions.md`,
-diagrams, `.claude/skills/project-knowledge/references/*`, `CLAUDE.md`, `README.md`)
-still describe the OLD model and contradict the new one. They need reconciliation or
-supersession (see "What's left").
+**Carried-forward decision:** the root `README.md` and `CLAUDE.md` have been
+**reconciled** to the new StakeVault rail + integrations model (they now describe the
+rail, the package layout, the supported platform integrations, and point at the
+integration docs; the old per-payment model is kept as a "History / legacy" note for
+`packages/middleware`). Still pending: the deeper old-paradigm docs (`tech-spec.md`,
+`decisions.md`, diagrams, `.claude/skills/project-knowledge/references/*`) describe the
+OLD model and contradict the new one — they need reconciliation or supersession (see
+"What's left").
 
 ## Package inventory (on `feat/creator-platform-integrations`)
 
-| Package | Role | Tests |
-|---|---|---|
-| `contracts/src/rail/` (`StakeVault`, `StakeVaultFactory`) | feeless, non-custodial, ownerless settlement rail | 39 (Foundry) |
-| `@universal-paywall/facilitator` | external batching facilitator: ledger, batcher, viem settler, x402 `402` edge + grant gate, HTTP API, CLI | 20 |
-| `@universal-paywall/sdk` | zero-dep creator→facilitator charge client | 4 |
-| `@universal-paywall/resource-adapter` | resource-server gate: `withStakePaywall` (node) + `fastifyStakePaywall`; proof verify + grant gate + 402 + usage report | 10 |
-| `@universal-paywall/agent` | payer auto-pay: `createPayerAgent().fetchWithPaywall` (create-vault/deposit/grant/sign/retry) | 7 |
-| `@universal-paywall/integrations` | creator-platform sidecars (Subsonic/Owncast/Jellyfin/RSSHub/Immich) + serve layer + `up-integration` CLI | 17 |
-| `packages/middleware` | **OLD paradigm** (per-payment, fee-in-vault). Deprecated; kept for reference | 202 (on dev) |
+| Package                                                   | Role                                                                                                                    | Tests        |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `contracts/src/rail/` (`StakeVault`, `StakeVaultFactory`) | feeless, non-custodial, ownerless settlement rail                                                                       | 39 (Foundry) |
+| `@universal-paywall/facilitator`                          | external batching facilitator: ledger, batcher, viem settler, x402 `402` edge + grant gate, HTTP API, CLI               | 20           |
+| `@universal-paywall/sdk`                                  | zero-dep creator→facilitator charge client                                                                              | 4            |
+| `@universal-paywall/resource-adapter`                     | resource-server gate: `withStakePaywall` (node) + `fastifyStakePaywall`; proof verify + grant gate + 402 + usage report | 10           |
+| `@universal-paywall/agent`                                | payer auto-pay: `createPayerAgent().fetchWithPaywall` (create-vault/deposit/grant/sign/retry)                           | 7            |
+| `@universal-paywall/integrations`                         | creator-platform sidecars (Subsonic/Owncast/Jellyfin/RSSHub/Immich) + serve layer + `up-integration` CLI                | 17           |
+| `packages/middleware`                                     | **OLD paradigm** (per-payment, fee-in-vault). Deprecated; kept for reference                                            | 202 (on dev) |
 
 **New-rail unit tests: 97.** Plus 4 anvil e2es (settle / adapter / agent /
 integration) — all PASS.
@@ -106,6 +111,7 @@ install -m0755 /tmp/gitleaks ~/.local/bin/gitleaks
 > that runs the above so web sessions are ready without manual bootstrapping.
 
 ### Running tests / e2es
+
 ```bash
 # unit
 npm test --workspace=@universal-paywall/<facilitator|sdk|resource-adapter|agent|integrations>
@@ -123,6 +129,12 @@ pkill -x anvil
 ```
 
 ### Gotchas learned
+
+- **Docker works** in this environment — the daemon just isn't auto-started. As root:
+  `nohup dockerd >/tmp/dockerd.log 2>&1 &` then `docker pull` (Docker Hub reachable).
+  Enables real L3 platform runs (proven: live Owncast AND live Navidrome → real
+  event → MusicBrainz resolve → on-chain settle). Docker Hub anon pulls are
+  rate-limited (~a few/6h) — prefer GHCR (`ghcr.io/navidrome/navidrome`) to avoid it.
 - `pkill -f anvil` kills the e2e scripts (filenames contain "anvil") — use `pkill -x anvil`.
 - Egress allowlist blocks many hosts (`x402.org`, `thecanteenapp.com`); GitHub/npm/code.claude.com are allowed. Article content lives in `work/x402-agent-payment/external-analysis.md`.
 - Public anvil dev keys in e2e scripts are annotated `// gitleaks:allow` (not secrets).
@@ -141,27 +153,34 @@ pkill -x anvil
 ## What's left (roadmap)
 
 **Hardening / rail**
+
 - [ ] Payee-allowlist + signed-receipt dual-auth on `StakeVault.settle` (beyond cap-bounding).
 - [ ] Min-withdrawal guard on `StakeVault` (dust withdrawals are gas-negative — see economics-review).
 - [ ] Gasless EIP-3009 `receiveWithAuthorization` funding; durable (non-in-memory) facilitator ledger.
 - [ ] Extract `@universal-paywall/rail-core` for shared read-only primitives (adapter/agent currently borrow/duplicate ABI + gate helpers).
 
 **Deployment / proof**
+
 - [ ] Arc Testnet e2e against live USDC + a deployed factory (need RPC + funds).
 - [ ] Per-sidecar Docker/compose + webhook-registration recipes.
 - [ ] Real MusicBrainz/EXIF/author→wallet **registry** (the "moat") beyond `mapResolver`.
 
 **Upstream platform integration** (needs platform repos in scope — see the dedicated guide)
+
 - [ ] Publish PeerTube plugin; run Mastodon campaign provider; Immich reverse-proxy variant.
 - [ ] Verify each sidecar against a real platform instance.
 
 **Docs**
-- [ ] Reconcile or supersede the old-paradigm docs (`tech-spec`, `decisions`, diagrams, project-knowledge, `CLAUDE.md`, `README.md`).
+
+- [x] Reconcile the root `README.md` + `CLAUDE.md` to the rail + integrations model (done; point at the integration docs, legacy middleware noted as History).
+- [ ] Reconcile or supersede the remaining old-paradigm docs (`tech-spec`, `decisions`, diagrams, project-knowledge).
 - [ ] Add the SessionStart bootstrap hook.
 
 ## Doc index
 
 - `work/HANDOFF.md` — this file.
 - `work/facilitator-rail/` — `facilitator-rail-design.md` (the design), `implementation-plan.md`, `STATUS.md`.
-- `work/creator-platform-integrations/` — `README.md` (alignment), `platforms.md` (the list), `pr-drafts.md`, `STATUS.md`, **`upstream-integration-guide.md`** (next-session guide with platform repos).
+- `work/creator-platform-integrations/` — `README.md` (alignment), `platforms.md` (the list), `pr-drafts.md`, `STATUS.md`, **`upstream-integration-guide.md`** (next-session guide), **`deployment-plan.md`** (grounded per-platform recipes + gap status, forks in scope), **`testing-plan.md`** (L1–L4 verification per platform), **`integration-patterns.md`** (how to attach a paywall without touching the platform — the six patterns).
+- `packages/integrations/deploy/<platform>/` — runnable sidecar-attach recipes (Owncast/Navidrome/Jellyfin/RSSHub/Mastodon/Immich) + design docs for PeerTube plugin, MusicBrainz resolver, and the payer-side browser-extension adaptor.
+- **`packages/integrations/INTEGRATION-PLAYBOOK.md`** — the build-a-new-integration instruction doc (discovery questions script → per-pattern steps → L1–L4 test ladder → done checklist).
 - `work/x402-agent-payment/` — original spec + the review docs that justified the pivot.

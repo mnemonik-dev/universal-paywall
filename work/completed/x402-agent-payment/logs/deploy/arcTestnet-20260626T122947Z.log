@@ -1,0 +1,32 @@
+Warning: This is a nightly build of Foundry. It is recommended to use the latest stable version. To mute this warning set `FOUNDRY_DISABLE_NIGHTLY_WARNING` in your environment. 
+
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  FACTORY_ADDRESS 0x028442A366Fd124A9E953C90dAE58aFB8b8dB9D8
+  VAULT_IMPL_ADDRESS 0x1c65f3Ee224dfe4Bd7B3aD873956Ab238B0dfa45
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 5042002
+
+Estimated gas price: 43.576 gwei
+
+Estimated total gas used for script: 1463718
+
+Estimated amount required: 0.063782975568 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/syi/src/universal-paywall/contracts/broadcast/Deploy.s.sol/5042002/run-latest.json
+
+Sensitive values saved to: /Users/syi/src/universal-paywall/contracts/cache/Deploy.s.sol/5042002/run-latest.json
+

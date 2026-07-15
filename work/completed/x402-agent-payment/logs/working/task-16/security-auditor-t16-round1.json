@@ -1,0 +1,136 @@
+{
+  "reviewer": "security-auditor-t16",
+  "task": 16,
+  "round": 1,
+  "scope": "Phase B: live deploy + npm publish (commits 433d14e + e74984e)",
+  "audit_date": "2026-06-26",
+  "verdict": "CONDITIONAL_PASS",
+  "summary": "No critical or high findings. Three medium-severity issues require deployer acknowledgment or fix before final sign-off: (1) source map with embedded source is published in dist/; (2) publishConfig.provenance:true in package.json conflicts with the bash pre-flight guard and may cause publish failures in local/non-CI environments; (3) the USDC EIP-712 name is 'USDC' on-chain but spec examples say 'USD Coin' — must be confirmed as correct from T3 spike, not a transcription error. Two info-level items noted. All critical checklist items pass.",
+  "critical_checklist": {
+    "factory_address_byte_equal_in_dist": {
+      "status": "PASS",
+      "detail": "dist/index.js contains literal '0x028442a366fd124a9e953c90dae58afb8b8db9d8' matching the deployer-reported on-chain factory address. Both 'arc-testnet' and 'eip155:5042002' keys share the same arcTestnet object reference in NETWORKS — no byte-inequality possible between the two keys."
+    },
+    "constructor_args_correct": {
+      "status": "PASS",
+      "detail": "Deployer reports on-chain constructor args: usdc=0x3600000000000000000000000000000000000000 (canonical Arc USDC per spec), platformTreasury=0xBD845888a6aFd2d0193850F24F8944f2DDF2C409, feeBps=50. Casting uint16(50) is safe — 50 is well within [0,1000] hard cap. No fourth constructor arg present, consistent with D3 + tech-spec Data Models."
+    },
+    "ownable2step_initial_owner": {
+      "status": "PASS_ASSUMED",
+      "detail": "Deployer EOA is the initial owner per Ownable2Step (deployer's msg.sender). The forge script reads DEPLOYER_KEY from env and the deploy log captures deployer EOA — no key embedded in committed files. Transfer to multisig is a post-deploy operational step documented in deployment.md. No burn risk detected from the diff."
+    },
+    "pause_initial_state": {
+      "status": "PASS_ASSUMED",
+      "detail": "Pausable initial state is not-paused by OZ 5.x default. No constructor call to _pause() visible in the factory source (not in scope of this diff, but was audited in T13). Deployer should confirm factory.paused() == false via Task 17 post-deploy reads."
+    },
+    "arcscan_verification": {
+      "status": "PASS_ASSUMED",
+      "detail": "Deployer reports both PaymentSplitterFactory and PaymentVaultImpl arcscan-verified. _disableInitializers(), no-setters, and no-receive() invariants (D15/D16/D17) are therefore externally auditable. Cannot programmatically verify arcscan here — operator must confirm the Contract tab shows source (not just bytecode) for both addresses."
+    },
+    "publishconfig_access_public": {
+      "status": "PASS",
+      "detail": "packages/middleware/package.json has publishConfig.access: 'public'. The --access=public CLI flag also present per task spec. Belt-and-braces confirmed."
+    },
+    "tarball_no_source_ts_no_env_no_keys": {
+      "status": "PASS_WITH_FINDING",
+      "finding_ref": "MEDIUM-1",
+      "detail": "The 'files' allowlist is ['dist', 'README.md'] — no src/, __tests__/, scripts/, or .env* in tarball. No raw .ts source files in dist/. No 32-byte private key patterns (0x + 64 hex) found in dist/index.js. However, dist/index.js.map is included in dist/ and has embedded sourcesContent (all 10 source modules inlined). This publishes full TypeScript source to npm consumers, which is a transparency-positive but unintentional deviation from a source-free dist."
+    },
+    "network_patch_arc_testnet_only": {
+      "status": "PASS",
+      "detail": "post-deploy.ts sentinel replacement only touched the arc-testnet / eip155:5042002 entries. arc-mainnet placeholder (chainId 0, enabled: false) is untouched. Both arc-testnet keys point to the same arcTestnet object reference — byte equality guaranteed by shared reference."
+    },
+    "no_secrets_in_committed_files": {
+      "status": "PASS",
+      "detail": "Scanned all 6 changed files and dist/ for: 0x[0-9a-fA-F]{64} (32-byte keys), DEPLOYER_KEY, RELAYER_KEY, mnemonic, seed phrase. Zero matches. The contracts/.env.example is a committed example file (not .env). gitleaks pre-commit hook is active (confirmed in .husky/pre-commit)."
+    },
+    "dist_size_under_30kb": {
+      "status": "PASS",
+      "detail": "Total gzipped JS in dist/: 9099 bytes. Well under the 30720-byte (30 KB) limit from tech-spec AC."
+    },
+    "eslint_ignore_supply_chain": {
+      "status": "PASS",
+      "detail": "packages/middleware/scripts/ added to ESLint ignorePatterns. The sole script (generate-arc-testnet-usdc-domain.ts) reads no argv, no env vars, no stdin — path is hardcoded from import.meta.url resolution, not from user input. No shell exec. The script writes only to src/generated/ within the package tree. Supply-chain risk is negligible: the un-linted script has no external input surface."
+    }
+  },
+  "findings": [
+    {
+      "id": "MEDIUM-1",
+      "severity": "medium",
+      "category": "Software and Data Integrity (OWASP A08)",
+      "title": "Source map with embedded TypeScript source published in npm tarball",
+      "location": "packages/middleware/tsup.config.ts:sourcemap:true → dist/index.js.map",
+      "detail": "tsup.config.ts sets sourcemap:true (no type qualifier), which emits dist/index.js.map with sourcesContent embedding the full TypeScript source of all 10 bundled modules (x402.ts, networks.ts, relayer-key.ts, settle.ts, core.ts, etc.). The dist/ directory is in the 'files' allowlist, so the .map file ships in the published tarball. This is not a secret leak (no keys found in source), but it: (1) contradicts the implicit expectation that dist/ is a compiled-only artifact; (2) adds ~114 KB to the installed package; (3) exposes implementation internals — particularly relayer-key.ts's OpaqueRelayerKey internal structure — to consumers reading the map.",
+      "impact": "Reputational / supply-chain transparency concern. No direct key exposure. The source map's relayer-key.ts content shows the SECRET_TABLE WeakMap pattern; a determined consumer could study the internals to probe for extraction vectors.",
+      "recommendation": "Change tsup.config.ts to sourcemap:'inline' (embeds in JS, not a separate file) or sourcemap:false to exclude from tarball. Alternatively, add '*.map' to an .npmignore or change 'files' to ['dist/*.js', 'dist/*.d.ts', 'README.md']. The cleanest fix: set sourcemap:false — consumers of the published npm package do not need a source map; source maps are a dev-tool convenience for the monorepo.",
+      "remediation_priority": "Before next stable release; acceptable for alpha.1 if documented."
+    },
+    {
+      "id": "MEDIUM-2",
+      "severity": "medium",
+      "category": "Software and Data Integrity (OWASP A08) / Supply Chain",
+      "title": "publishConfig.provenance:true conflicts with bash pre-flight guard",
+      "location": "packages/middleware/package.json:publishConfig.provenance",
+      "detail": "The task spec defines a bash pre-flight guard that conditionally sets --provenance only when (npm >= 9.5 AND GITHUB_ACTIONS is set). However, publishConfig.provenance:true in package.json instructs npm to always attempt SLSA provenance attestation regardless of environment. When a developer runs 'npm publish' locally (without GITHUB_ACTIONS set), npm >=9.5 will still attempt provenance, which requires the npm OIDC token from the GitHub Actions environment. This will cause the publish to fail with an attestation error even though the bash guard was designed to skip provenance gracefully in that case.",
+      "impact": "Publish fails locally without GITHUB_ACTIONS set on npm >=9.5, despite the bash guard's intent. Could block emergency hotfix publishes from a developer workstation.",
+      "recommendation": "Remove publishConfig.provenance:true from package.json. Let the bash pre-flight guard remain the sole control point for provenance (it already handles the conditional correctly). The guard appends --provenance to the CLI flags only when the environment supports it — that is sufficient. Having both a package.json declaration and a conditional CLI flag creates contradictory intent.",
+      "remediation_priority": "Should fix before the next publish. Currently alpha.1 was published — confirm whether GITHUB_ACTIONS was set during that publish or whether provenance was skipped."
+    },
+    {
+      "id": "MEDIUM-3",
+      "severity": "medium",
+      "category": "EIP-712 Domain Integrity",
+      "title": "USDC EIP-712 domain name is 'USDC' but spec examples reference 'USD Coin'",
+      "location": "packages/middleware/src/generated/arc-testnet-usdc-domain.ts:name='USDC'",
+      "detail": "The generated arc-testnet-usdc-domain.ts sets name='USDC'. The user-spec and tech-spec examples consistently show domain.name as 'USD Coin' (user-spec line: 'name: \"USD Coin\"', tech-spec: 'usdcEip712Name: verified from USDC.name() — likely \"USD Coin\"'). The EIP-712 domain name must exactly match what the USDC contract returns from name(). If the on-chain value is truly 'USDC' (not 'USD Coin'), all agent signature verification will work correctly. But if T3's spike misread or the JSON was manually edited, the domain name is wrong and every signature verification will fail with 'invalid_signature' (ecrecover will recover a different address than authorization.from).",
+      "impact": "If 'USDC' is the correct on-chain name: no functional impact, spec examples are misleading. If 'USD Coin' is the correct on-chain name: every payment verification will fail — complete feature breakage. The T3 JSON source file (contracts/scripts/arc-testnet-usdc-domain.json) is the authoritative artifact; deployer must confirm T3 actually called USDC.name() on Arc Testnet and got 'USDC' back.",
+      "recommendation": "Deployer should confirm via 'cast call 0x3600000000000000000000000000000000000000 \"name()(string)\" --rpc-url $ARC_RPC_URL' that the returned value is 'USDC' (not 'USD Coin'). If confirmed, update the user-spec/tech-spec examples to say 'USDC' (per tech-spec Deviations section). If incorrect, regenerate from on-chain.",
+      "remediation_priority": "Must confirm before Task 17 post-deploy verification."
+    },
+    {
+      "id": "INFO-1",
+      "severity": "info",
+      "category": "Operational Risk / Economics",
+      "title": "Gas cost exceeds 5% threshold — gasCostExceedsThreshold flag set to true but not surfaced to operator at deploy time",
+      "location": "contracts/scripts/arc-testnet-usdc-domain.json:gasCostExceedsThreshold=true, sampleGasCost=1260 micro-USDC",
+      "detail": "T3 spike measured gas cost at 1260 micro-USDC for a 0.01 USDC (10000 micro-USDC) payment — 12.6% of payment value, well above the 5% threshold from tech-spec Risks. The JSON flag gasCostExceedsThreshold:true was set. However the codegen script strips this field from the emitted TypeScript (only name/version/decimals/supportsEip3009/notes are emitted). The arc-dual-decimal note is included in the boot warning but the gas economics finding is not explicitly surfaced. The spec says 'surface to user and consider deferring high-volume paths' if gas > 5%.",
+      "impact": "Operator may not realize that at the default price of 0.01 USDC, 12.6% is consumed by gas — this is economically unviable for most payment scenarios. Not a security issue but a significant operational concern.",
+      "recommendation": "Ensure the README and Task 17 post-deploy report explicitly call out the gas cost finding. Consider adding a startup warning when price config implies a gas-to-payment ratio above the threshold."
+    },
+    {
+      "id": "INFO-2",
+      "severity": "info",
+      "category": "Version Management",
+      "title": "Published version is 0.0.1-alpha.1 but tech-spec specifies 0.1.0-alpha.0",
+      "location": "packages/middleware/package.json:version",
+      "detail": "Tech-spec and task 16 description specify the initial published version as '0.1.0-alpha.0' (or '0.1.0-alpha.1' on E409 retry). The actual published version is '0.0.1-alpha.1'. The version scheme 0.0.1 vs 0.1.0 is a minor deviation (patch vs minor semver slot), and alpha.0 was also published (per deployer: 'alpha.0 also live, awaiting deprecation'). This is an operational deviation from spec, not a security concern. The alpha tag is correctly applied.",
+      "impact": "Cosmetic semver deviation from spec. No security impact. alpha.0 should be deprecated as noted.",
+      "recommendation": "Document the version deviation in decisions.md per task 16 post-completion instructions. Deprecate 0.0.1-alpha.0 via 'npm deprecate @universal-paywall/middleware@0.0.1-alpha.0 \"superseded by alpha.1\"'."
+    }
+  ],
+  "slsa_provenance_assessment": {
+    "status": "SKIPPED",
+    "reason": "Deployer reports GITHUB_ACTIONS was not set during publish — provenance was skipped per bash pre-flight guard. This is acceptable for alpha per spec ('best-effort SLSA enrichment, not a hard requirement'). However, see MEDIUM-2: publishConfig.provenance:true may cause future publish failures."
+  },
+  "overall_risk_rating": "LOW",
+  "blocking_issues": ["MEDIUM-3 must be confirmed (USDC name on-chain) before Task 17"],
+  "non_blocking_before_alpha_1": ["MEDIUM-1 (source map)", "MEDIUM-2 (publishConfig.provenance)"],
+  "passed_checks": [
+    "Factory address byte-equal in dist/index.js to on-chain",
+    "Both NETWORKS keys share same object reference",
+    "USDC address 0x3600...0000 correct in dist",
+    "No 32-byte private keys in dist/",
+    "No .env files committed",
+    "gitleaks pre-commit hook active",
+    "publishConfig.access: public present",
+    "files allowlist correct (dist + README.md only, no src/)",
+    "No source .ts files in dist/",
+    "Dist gzipped size 9099 bytes < 30720 byte limit",
+    "Constructor args correct (usdc, treasury, 50 uint16)",
+    "feeBps=50 within [0,1000] cap",
+    "ESLint ignore for scripts/ is safe (no argv/env surface)",
+    "Codegen script no path traversal risk",
+    "arc-mainnet placeholder untouched (enabled:false)",
+    "alpha tag applied, latest tag not modified"
+  ]
+}

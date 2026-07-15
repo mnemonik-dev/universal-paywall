@@ -30,8 +30,12 @@ async function register({ registerHook, getRouter, settingsManager }) {
   const reporter = createReporter({
     facilitatorUrl: await settingsManager.getSetting('facilitator-url'),
     apiKey: await settingsManager.getSetting('facilitator-api-key'),
-    resolvePayer: mapResolver(JSON.parse(await settingsManager.getSetting('viewer-wallets') || '{}')),
-    resolveCreator: mapResolver(JSON.parse(await settingsManager.getSetting('channel-wallets') || '{}')),
+    resolvePayer: mapResolver(
+      JSON.parse((await settingsManager.getSetting('viewer-wallets')) || '{}'),
+    ),
+    resolveCreator: mapResolver(
+      JSON.parse((await settingsManager.getSetting('channel-wallets')) || '{}'),
+    ),
   });
 
   registerHook({
@@ -40,7 +44,7 @@ async function register({ registerHook, getRouter, settingsManager }) {
       await reporter.report({
         payerKey: req.headers['x-payer-user'] ?? 'anonymous',
         creatorKey: String(video.channelId),
-        amount: BigInt(await settingsManager.getSetting('price-micro-usdc') || '1000'),
+        amount: BigInt((await settingsManager.getSetting('price-micro-usdc')) || '1000'),
         ref: `peertube:${video.uuid}:${Date.now()}`,
       });
     },
@@ -71,12 +75,14 @@ import { createServer } from 'node:http';
 createServer((req, res) => {
   if (req.url === '/api/v1/donation_campaigns') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-      id: 'up-1',
-      banner_message: 'Support this instance — settles onchain via Universal Paywall',
-      donation_url: 'https://pay.example/stake?facilitator=0x...&factory=0x...',
-      amounts: ['1000000', '5000000', '10000000'], // micro-USDC presets
-    }));
+    res.end(
+      JSON.stringify({
+        id: 'up-1',
+        banner_message: 'Support this instance — settles onchain via Universal Paywall',
+        donation_url: 'https://pay.example/stake?facilitator=0x...&factory=0x...',
+        amounts: ['1000000', '5000000', '10000000'], // micro-USDC presets
+      }),
+    );
     return;
   }
   res.writeHead(404).end();

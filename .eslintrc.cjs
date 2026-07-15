@@ -7,11 +7,7 @@ module.exports = {
     project: ['./packages/middleware/tsconfig.json'],
     tsconfigRootDir: __dirname,
   },
-  extends: [
-    'eslint:recommended',
-    'plugin:@typescript-eslint/recommended',
-    'prettier',
-  ],
+  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended', 'prettier'],
   plugins: ['@typescript-eslint'],
   env: {
     node: true,
@@ -33,6 +29,9 @@ module.exports = {
     // __tests__); ESLint with typed-linting cannot parse files outside the
     // referenced project. Vitest enforces correctness on these files.
     'packages/middleware/src/__tests__/',
+    // Build-time codegen scripts run via tsx and live outside the package's
+    // tsconfig (rootDir: ./src). Same rationale as tests above.
+    'packages/middleware/scripts/',
   ],
   rules: {
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
