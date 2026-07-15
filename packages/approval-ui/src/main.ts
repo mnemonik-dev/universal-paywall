@@ -255,9 +255,42 @@ async function signAndSettle(binding: Binding) {
   }
 }
 
+async function linkWallet() {
+  if (!operationId) throw new Error("missing operation_id");
+  const response = await fetch(`/api/wallet-link/${encodeURIComponent(operationId)}`);
+  if (!response.ok) throw new Error(`Wallet-link challenge unavailable: ${response.status}`);
+  const { message } = (await response.json()) as { message: string };
+  const provider = detectEthereumProvider();
+  const walletClient = createWalletClient({ transport: custom(provider) });
+  const accounts = await walletClient.requestAddresses();
+  if (!accounts?.[0]) throw new Error("No accounts available. Please unlock MetaMask.");
+  const signature = await walletClient.signMessage({ account: accounts[0], message });
+  const verified = await fetch(`/api/wallet-link/${encodeURIComponent(operationId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signature }),
+  });
+  if (!verified.ok) throw new Error(`Wallet-link signature rejected: ${verified.status}`);
+}
+
 async function init() {
-  if (!operationId || !quoteId) {
-    showStatus("Missing operation_id or quote_id in URL.", true);
+  if (!operationId) {
+    showStatus("Missing operation_id in URL.", true);
+    return;
+  }
+
+  // Before a quote exists, this page proves that the wallet belongs to the
+  // authenticated Mnemonic operation. The client then resubmits its same
+  // signed artifact to receive the quote bound to this verified address.
+  if (!quoteId) {
+    try {
+      hideLoading();
+      UI.operationId.textContent = operationId;
+      UI.approveBtn.disabled = false;
+      UI.approveBtn.textContent = "Link wallet";
+    } catch (err: unknown) {
+      showStatus(`Failed to prepare wallet link: ${String(err)}`, true);
+    }
     return;
   }
 
@@ -296,6 +329,12 @@ UI.approveBtn.addEventListener("click", async () => {
   UI.approveBtn.textContent = "Confirm in wallet...";
 
   try {
+    if (!quoteId) {
+      await linkWallet();
+      showStatus("Wallet linked. Return to Mnemonic to continue payment.", false);
+      UI.approveBtn.textContent = "Wallet linked";
+      return;
+    }
     const quote = await loadQuote();
     await signAndSettle(quote.binding);
     showStatus("Payment approved and settled.", false);
