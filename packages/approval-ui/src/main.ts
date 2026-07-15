@@ -76,6 +76,7 @@ const UI = {
 const params = new URLSearchParams(window.location.search);
 const operationId = params.get("operation_id");
 const quoteId = params.get("quote_id");
+const resumeToken = params.get("resume_token");
 
 function showStatus(message: string, isError: boolean) {
   UI.status.textContent = message;
@@ -109,7 +110,10 @@ async function loadQuote(): Promise<Quote> {
 
 async function loadOperationStatus(): Promise<OperationStatus> {
   if (!operationId) throw new Error("missing operation_id");
-  const res = await fetch(`/api/operations/${encodeURIComponent(operationId)}`);
+  if (!resumeToken) throw new Error("missing resume capability");
+  const res = await fetch(
+    `/api/operations/${encodeURIComponent(operationId)}?resume_token=${encodeURIComponent(resumeToken)}`
+  );
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to load operation status: ${res.status} ${body}`);
