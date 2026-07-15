@@ -410,6 +410,10 @@ describe('SessionPaymentService', () => {
     const request = exactRequest('expired-exact');
     request.binding.expires_at = '2026-07-13T11:59:59.000Z';
     await expect(service.createQuote(request.binding)).rejects.toThrow('quote_expired');
+    const refreshed = exactRequest('refreshed-exact');
+    await expect(service.createQuote(refreshed.binding)).resolves.toMatchObject({
+      binding: { operation_id: 'refreshed-exact' },
+    });
     expect(exactSettler.settle).not.toHaveBeenCalled();
   });
 
