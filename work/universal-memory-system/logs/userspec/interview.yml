@@ -1,0 +1,168 @@
+metadata:
+  feature_name: universal-memory-system
+  work_type: feature
+  size: L
+  status: in_progress
+  started: "2026-07-26"
+  last_updated: "2026-07-26"
+  current_question_num: 23
+
+phase1_feature_overview:
+  feature_name:
+    value: "universal-memory-system"
+    score: 100
+    status: done
+  work_type:
+    value: "feature — новая система"
+    score: 100
+    status: done
+  what_we_build:
+    value: |
+      MCP сервер памяти на базе gbrain (storage + hybrid search + synthesis из коробки).
+      Mnemonik SDK как опциональный signing слой поверх.
+      Local: gbrain PGLite (SQLite-backed, stdio). Cloud: gbrain + Postgres, HTTP MCP на VPS.
+      MVP tools: capture, search, think (synthesis), sign, verify.
+      Клиенты: Claude Code, Kini, KimiClaw, Coding Fabric, любой MCP инструмент.
+    score: 95
+    gaps: []
+    status: done
+  why:
+    value: |
+      Mnemonik нет слоя памяти. Fabric нет памяти вообще.
+      Цель: universal memory = основа one-man-company где агенты пишут код.
+    score: 90
+    gaps: []
+    status: done
+  target_users:
+    value: "Один разработчик + его AI агенты. Внешние пользователи — out of scope."
+    score: 95
+    gaps: []
+    status: done
+  key_scenarios:
+    value: |
+      1. Агент/пользователь вызывает memory_capture → gbrain инжестирует, embeds, хранит
+      2. memory_search(query) → hybrid (vector+BM25+RRF) → топ-K результатов
+      3. memory_think(question) → gbrain synthesis → LLM ответ с цитатами + gap analysis
+      4. memory_sign(id) → Mnemonik Ed25519 → attestationId для верификации
+      5. Cloud = source of truth. Local PGLite для dev/local работы.
+    score: 92
+    gaps: []
+    status: done
+  out_of_scope:
+    value: |
+      Внешний доступ для других пользователей.
+      Plugin-level автозахват (post-MVP).
+      Mobile app. UI просмотра памяти.
+    score: 92
+    gaps: []
+    status: done
+
+phase2_user_experience:
+  mcp_interface:
+    value: |
+      MVP MCP tools:
+        memory_capture(content, source?, tags?) — инжест в gbrain
+        memory_search(query, top_k?=10) → [{id, content, score, source}]
+        memory_think(question) → {answer, citations, gaps} (gbrain synthesis)
+        memory_sign(id, tags?) → {attestationId, signedAt} (Mnemonik, cloud only)
+        memory_verify(attestationId) → {status: verified|tampered|not_found}
+        memory_list(limit?=20) — последние записи
+        memory_delete(id) — удалить
+    score: 90
+    gaps: []
+    status: done
+  local_vs_cloud:
+    value: |
+      LOCAL: gbrain PGLite stdio — для dev и local агентов.
+      CLOUD: gbrain + Postgres, HTTP MCP на Hetzner VPS, source of truth.
+      Cloud недоступен → print error (нет silent fallback).
+      Mnemonik signing только для cloud.
+    score: 90
+    gaps: []
+    status: done
+  memory_capture:
+    value: "Full: text, URLs, files (PDF/md/code), images. Явный вызов — агент или пользователь."
+    score: 90
+    gaps: []
+    status: done
+  memory_recall:
+    value: |
+      memory_search: hybrid (vector+BM25+RRF), топ-K.
+      memory_think: gbrain synthesis — LLM ответ с цитатами и gap analysis. MVP.
+    score: 92
+    gaps: []
+    status: done
+  mnemonik_role:
+    value: |
+      Опциональный signing слой через @mnemonik-xyz/sdk.
+      memory_sign → Ed25519 COSE_Sign1 → attestationId.
+      memory_verify → проверка подписи.
+      Только для cloud memories.
+    score: 90
+    gaps: []
+    status: done
+  fabric_role:
+    value: |
+      Основной потребитель. Coding fabric agents вызывают MCP tools через Claude Code / KimiClaw.
+      Сейчас нет интеграции — добавляем MCP config.
+    score: 85
+    gaps: []
+    status: done
+  error_handling:
+    value: "Cloud недоступен → print error. Простая обработка ошибок."
+    score: 80
+    gaps: []
+    status: done
+
+phase3_integration:
+  client_surfaces:
+    value: |
+      Claude Code, Kini, KimiClaw (OpenClaw на Kimi), Coding Fabric agents — через MCP config.
+      stdio для local, HTTP для cloud.
+    score: 88
+    gaps: []
+    status: done
+  gbrain_role:
+    value: |
+      Core engine: storage (PGLite/Postgres), hybrid search (vector+BM25+RRF),
+      synthesis (LLM ответ + gap analysis), knowledge graph, ingestion pipeline.
+      Используем как library (импортируем модули) или расширяем MCP сервер.
+      ОТКРЫТЫЙ ВОПРОС: extend gbrain MCP vs import as library.
+    score: 80
+    gaps: ["extend gbrain MCP server или import gbrain как library в свой server?"]
+    status: in_progress
+  deploy_approach:
+    value: |
+      Hetzner VPS. Отдельный Docker Compose сервис.
+      Независимый деплой от Universal Paywall.
+      HTTP MCP endpoint для cloud клиентов.
+    score: 80
+    gaps: ["порт, nginx — в tech spec"]
+    status: in_progress
+  testing_approach:
+    value: |
+      1. Integration tests: каждый MCP tool (capture/search/think/sign/verify/list/delete)
+      2. E2E сценарии: 3-4 реальных flow (capture из Claude Code, search из KimiClaw, think из Fabric)
+      3. Client compatibility: MCP конфиг работает в Claude Code, Kini, KimiClaw, Coding Fabric
+      4. RUMBA benchmark: качество поиска и synthesis vs baseline (mem0, Graphiti, Cortex)
+      Post-MVP: load testing.
+    score: 90
+    gaps: []
+    status: done
+
+conversation_history:
+  - question_num: 1-20
+    summary: "Полное интервью — см. notes"
+  - question_num: 21
+    questions: "gbrain vs mem0 — synthesis в MVP?"
+    answer: "Однозначно gbrain. Synthetic search сразу в MVP."
+
+notes: |
+  ФИНАЛЬНАЯ АРХИТЕКТУРА:
+  - gbrain как core engine (PGLite local, Postgres cloud, hybrid search, synthesis)
+  - Mnemonik SDK как опциональный signing слой
+  - 7 MCP tools в MVP: capture, search, think, sign, verify, list, delete
+  - Synthesis (memory_think) = MVP, не post-MVP
+  - Cloud = source of truth, local = PGLite для dev
+  - Клиенты: Claude Code, Kini, KimiClaw, Coding Fabric
+  ОТКРЫТЫЕ ВОПРОСЫ: extend gbrain MCP vs library, testing approach
