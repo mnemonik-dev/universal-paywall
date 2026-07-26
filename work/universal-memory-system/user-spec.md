@@ -81,6 +81,7 @@ created: 2026-07-26
 LOCAL режим (stdio):
   → gbrain + PGLite (embedded SQLite-backed, zero server)
   → для локальной разработки и dev-агентов
+  → ИЗОЛИРОВАННОЕ хранилище: локальные записи НЕ синхронизируются в cloud
   → cloud недоступен → print error (нет silent fallback)
 
 CLOUD режим (HTTP MCP, VPS):
@@ -89,6 +90,8 @@ CLOUD режим (HTTP MCP, VPS):
   → отдельный Docker Compose сервис на Hetzner VPS
   → независимый деплой от Universal Paywall
 ```
+
+> **Важно:** local и cloud — два независимых хранилища в MVP. Для постоянной памяти используй cloud режим. Sync local → cloud — post-MVP.
 
 ### Верификация (Sign / Verify)
 
@@ -125,7 +128,7 @@ CLOUD режим (HTTP MCP, VPS):
 - [ ] `memory_capture(content, source?, tags?)` — инжестирует контент в gbrain, возвращает `{ id, chunks }`. Поддерживает text, URL (auto-fetch), file path, base64 image.
 - [ ] `memory_search(query, top_k?=10)` — hybrid search через gbrain (vector + BM25 + RRF), возвращает топ-K с `score`, `source`, `content`.
 - [ ] `memory_think(question)` — gbrain synthesis: LLM-ответ с цитатами + gap analysis. Ответ содержит `answer`, `citations[]`, `gaps[]`.
-- [ ] `memory_sign(id, tags?)` — вызывает `MnemonicClient.signMemory()`, возвращает `attestationId`. Только в cloud режиме; в local → ошибка с понятным сообщением.
+- [ ] `memory_sign(id, tags?)` — вызывает `MnemonicClient.signMemory()`, возвращает `attestationId`. Только в cloud режиме; в local → ошибка `"Signing only available in cloud mode"`. Если Mnemonik service недоступен → ошибка с actionable сообщением (не silent failure). Повторный вызов с тем же id → idempotent (тот же attestationId).
 - [ ] `memory_verify(attestationId)` — вызывает `MnemonicClient.verify()`, возвращает discriminated union `verified | tampered | not_found`.
 - [ ] `memory_list(limit?=20)` — последние записи с метаданными.
 - [ ] `memory_delete(id)` — удаляет запись по id.
@@ -157,8 +160,8 @@ CLOUD режим (HTTP MCP, VPS):
 ### Качество поиска и синтеза (RUMBA)
 
 - [ ] RUMBA benchmark (`packages/eval/`) прогоняется против universal-memory backend
-- [ ] `RecallAccuracy@5` ≥ baseline mem0 из RUMBA leaderboard
-- [ ] `AnswerQuality` synthesis score ≥ 0.7 (LLM judge)
+- [ ] `RecallAccuracy@5` ≥ mem0 baseline на стандартном RUMBA датасете (результаты базовых прогонов фиксируются в `research/RUMBA/results/baselines.json` перед запуском нашего eval)
+- [ ] `AnswerQuality` synthesis score ≥ 0.7 (LLM judge по RUMBA rubric: релевантность 0–1, точность цитат 0–1, полнота gap analysis 0–1; среднее по 3 вопросам)
 - [ ] Результаты benchmark зафиксированы в `research/RUMBA/results/universal-memory.json`
 
 ### Integration Tests
