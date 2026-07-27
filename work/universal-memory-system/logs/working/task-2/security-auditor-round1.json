@@ -1,0 +1,26 @@
+{
+  "reviewer": "security-auditor",
+  "task": "2",
+  "round": 1,
+  "timestamp": "2026-07-27",
+  "verdict": "approved_with_minor",
+  "summary": "D10 (timing-safe comparison) is correctly implemented with zero-padding trick. D13 (no secrets in logs) is correctly implemented. Two minor findings.",
+  "findings": [
+    {
+      "id": "SEC-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/http.ts",
+      "line": 90,
+      "finding": "Bun.serve `error` handler receives a generic error object but the type annotation `Error` may miss non-Error throws. The `err.message` access could throw if err is not an Error instance. More importantly, the error response path returns a 500 response, but unhandled promise rejections inside `fetch()` may not route through `error()` in all Bun versions — they may crash the process. Consider wrapping the fetch handler body in try/catch.",
+      "suggested_fix": "Wrap the fetch handler body in try/catch: `try { ... } catch (e) { process.stderr.write(`[universal-memory] Request error: ${scrubSecrets(String(e))}\\n`); return Response.json({ error: 'internal_error' }, { status: 500 }); }`"
+    },
+    {
+      "id": "SEC-2",
+      "severity": "low",
+      "file": "packages/memory-hub/src/mcp/http.ts",
+      "line": 71,
+      "finding": "/health endpoint leaks the port number. While not a significant risk (the port is fixed at 3456), it's mildly unnecessary information disclosure. The `port` variable captured in the closure is the configured port, not necessarily the actual bound port (when port:0 is used in tests, the returned bunServer.port is the actual port, but the closure captures the pre-bind value). This creates a discrepancy in test mode.",
+      "suggested_fix": "Return `{ status: 'ok', transport: 'http' }` without port, or capture `bunServer.port` after binding and reference that. Low priority — only matters in test mode."
+    }
+  ]
+}
