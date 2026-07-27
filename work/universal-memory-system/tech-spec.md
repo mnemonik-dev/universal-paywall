@@ -112,7 +112,8 @@ MCP client (any device, any client)
 **memory_think flow:**
 ```
 1. Tool call: { question }
-2. runThink(engine, { question }) from 'gbrain/think'
+2. runThink(engine, { question }) — imported from vendors/gbrain/src/core/think/index.ts
+   via direct path (gbrain package.json has no ./think export — Wave 1 Task 1 patches it)
    → internally: runGather(engine, question) → SearchResult[] + TakeHit[]
    → LLM call via gbrain AI gateway → synthesized answer + citations + gaps
 3. Returns: { answer, citations: [{id, excerpt}], gaps }
@@ -197,13 +198,45 @@ MCP client (any device, any client)
 
 **Alternatives considered:** Check by memory id only — simpler but breaks if same content stored twice under different ids.
 
-### D8: Cloud mode requires external Postgres (not PGLite)
+### D8: Content size limits on memory_capture
+
+**Decision:** `memory_capture` enforces a maximum content size of **10 MB** per call (after URL fetch / file read). Individual chunk size is capped at 2000 chars (existing). Images are limited to 5 MB base64. Oversized input → error `{ error: "content_too_large", max_bytes: 10485760 }`.
+
+**Rationale:** [TECHNICAL] HTTP mode exposes memory_capture to the network. Unbounded content would allow OOM attacks and storage exhaustion. 10 MB is permissive for any legitimate knowledge capture (research papers, code files) while blocking abuse. Local stdio mode: same limit applies for consistency.
+
+**Alternatives considered:** No limit (trust stdio mode, HTTP protected by auth) — rejected, single-user auth key compromise would enable storage exhaustion. Per-content-type limits (different for text vs PDF vs image) — more complex with marginal benefit.
+
+### D9: Cloud mode requires external Postgres (not PGLite)
 
 **Decision:** Cloud mode (`MEMORY_BACKEND=cloud`) requires `DATABASE_URL` pointing to an external Postgres 15+ with pgvector extension. PGLite is not used in cloud mode.
 
 **Rationale:** [TECHNICAL] PGLite is single-writer WASM — not suitable for a long-running HTTP server under concurrent requests. Postgres with pgvector supports HNSW indexes, concurrent reads, and connection pooling. Docker Compose includes a `postgres` service with `pgvector/pgvector:pg16` image.
 
 **Alternatives considered:** PGLite in cloud — rejected, PGLite's advisory locking model (`pglite-lock.ts` in gbrain) is designed for single-process local use only.
+
+### D10: Bearer token constant-time comparison
+
+**Decision:** Bearer token validation uses `crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))` — constant-time string comparison. Nginx-level check uses `$http_authorization` with exact match (nginx's string comparison is not timing-safe but acceptable since the API key is already public to any network attacker who can observe the channel; the real protection is HTTPS).
+
+**Rationale:** [TECHNICAL] Timing attacks on string comparison allow an attacker to measure response latency to guess the token byte-by-byte. Constant-time comparison closes this. Since nginx string comparison is not timing-safe, auth is also implemented in memory-hub's HTTP middleware as a defense-in-depth layer (D4 is nginx-primary but memory-hub also validates).
+
+### D11: SSRF and path traversal mitigations in ingestion
+
+**Decision:** URL fetcher blocks: `file://`, `ftp://` schemes; loopback (`127.0.0.1`, `::1`); private IP ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`); max 3 redirects; 30s timeout. File ingestion: resolve symlinks via `Bun.file().realpath()`, then verify the resolved path is within an allowlist (`MEMORY_ALLOWED_DIRS` env var, defaults to `~/` i.e. user home only). Paths outside allowlist → error.
+
+**Rationale:** [TECHNICAL] SSRF (A10) and path traversal (A03) are the two highest-risk attack vectors in the ingestion pipeline. SSRF via URL fetcher could allow reading internal cloud metadata (AWS IMDSv1, GCP metadata). Path traversal via file path argument could read `/etc/passwd` or cloud credentials. Both mitigations are standard and low-complexity.
+
+### D12: Structured prompts for LLM synthesis (prompt injection defense)
+
+**Decision:** `memory_think` passes captured content to LLM via clearly delimited sections: `<memory_context>` tags wrapping retrieved chunks. The synthesis instruction is a system-level prompt, not concatenated with user content. Response format is validated: must contain `answer`, `citations[]`, `gaps[]` JSON structure — malformed response → retry once, then error.
+
+**Rationale:** [TECHNICAL] LLM prompt injection (A03/A04) is a real risk when user-captured content is used as context in synthesis. Structural separation of trusted instructions (system prompt) from untrusted context (memory chunks) reduces — though cannot eliminate — injection risk. Response structure validation catches obvious injection attempts that alter the output format.
+
+### D13: Secret protection in logs
+
+**Decision:** `config.ts` never logs raw values of: `MEMORY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `MNEMONIC_JWT`, `MNEMONIC_IDENTITY`. Startup log prints: `"provider: openai, key: sk-...xxxx (last 4 chars)"`. Error stack traces are scrubbed before logging via a `scrubSecrets(input)` helper that redacts: `Bearer <token>`, `sk-...` patterns, JSON containing `keypair` or `jwt` keys.
+
+**Rationale:** [TECHNICAL] A03/A06 — secrets in logs is a common real-world incident cause. Single-user deployment means lower risk, but cloud VPS logs are often shipped to external services. Defense-in-depth at minimal implementation cost.
 
 ## Data Models
 
@@ -304,9 +337,12 @@ All gbrain library exports: `gbrain/pglite-engine`, `gbrain/engine`, `gbrain/sea
 
 **Feature size: L** — three-tier coverage required.
 
+**Test timeout config:** PGLite cold start is 5–20s. Integration tests require extended timeout. Add `bunfig.toml` or vitest config: `test.timeout = 30000` (30s). First run slow; optional: `GBRAIN_PGLITE_SNAPSHOT` reduces to ~100ms.
+
 ### Unit tests (vitest, in `packages/memory-hub/`)
 
 - `config.ts`: env parsing, configureGateway called with right provider, missing both LLM keys → startup error.
+- `engine/factory.ts`: cloud mode with missing/invalid `DATABASE_URL` → throws with actionable message "Postgres connection failed: ...".
 - `engine/factory.ts`: local mode creates PGLite engine, cloud mode creates Postgres engine, wrong backend → throws.
 - `ingest/pipeline.ts`: plain text → direct; URL string → fetcher called; file path → file.read called; base64 prefix → image path; unknown type → error.
 - `ingest/fetcher.ts`: valid URL → returns markdown string (mocked fetch); non-200 → throws with message.
@@ -375,14 +411,18 @@ All gbrain library exports: `gbrain/pglite-engine`, `gbrain/engine`, `gbrain/sea
 
 **User-spec says:** "Работает без прав администратора — никакого sudo, никаких системных сервисов, никаких глобальных установок."
 
-**Tech-spec does differently:** Local mode requires an LLM API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`) for both embedding (memory_capture) and synthesis (memory_think). The key itself has no install cost — but it is an external dependency not mentioned in user-spec.
+**Tech-spec does differently:** Local mode needs an LLM API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) for embedding (memory_capture) and synthesis (memory_think). No admin rights — just an API key from an external service.
 
-**Why:** gbrain's engine uses vector embeddings for hybrid search. Without embeddings, search and synthesis don't work. PGLite is zero-setup; the LLM API key is not.
+**Why:** gbrain uses vector embeddings for hybrid search. Without embeddings, search degrades to BM25 keyword-only and synthesis is unavailable.
 
-**Mitigation options:**
-- Option A (recommended): local mode falls back to BM25-only search if no key set; synthesis returns error "LLM key required for synthesis". Allows zero-key basic search.
-- Option B: use a local embedding model (Ollama/fastembed) — more complex, adds binary dependency.
-- Option C: require key, document clearly — simplest but breaks the zero-external-dependency promise.
+**Recommended resolution — Option A (implemented in Task 1):**
+- No LLM key set → `memory_capture` stores text but skips vector embedding (BM25-only mode)
+- `memory_search` uses BM25 keyword search only (still useful, just less semantic)
+- `memory_think` returns error: `"Synthesis requires LLM key. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."`
+- Startup log: `"Universal Memory running in BM25-only mode (no LLM key configured)"`
+- Zero-dependency basic search works out of the box; full semantic search requires API key
+
+**Alternatives:** Option B (local embedding via Ollama) — adds binary dependency, more complex. Option C (fail fast on missing key) — breaks zero-dependency promise entirely.
 
 ### DEV-2: memory_sign requires Mnemonik JWT (external service) [TECHNICAL]
 
@@ -402,23 +442,23 @@ User-spec describes `memory_sign` as a tool. Implementation requires `MNEMONIC_J
 
 ### Wave 1 — Foundation + config (parallel)
 
-#### Task 1: config.ts + gbrain gateway init + LocalAdapter synthesis
+#### Task 1: config.ts + gbrain gateway init + LocalAdapter synthesis + gbrain patch
 
-**Description:** Three tightly coupled gaps to close together. (1) Write `config.ts`: read env vars, call `configureGateway({ provider, apiKey, model, embeddingModel })` at module-load time — first non-empty of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` wins; missing all → startup error with clear message. (2) Wire `LocalAdapter.synthesize()`: import `runThink` from `gbrain/think`, call `runThink(engine, { question })`, map `ThinkResponse` to our `{ answer, citations, gaps }` shape. (3) Confirm `PGLiteEngine.connect({ engine: 'pglite', dataDir })` + `initSchema()` call sequence is correct (per code-research).
+**Description:** Four tightly coupled gaps. (1) Patch `vendors/gbrain/package.json` to add export entry `"./think": "./src/core/think/index.ts"` — mirage fix (gbrain/think path doesn't exist in package.json yet). (2) Write `config.ts`: call `configureGateway()` at module-load; first non-empty of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` wins; missing all → startup warning (not crash) + BM25-only fallback mode (see DEV-1 resolution). (3) Wire `LocalAdapter.synthesize()`: import `runThink` from `gbrain/think`; call `runThink(engine, { question })`; map `ThinkResponse` to `{ answer, citations, gaps }`. (4) Confirm PGLite init sequence: `createEngine({ engine: 'pglite', dataDir })` from `gbrain/engine-factory` (not `createPgliteEngine()` — that function doesn't exist).
 **Skill:** write-code
 **Reviewers:** code-reviewer
-**Verify-smoke:** `OPENAI_API_KEY=sk-... MEMORY_BACKEND=local bun run -e "import('./packages/memory-hub/src/config.ts').then(c => c.getEngine()).then(e => console.log(e.kind))"` → prints `pglite`
-**Files to modify:** `packages/memory-hub/src/config.ts` (new), `packages/memory-hub/src/storage/local.ts`
-**Files to read:** `vendors/gbrain/src/core/pglite-engine.ts`, `vendors/gbrain/src/core/ai/gateway.ts`, `work/universal-memory-system/code-research.md`
+**Verify-smoke:** `MEMORY_BACKEND=local bun -e "const {createEngine} = await import('./vendors/gbrain/src/core/engine-factory.ts'); const e = await createEngine({engine:'pglite',dataDir:'/tmp/test-brain'}); await e.connect({}); await e.initSchema(); console.log(e.kind)"` → prints `pglite`
+**Files to modify:** `packages/memory-hub/src/config.ts` (new), `packages/memory-hub/src/storage/local.ts`, `vendors/gbrain/package.json` (add ./think export)
+**Files to read:** `vendors/gbrain/src/core/pglite-engine.ts`, `vendors/gbrain/src/core/engine-factory.ts`, `vendors/gbrain/src/core/think/index.ts`, `vendors/gbrain/src/core/ai/gateway.ts`
 
 #### Task 2: HTTP MCP transport + Bearer auth
 
-**Description:** Existing `server.ts` is stdio-only. Add HTTP mode: when `MEMORY_BACKEND=cloud`, start a `Bun.serve` HTTP server (port 3456) implementing MCP Streamable HTTP/SSE transport via `@modelcontextprotocol/sdk`'s `StreamableHTTPServerTransport`. Before MCP dispatch: check `Authorization: Bearer <MEMORY_API_KEY>` header — return 401 JSON on missing or wrong key. Stdio mode unchanged (no auth needed — local process).
+**Description:** Existing `server.ts` is stdio-only. Add HTTP mode: when `MEMORY_BACKEND=cloud`, start `Bun.serve` HTTP server (port 3456). **First: verify actual MCP SDK HTTP transport class name** — check `@modelcontextprotocol/sdk` exports; if `StreamableHTTPServerTransport` absent, use gbrain's own `serve-http.ts` as pattern reference. Auth middleware: validate `Authorization: Bearer` using `crypto.timingSafeEqual()` (D10) — 401 JSON on failure. Stdio mode unchanged. Implement `scrubSecrets()` helper (D13) for log sanitization.
 **Skill:** write-code
 **Reviewers:** code-reviewer, security-auditor
-**Verify-smoke:** `MEMORY_BACKEND=cloud MEMORY_API_KEY=test123 bun run packages/memory-hub/src/mcp/server.ts &` then `curl -H "Authorization: Bearer wrong" http://localhost:3456/mcp` → 401; `curl -H "Authorization: Bearer test123" http://localhost:3456/mcp` → MCP response.
+**Verify-smoke:** `MEMORY_BACKEND=cloud MEMORY_API_KEY=test123 bun run packages/memory-hub/src/mcp/server.ts &` then `curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer wrong" http://localhost:3456/mcp` → `401`; `curl -s -H "Authorization: Bearer test123" http://localhost:3456/mcp` → 200 with MCP JSON.
 **Files to modify:** `packages/memory-hub/src/mcp/server.ts`, `packages/memory-hub/src/mcp/http.ts` (new), `packages/memory-hub/src/mcp/auth.ts` (new)
-**Files to read:** `vendors/gbrain/src/mcp/serve-http.ts` (reference pattern), `packages/memory-hub/src/mcp/server.ts`
+**Files to read:** `vendors/gbrain/src/mcp/serve-http.ts`, `node_modules/@modelcontextprotocol/sdk/dist/` (check actual exports)
 
 ### Wave 2 — Ingestion pipeline (after Wave 1)
 
@@ -484,14 +524,14 @@ User-spec describes `memory_sign` as a tool. Implementation requires `MNEMONIC_J
 **Files to modify:** `packages/memory-hub/src/**/*.test.ts`
 **Files to read:** All `packages/memory-hub/src/`
 
-#### Task 9: RUMBA eval harness + client config docs
+#### Task 9: RUMBA eval harness + client config docs for all 4 surfaces
 
-**Description:** Implement `packages/eval/` RUMBA adapter: `MemoryService` wrapping memory-hub MCP client (`add_one` → `memory_capture`, `get_relevant_memories` → `memory_search`). Run baseline eval (mem0 results from `research/RUMBA/`) and universal-memory eval; write results to `research/RUMBA/results/`. Write client config snippets for Claude Code, KimiClaw, Kini in README.
+**Description:** (1) Implement `packages/eval/` RUMBA adapter: `MemoryService` wrapping memory-hub MCP client (`add_one` → `memory_capture`, `get_relevant_memories` → `memory_search`). Run baseline eval and universal-memory eval; write results to `research/RUMBA/results/`. Pass criteria: RecallAccuracy@5 ≥ mem0 baseline, AnswerQuality ≥ 0.7 — hard-coded as assertions in harness. (2) Write client config snippets in README for ALL 4 surfaces: Claude Code (`mcpServers` in `.claude/settings.json`), KimiClaw (OpenClaw MCP config), Kini (MCP config), **Coding Fabric** (`CLAUDE.md` system prompt + MCP config). Include E2E-4 verification step: Fabric agent invokes `memory_capture` + `memory_think` during a task.
 **Skill:** write-code
 **Reviewers:** test-reviewer
-**Verify-smoke:** `cd packages/eval && python run.py --service universal-memory --backend local` — runs without crash, outputs JSON results file.
-**Files to modify:** `packages/eval/adapters/universal_memory.py`, `packages/eval/run.py`, `README.md`
-**Files to read:** `research/RUMBA/services/interface.py`, `research/RUMBA/evaluation/`
+**Verify-smoke:** `cd packages/eval && python run.py --service universal-memory --backend local 2>&1 | grep -E "RecallAccuracy|AnswerQuality|PASS|FAIL"` — outputs metric lines without crash.
+**Files to modify:** `packages/eval/adapters/universal_memory.py`, `packages/eval/run.py`, `README.md`, `adapters/fabric/CLAUDE.md` (new — Fabric agent system prompt with MCP config)
+**Files to read:** `research/RUMBA/services/interface.py`, `research/RUMBA/evaluation/`, `adapters/fabric/patterns/`
 
 ### Audit Wave (parallel, after Wave 6)
 
