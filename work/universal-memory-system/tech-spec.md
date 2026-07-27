@@ -407,22 +407,30 @@ All gbrain library exports: `gbrain/pglite-engine`, `gbrain/engine`, `gbrain/sea
 
 ## User-Spec Deviations
 
-### DEV-1: LLM API key required for local mode [PENDING USER APPROVAL]
+### DEV-1: LLM API key required for local mode — RESOLVED
 
-**User-spec says:** "Работает без прав администратора — никакого sudo, никаких системных сервисов, никаких глобальных установок."
+**Resolution: A by default + suggest B during setup.**
 
-**Tech-spec does differently:** Local mode needs an LLM API key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) for embedding (memory_capture) and synthesis (memory_think). No admin rights — just an API key from an external service.
+**Default behaviour (no key, no Ollama):**
+- `memory_capture` stores text, skips vector embedding → BM25-only mode
+- `memory_search` runs BM25 keyword search (no semantic ranking)
+- `memory_think` returns: `"Synthesis requires LLM. Run 'bunx universal-memory setup' or set OPENAI_API_KEY."`
+- Startup log: `"[universal-memory] Running in BM25-only mode. For semantic search, set OPENAI_API_KEY or run setup."`
 
-**Why:** gbrain uses vector embeddings for hybrid search. Without embeddings, search degrades to BM25 keyword-only and synthesis is unavailable.
+**Optional upgrade — Ollama (suggested during `bunx universal-memory setup`):**
+- Setup script detects if Ollama is available at `localhost:11434`
+- If not found → prints: `"Optional: install Ollama for local semantic embeddings (no API key needed): https://ollama.com"`
+- If Ollama present → auto-configures `nomic-embed-text` model for embeddings
+- Synthesis still requires an LLM (Ollama model or cloud key)
 
-**Recommended resolution — Option A (implemented in Task 1):**
-- No LLM key set → `memory_capture` stores text but skips vector embedding (BM25-only mode)
-- `memory_search` uses BM25 keyword search only (still useful, just less semantic)
-- `memory_think` returns error: `"Synthesis requires LLM key. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."`
-- Startup log: `"Universal Memory running in BM25-only mode (no LLM key configured)"`
-- Zero-dependency basic search works out of the box; full semantic search requires API key
+**Auto-detection priority (config.ts):**
+```
+OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY → full semantic + synthesis
+OLLAMA_BASE_URL or localhost:11434 reachable        → semantic embeddings, synthesis via Ollama model
+neither                                              → BM25-only, no synthesis
+```
 
-**Alternatives:** Option B (local embedding via Ollama) — adds binary dependency, more complex. Option C (fail fast on missing key) — breaks zero-dependency promise entirely.
+**Zero admin rights preserved:** Ollama is optional and user-installable. Default mode works with zero external dependencies.
 
 ### DEV-2: memory_sign requires Mnemonik JWT (external service) [TECHNICAL]
 
@@ -436,7 +444,9 @@ User-spec describes `memory_sign` as a tool. Implementation requires `MNEMONIC_J
 - [ ] PGLite initializes in `~/.universal-memory/brain/` (or `MEMORY_DATA_DIR`) on first run.
 - [ ] Cloud mode: `docker compose up memory-hub postgres -d` starts both services; nginx `memory.` subdomain returns 401 on missing auth.
 - [ ] Cloud mode: correct Bearer → MCP tools/list returns 7 tools.
-- [ ] DEV-1 resolution implemented (Option A or B or C, per user decision).
+- [ ] DEV-1: `bun run packages/memory-hub/src/mcp/server.ts` works with zero env vars — BM25-only mode, no crash.
+- [ ] DEV-1: `bunx universal-memory setup` detects Ollama at localhost:11434 and prints config suggestion if absent.
+- [ ] DEV-1: With `OPENAI_API_KEY` set → full semantic search + synthesis works.
 
 ## Implementation Tasks
 
@@ -444,7 +454,7 @@ User-spec describes `memory_sign` as a tool. Implementation requires `MNEMONIC_J
 
 #### Task 1: config.ts + gbrain gateway init + LocalAdapter synthesis + gbrain patch
 
-**Description:** Four tightly coupled gaps. (1) Patch `vendors/gbrain/package.json` to add export entry `"./think": "./src/core/think/index.ts"` — mirage fix (gbrain/think path doesn't exist in package.json yet). (2) Write `config.ts`: call `configureGateway()` at module-load; first non-empty of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` wins; missing all → startup warning (not crash) + BM25-only fallback mode (see DEV-1 resolution). (3) Wire `LocalAdapter.synthesize()`: import `runThink` from `gbrain/think`; call `runThink(engine, { question })`; map `ThinkResponse` to `{ answer, citations, gaps }`. (4) Confirm PGLite init sequence: `createEngine({ engine: 'pglite', dataDir })` from `gbrain/engine-factory` (not `createPgliteEngine()` — that function doesn't exist).
+**Description:** Foundation setup with four sub-tasks. (1) Patch `vendors/gbrain/package.json`: add `"./think": "./src/core/think/index.ts"` export — mirage fix. (2) Write `config.ts`: auto-detect provider (OpenAI key → full mode; Ollama at localhost:11434 → local embeddings mode; neither → BM25-only); call `configureGateway()` if provider available; missing → log warning + BM25 fallback, no crash. Add `bunx universal-memory setup` CLI that probes Ollama and prints setup suggestions. (3) Wire `LocalAdapter.synthesize()` via `runThink(engine, { question })` from `gbrain/think`; handle no-LLM case with clear error. (4) Confirm PGLite init via `createEngine({ engine: 'pglite', dataDir })` from `gbrain/engine-factory`.
 **Skill:** write-code
 **Reviewers:** code-reviewer
 **Verify-smoke:** `MEMORY_BACKEND=local bun -e "const {createEngine} = await import('./vendors/gbrain/src/core/engine-factory.ts'); const e = await createEngine({engine:'pglite',dataDir:'/tmp/test-brain'}); await e.connect({}); await e.initSchema(); console.log(e.kind)"` → prints `pglite`
