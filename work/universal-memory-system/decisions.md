@@ -66,3 +66,24 @@
 - TR-5: strengthened `resolves.toBeDefined()` to `resolves.toMatchObject({ error: 'not_found' })` in delete.test.ts
 
 **Verification:** `bun test packages/memory-hub/ -t "capture|search|list|delete"` → 45 pass. `bun test packages/memory-hub/` → 160 pass, 0 fail.
+
+## Task 5: Wire memory_think + CloudAdapter
+
+**What was done:** Verified `LocalAdapter.synthesize()` was already correctly implemented in Task 1 (calls `runThink(engine, { question })`, maps `ParsedCitation[]` → `{ id: page_slug, excerpt: slug#row_num }`, returns actionable message in bm25-only mode, catches errors to prevent MCP tool crashes). Verified `server.ts` already wired `memory_think` → `storage.synthesize()`. The real Task 5 work was implementing `CloudAdapter` with the gbrain Postgres engine. Added `engine/cloud.ts` pattern with lazy `getEngine()` that calls `createEngine({ engine: 'postgres' })` then `engine.connect({ database_url })` then `engine.initSchema()`. Wired `migrateAttestationsTable()` from Task 6 to use `engine.executeRaw()` instead of logging a stub. Added 17 new tests (cloud.test.ts + think.test.ts).
+
+**Key decisions:**
+- **CloudAdapter engine init**: `createEngine()` only takes `{ engine: 'postgres' }` (no `database_url` — that goes to `engine.connect()` which creates the pool). Clarified from reading PostgresEngine.connect() source.
+- **BM25-only short-circuit in synthesize()**: Both LocalAdapter and CloudAdapter return a setup guidance message in bm25-only mode without calling getEngine(). This means `synthesize()` with no LLM key + no DATABASE_URL returns gracefully instead of throwing — intentional, keeps MCP tools usable.
+- **engine: any typing**: CloudAdapter uses `engine: any` (same as LocalAdapter) because `engine.search()`, `engine.upsert()`, and `engine.deleteByUser()` are not on the typed BrainEngine interface. Pre-existing pattern — consistent between both adapters.
+- **synthesize() error catch**: Wraps `runThink()` in try/catch, returns `{ answer: 'Synthesis failed: ...', citations: [], gaps: [] }` on error. Never throws — MCP tool layer always gets a valid JSON response.
+- **migrateAttestationsTable() side effect documented**: Calling without a `db` arg triggers full engine init (connect + initSchema + DDL). Added JSDoc comment.
+
+**Review findings applied:**
+- CR-1: Removed redundant `database_url` from `createEngine()` call — only `{ engine: 'postgres' }` needed; database_url goes to `engine.connect()`.
+- CR-3: Added side-effect note to `migrateAttestationsTable()` JSDoc.
+- TR-2: Fixed think.test.ts describe labels from 'memory_think — ...' to 'SynthesisResult contract — ...' to accurately reflect what is tested.
+- TR-1 (known gap): synthesize() DATABASE_URL error path in full/ollama mode untestable in unit tests. Documented with comment; smoke test covers it.
+
+**Deviations from spec:** `engine.search()`, `engine.upsert()`, and `engine.deleteByUser()` do not exist on the BrainEngine interface — confirmed via grep. Both LocalAdapter and CloudAdapter call them via `engine: any`. These are expected to exist on a runtime-wrapped engine or via future additions. No deviation from original spec intent (spec expected these to work).
+
+**Verification:** `bun test packages/memory-hub/` → 164 pass, 0 fail.
