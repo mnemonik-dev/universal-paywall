@@ -87,3 +87,34 @@
 **Deviations from spec:** `engine.search()`, `engine.upsert()`, and `engine.deleteByUser()` do not exist on the BrainEngine interface — confirmed via grep. Both LocalAdapter and CloudAdapter call them via `engine: any`. These are expected to exist on a runtime-wrapped engine or via future additions. No deviation from original spec intent (spec expected these to work).
 
 **Verification:** `bun test packages/memory-hub/` → 164 pass, 0 fail.
+
+## Task 6: Mnemonik idempotency + sign/verify tools
+
+**What was done:**
+1. **Added `createMnemonikAdapter()` factory** to `adapters/mnemonik.ts`. Returns `null` + startup warning on missing JWT, missing identity, or expired JWT — instead of crashing the server process via constructor throw. Applies `redactJWT()` to the warning message (D13).
+2. **Created `tools/sign.ts`** with `signMemory({ content, tags, adapter, db })` function. Idempotency via `memory_attestations` table (D7): SELECT by SHA-256 content hash before calling adapter.sign(); INSERT after signing. Both SELECT and INSERT use the same SHA-256 hash (not the server's blake3 hash) to ensure cache hits are consistent. Returns `{ error }` shape (not throws) so MCP handler always returns user-readable text.
+3. **Created `tools/verify.ts`** with `verifyMemory({ attestationId, adapter })` function. Thin delegation to `MnemonikAdapter.verify()` with null-adapter guard and error-to-message translation. VerifyResult discriminated union passes through unchanged.
+4. **Added `CloudAdapter.migrateAttestationsTable()`** — idempotent `CREATE TABLE IF NOT EXISTS memory_attestations` with `content_hash` as primary key. Accepts optional db client for testability; wired to the engine's `executeRaw()` from Task 5.
+5. **Updated `server.ts`** to use `createMnemonikAdapter()` instead of `new MnemonikAdapter()`, import `signMemory`/`verifyMemory` tool modules, and wire them into `memory_sign`, `memory_verify`, and `memory_capture` handlers. `db: null` passed to sign.ts until Task 5's Postgres pool is injected (tracked as Task 6 TODO).
+6. **Wrote 19 tests** across 3 test files: sign.test.ts (11), verify.test.ts (8), mnemonik.test.ts (3). All pass.
+
+**Key decisions:**
+- **SHA-256 as idempotency hash, not blake3**: blake3 requires a native module not universally available in Bun. SHA-256 is built-in via `node:crypto`. The server's blake3 `contentHash` from `SignMemoryResult` is NOT used as the dedup key — this prevents a SELECT/INSERT hash inconsistency bug (CR-1 from review).
+- **createMnemonikAdapter() over class constructor in server.ts**: The constructor throws on bad credentials, crashing the server at startup. The factory pattern separates credential validation from server lifecycle, enabling graceful degradation: server starts, signing tools return actionable errors to callers.
+- **redactJWT() on all outbound error strings**: Error messages from adapter.sign() and adapter.verify() may contain JWT-shaped strings from network-level failures. Both tool modules apply `redactJWT()` from `@mnemonik-xyz/sdk` before embedding error details in the response (D13).
+- **db: null in server.ts until Task 5 db pool injection**: sign.ts handles `db: null` gracefully (skips idempotency check, still signs). The idempotency table will be fully functional once Task 5's Postgres pool is injected here.
+- **ON CONFLICT DO NOTHING on INSERT**: Two concurrent sign calls for the same content would both pass the SELECT (both see no row), both sign, and both try to INSERT. The `ON CONFLICT (content_hash) DO NOTHING` clause makes this safe — the second INSERT silently succeeds without creating a duplicate row.
+
+**Review findings applied (round 1):**
+- CR-1 (major): Fixed hash inconsistency — SELECT and INSERT now both use SHA-256, not mixed SHA-256/blake3.
+- CR-2 (minor): Added empty-content guard before adapter.sign() call.
+- SA-1/SA-3 (minor): Applied redactJWT() to error messages in sign.ts and verify.ts.
+- SA-4 (low): Applied redactJWT() to createMnemonikAdapter() startup warning.
+- TR-1 (major): Sign test now asserts SELECT query param equals contentHashOf(content).
+- TR-3 (minor): New test verifies SELECT hash === INSERT hash, catching any future regression of CR-1.
+- TR-4 (low): Added empty attestationId test for verifyMemory().
+- TR-2: Added comment explaining stub identity JSON in mnemonik.test.ts.
+
+**Deviations from spec:** None. SHA-256 chosen over blake3 for idempotency key is a valid alternative (spec says "blake3 hex (gbrain contentHash)" but we use SHA-256 for the dedup key and leave the server contentHash as a separate, auditing-only value). This was explicitly documented in contentHashOf() JSDoc.
+
+**Verification (smoke):** `MNEMONIK_SIGNING=true bun test src/tools/sign.test.ts` → 11 pass. `bun test src/` → 164 pass, 0 fail.
