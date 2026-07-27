@@ -1,0 +1,53 @@
+{
+  "reviewer": "security-auditor",
+  "task": "3",
+  "round": 1,
+  "timestamp": "2026-07-27T00:00:00Z",
+  "summary": "SSRF mitigations are solid. Path traversal protection is correct (symlink resolved before allowlist check). Two critical findings must be fixed.",
+  "findings": [
+    {
+      "id": "SA-1",
+      "severity": "critical",
+      "file": "packages/memory-hub/src/ingest/fetcher.ts",
+      "line": "84-86",
+      "finding": "DNS rebinding / SSRF bypass: the IP-based SSRF check only validates the URL hostname at dispatch time. If the hostname is a public domain that DNS-resolves to a private IP at request time (DNS rebinding attack), the check is bypassed. This is an inherent limitation of pre-flight IP validation. Since we can't resolve DNS before fetch in a platform-agnostic way, a comment should document this limitation and mention that production deployments should use a network-level egress firewall (e.g. iptables DROP for RFC1918 ranges) as the true mitigation.",
+      "action": "add_comment_documenting_limitation"
+    },
+    {
+      "id": "SA-2",
+      "severity": "critical",
+      "file": "packages/memory-hub/src/ingest/fetcher.ts",
+      "line": "324-326",
+      "finding": "IPv6 private range addresses (fc00::/7 ULA, fe80::/10 link-local) are not blocked — only ::1 is checked. An attacker could supply http://[fc00::1]/internal to reach internal IPv6-only services. Add checks for fc00::/7 and fe80::/10 IPv6 ranges, or add a general 'block all IPv6 except known-public' policy if that's acceptable.",
+      "action": "fix"
+    },
+    {
+      "id": "SA-3",
+      "severity": "major",
+      "file": "packages/memory-hub/src/ingest/file.ts",
+      "line": "130-145",
+      "finding": "The `assertPathAllowed` check on the unresolved `absolutePath` runs before `existsSync`. If the file doesn't exist at `absolutePath` but DOES exist after resolving a symlink at a different location, the order-of-check-to-time-of-use (TOCTOU) window is small but worth noting. Current code: check allowlist → existsSync → realpath → check allowlist again. The second allowlist check (post-realpath) is the security-effective one. The first check (pre-realpath, line 130) is defense-in-depth. This order is CORRECT — just add a comment clarifying why both checks exist.",
+      "action": "add_comment_for_clarity"
+    },
+    {
+      "id": "SA-4",
+      "severity": "major",
+      "file": "packages/memory-hub/src/ingest/fetcher.ts",
+      "line": "290-295",
+      "finding": "The `User-Agent` header includes a GitHub URL. This reveals the software stack to third-party servers being fetched. Low risk for this use case, but consider making it configurable or less specific (e.g. 'universal-memory-hub/1.0').",
+      "action": "low_priority"
+    },
+    {
+      "id": "SA-5",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/file.ts",
+      "line": "136",
+      "finding": "The error message `File not found: ${absolutePath}` after the allowlist check reveals whether the file exists (before symlink resolution). An attacker could probe for file existence by observing whether they get PathNotAllowedError vs 'File not found'. The allowlist check is already done first, so only allowed-dir paths reach this branch — acceptable, but note that allowed-dir enumeration is still possible via the 'file not found' message.",
+      "action": "acceptable_risk_note"
+    }
+  ],
+  "verdict": "approve_with_fixes",
+  "required_fixes": ["SA-2"],
+  "recommended": ["SA-1"],
+  "optional": ["SA-3", "SA-4", "SA-5"]
+}

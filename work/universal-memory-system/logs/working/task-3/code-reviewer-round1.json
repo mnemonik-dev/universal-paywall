@@ -1,0 +1,52 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "3",
+  "round": 1,
+  "timestamp": "2026-07-27T00:00:00Z",
+  "summary": "Implementation is well-structured with good separation of concerns. Several findings worth addressing.",
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/pipeline.ts",
+      "line": "55-56",
+      "finding": "The `spyOn` mock in pipeline.test.ts intercepts fetcher calls correctly, but `pipeline.ts` imports `fetchUrl` directly from `./fetcher.js` — so `spyOn(fetcherMod, 'fetchUrl')` only works when pipeline.ts also imports from the same module reference. This is fragile in Bun's ESM: if pipeline.ts ever uses a bundled/inlined version of fetchUrl, the spy won't fire. Acceptable for now since both import from the same path, but worth a code comment explaining the spy dependency.",
+      "action": "low_priority_note"
+    },
+    {
+      "id": "CR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/pipeline.ts",
+      "line": "147-168",
+      "finding": "The image file path branch duplicates the `add()` call with `source: source ?? 'file'`. The URL-fetched text path uses the original `source` without fallback. This asymmetry is intentional but inconsistent: image files default to 'file', text from files uses the caller-supplied source (which may be undefined). Either apply the same fallback everywhere or document why image gets 'file' default.",
+      "action": "clarify_or_fix"
+    },
+    {
+      "id": "CR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/fetcher.ts",
+      "line": "234-240",
+      "finding": "The redirect loop reads `response.body?.getReader()` which can be null if the server sends a redirect with no body. The redirect branch is handled above, so this null check only fires for 200 OK responses. But the guard `if (!reader)` throws a generic error. Consider providing a better message: 'Empty response body from <url>'.",
+      "action": "improve_error_message"
+    },
+    {
+      "id": "CR-4",
+      "severity": "major",
+      "file": "packages/memory-hub/src/ingest/fetcher.ts",
+      "line": "192-200",
+      "finding": "The `htmlToText` function catches Readability errors silently (`catch {}`) then falls through to a JSDOM text extraction. If JSDOM itself also fails, it falls through to returning raw HTML (which will contain `<script>` tags, etc. in the stored content). The final `catch { return html }` means users could store raw HTML with scripts. Consider stripping HTML tags explicitly in the final fallback instead of returning `html` verbatim.",
+      "action": "fix_security_hygiene"
+    },
+    {
+      "id": "CR-5",
+      "severity": "low",
+      "file": "packages/memory-hub/src/ingest/file.ts",
+      "line": "166-178",
+      "finding": "PDF parse error fallback reads the raw bytes as UTF-8 and returns them, which produces garbled binary for actual PDFs (the fallback only makes sense for text files accidentally named .pdf). Should log a warning and return an empty content with error note rather than garbage bytes.",
+      "action": "fix"
+    }
+  ],
+  "verdict": "approve_with_fixes",
+  "required_fixes": ["CR-4", "CR-5"],
+  "optional": ["CR-1", "CR-2", "CR-3"]
+}
