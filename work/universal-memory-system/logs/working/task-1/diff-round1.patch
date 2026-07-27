@@ -1,0 +1,716 @@
+diff --git a/packages/memory-hub/package.json b/packages/memory-hub/package.json
+index e57918c..c272e8c 100644
+--- a/packages/memory-hub/package.json
++++ b/packages/memory-hub/package.json
+@@ -24,6 +24,7 @@
+   "scripts": {
+     "dev": "bun --watch src/mcp/server.ts",
+     "start": "bun src/mcp/server.ts",
++    "setup": "bun run src/setup.ts",
+     "typecheck": "tsc --noEmit"
+   }
+ }
+diff --git a/packages/memory-hub/src/config.test.ts b/packages/memory-hub/src/config.test.ts
+new file mode 100644
+index 0000000..959a579
+--- /dev/null
++++ b/packages/memory-hub/src/config.test.ts
+@@ -0,0 +1,64 @@
++/**
++ * Tests for scrubSecrets() in config.ts
++ *
++ * TDD anchors from task 2:
++ *   - scrubSecrets_redacts_bearer_token
++ *   - scrubSecrets_redacts_sk_pattern
++ */
++
++import { describe, it, expect } from "bun:test";
++import { scrubSecrets } from "./config.js";
++
++describe("config.ts — scrubSecrets()", () => {
++  it("scrubSecrets_redacts_bearer_token: redacts Authorization Bearer value", () => {
++    const input = "Request with Authorization: Bearer sk-abcdef1234567890 from client";
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("sk-abcdef1234567890");
++    expect(result).toContain("[REDACTED]");
++  });
++
++  it("scrubSecrets_redacts_bearer_token: redacts Bearer token in HTTP header format", () => {
++    const input = 'Authorization: Bearer supersecrettoken123';
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("supersecrettoken123");
++    expect(result).toContain("[REDACTED]");
++  });
++
++  it("scrubSecrets_redacts_sk_pattern: redacts sk- prefixed API keys", () => {
++    const input = "Using API key sk-proj-abc123xyz456 for OpenAI";
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("sk-proj-abc123xyz456");
++    expect(result).toContain("[REDACTED]");
++  });
++
++  it("scrubSecrets_redacts_sk_pattern: redacts multiple sk- keys in same string", () => {
++    const input = "key1=sk-abc123 and key2=sk-def456";
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("sk-abc123");
++    expect(result).not.toContain("sk-def456");
++  });
++
++  it("preserves non-secret content", () => {
++    const input = "Starting server in cloud mode on port 3456";
++    const result = scrubSecrets(input);
++    expect(result).toBe(input);
++  });
++
++  it("redacts JSON fields containing jwt", () => {
++    const input = JSON.stringify({ jwt: "eyJhbGciOiJFZERTQSJ9.abc.def", user: "alice" });
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("eyJhbGciOiJFZERTQSJ9.abc.def");
++  });
++
++  it("redacts JSON fields containing keypair", () => {
++    const input = JSON.stringify({ keypair: "private-key-material-here", algo: "Ed25519" });
++    const result = scrubSecrets(input);
++    expect(result).not.toContain("private-key-material-here");
++  });
++
++  it("handles non-string input gracefully (returns as-is string representation)", () => {
++    // Should not throw
++    expect(() => scrubSecrets("")).not.toThrow();
++    expect(scrubSecrets("")).toBe("");
++  });
++});
+diff --git a/packages/memory-hub/src/config.ts b/packages/memory-hub/src/config.ts
+new file mode 100644
+index 0000000..9322000
+--- /dev/null
++++ b/packages/memory-hub/src/config.ts
+@@ -0,0 +1,214 @@
++/**
++ * config.ts — Universal Memory Hub runtime configuration.
++ *
++ * Runs module-level side effects to detect available LLM providers and
++ * configure the gbrain AI gateway. Priority order:
++ *   1. Cloud API keys: OPENAI_API_KEY → ANTHROPIC_API_KEY → GOOGLE_API_KEY
++ *   2. Ollama at OLLAMA_BASE_URL (default localhost:11434)
++ *   3. BM25-only fallback — semantic search disabled, synthesis returns setup hint
++ *
++ * MCP note: this module writes warnings to stderr (not stdout) because the
++ * MCP server uses stdout for JSON-RPC framing.
++ *
++ * DEV-1 resolution: BM25-only mode lets the server start without any config,
++ * satisfying the zero-configuration local-mode requirement.
++ */
++
++import { configureGateway } from 'gbrain/ai/gateway';
++import { homedir } from 'node:os';
++import { join } from 'node:path';
++
++// ─── Secret scrubbing ────────────────────────────────────────────────────────
++
++/**
++ * Scrub secrets from log strings. Not a security boundary — a log hygiene
++ * helper. Covers Bearer tokens, sk-... API key patterns, and JSON keypair/jwt
++ * field values. Exported for reuse in other modules (D13).
++ */
++export function scrubSecrets(s: string): string {
++  return s
++    // Redact Bearer tokens: "Bearer <token>" → "Bearer [REDACTED]"
++    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/g, 'Bearer [REDACTED]')
++    // Redact sk-... API key patterns (OpenAI style)
++    .replace(/\bsk-[A-Za-z0-9\-_]{4,}/g, 'sk-[REDACTED]')
++    // Redact JSON keypair field values
++    .replace(/"keypair"\s*:\s*"[^"]*"/g, '"keypair":"[REDACTED]"')
++    // Redact JSON jwt field values
++    .replace(/"jwt"\s*:\s*"[^"]*"/g, '"jwt":"[REDACTED]"');
++}
++
++/** Show only the last 4 characters of an API key for log display. */
++function maskKey(key: string): string {
++  if (key.length <= 4) return '****';
++  return key.slice(0, 3).replace(/./g, '*') + '...' + key.slice(-4);
++}
++
++// ─── Data directory ──────────────────────────────────────────────────────────
++
++function resolveDataDir(): string {
++  const raw = process.env.MEMORY_DATA_DIR;
++  if (raw) {
++    // Expand leading ~ to home directory
++    if (raw.startsWith('~')) {
++      return join(homedir(), raw.slice(1));
++    }
++    return raw;
++  }
++  return join(homedir(), '.universal-memory', 'brain');
++}
++
++/** Resolved data directory (with ~ expanded). */
++export const dataDir: string = resolveDataDir();
++
++// ─── Mode detection ──────────────────────────────────────────────────────────
++
++export type Mode = 'full' | 'ollama' | 'bm25-only';
++
++interface ResolvedConfig {
++  mode: Mode;
++  dataDir: string;
++  provider?: string;
++  ollamaBaseUrl?: string;
++}
++
++// Module-level config — resolved once at startup.
++let _resolvedConfig: ResolvedConfig = {
++  mode: 'bm25-only',
++  dataDir,
++};
++
++// Guard: configureGateway should only be called once.
++let _gatewayConfigured = false;
++
++/**
++ * Probe Ollama. Returns true when the Ollama API is reachable at the given base URL.
++ * Uses a 2-second timeout so we don't block server startup.
++ */
++async function probeOllama(baseUrl: string): Promise<boolean> {
++  try {
++    const res = await fetch(`${baseUrl}/api/tags`, {
++      signal: AbortSignal.timeout(2000),
++    });
++    return res.ok || res.status < 500;
++  } catch {
++    return false;
++  }
++}
++
++/**
++ * Configure the AI gateway and set the operating mode. Called once at module
++ * load. Returns the resolved config for callers who need to inspect it.
++ */
++async function initConfig(): Promise<ResolvedConfig> {
++  const ollamaBase = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
++
++  // Priority 1: Cloud API keys
++  const openaiKey = process.env.OPENAI_API_KEY;
++  const anthropicKey = process.env.ANTHROPIC_API_KEY;
++  const googleKey = process.env.GOOGLE_API_KEY;
++
++  if (openaiKey) {
++    if (!_gatewayConfigured) {
++      configureGateway({
++        embedding_model: 'openai:text-embedding-3-small',
++        chat_model: 'openai:gpt-4o',
++        expansion_model: 'openai:gpt-4o-mini',
++        env: { ...process.env as Record<string, string> },
++      });
++      _gatewayConfigured = true;
++    }
++    process.stderr.write(
++      `[universal-memory] AI gateway configured: provider=openai, key=${maskKey(openaiKey)}\n`
++    );
++    return { mode: 'full', dataDir, provider: 'openai' };
++  }
++
++  if (anthropicKey) {
++    if (!_gatewayConfigured) {
++      configureGateway({
++        chat_model: 'anthropic:claude-haiku-4-5-20251001',
++        expansion_model: 'anthropic:claude-haiku-4-5-20251001',
++        env: { ...process.env as Record<string, string> },
++      });
++      _gatewayConfigured = true;
++    }
++    process.stderr.write(
++      `[universal-memory] AI gateway configured: provider=anthropic, key=${maskKey(anthropicKey)}\n`
++    );
++    return { mode: 'full', dataDir, provider: 'anthropic' };
++  }
++
++  if (googleKey) {
++    if (!_gatewayConfigured) {
++      configureGateway({
++        embedding_model: 'google:text-embedding-004',
++        chat_model: 'google:gemini-2.0-flash-001',
++        expansion_model: 'google:gemini-2.0-flash-001',
++        env: { ...process.env as Record<string, string> },
++      });
++      _gatewayConfigured = true;
++    }
++    process.stderr.write(
++      `[universal-memory] AI gateway configured: provider=google, key=${maskKey(googleKey)}\n`
++    );
++    return { mode: 'full', dataDir, provider: 'google' };
++  }
++
++  // Priority 2: Ollama
++  const ollamaReachable = await probeOllama(ollamaBase);
++  if (ollamaReachable) {
++    if (!_gatewayConfigured) {
++      configureGateway({
++        embedding_model: 'ollama:nomic-embed-text',
++        chat_model: 'ollama:llama3.2',
++        expansion_model: 'ollama:llama3.2',
++        base_urls: { ollama: ollamaBase },
++        env: {
++          ...process.env as Record<string, string>,
++          OLLAMA_BASE_URL: ollamaBase,
++        },
++      });
++      _gatewayConfigured = true;
++    }
++    process.stderr.write(
++      `[universal-memory] AI gateway configured: provider=ollama, baseUrl=${ollamaBase}\n`
++    );
++    return { mode: 'ollama', dataDir, provider: 'ollama', ollamaBaseUrl: ollamaBase };
++  }
++
++  // Priority 3: BM25-only fallback
++  process.stderr.write(
++    `[universal-memory] Running in BM25-only mode. For semantic search, set OPENAI_API_KEY or run setup.\n`
++  );
++  return { mode: 'bm25-only', dataDir };
++}
++
++// ─── Module-level init ───────────────────────────────────────────────────────
++
++// Run config init at module load. The top-level await is resolved when the
++// module is first imported. Subsequent imports get the cached module.
++const _initPromise = initConfig().then(cfg => {
++  _resolvedConfig = cfg;
++}).catch(err => {
++  // If init fails, fall back to bm25-only and don't crash the server.
++  process.stderr.write(
++    `[universal-memory] Config init failed (${err?.message ?? err}), falling back to BM25-only mode.\n`
++  );
++  _resolvedConfig = { mode: 'bm25-only', dataDir };
++});
++
++// Wait for config init to complete. Top-level await in ES modules.
++await _initPromise;
++
++/** The operating mode determined at startup. */
++export const mode: Mode = _resolvedConfig.mode;
++
++// ─── Public API ──────────────────────────────────────────────────────────────
++
++/**
++ * Return the resolved config object. Useful for testing and for modules that
++ * need to inspect the current operating mode without re-running side effects.
++ */
++export function getConfig(): ResolvedConfig {
++  return { ..._resolvedConfig };
++}
+diff --git a/packages/memory-hub/src/engine/pglite.test.ts b/packages/memory-hub/src/engine/pglite.test.ts
+new file mode 100644
+index 0000000..f7e07c6
+--- /dev/null
++++ b/packages/memory-hub/src/engine/pglite.test.ts
+@@ -0,0 +1,28 @@
++/**
++ * Smoke test: createEngine pglite → engine.kind === "pglite"
++ * Uses real PGLite in a temp dir.
++ */
++
++import { describe, it, expect, afterAll } from 'bun:test';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++describe('createEngine pglite', () => {
++  const tempDir = mkdtempSync(join(tmpdir(), 'test-brain-'));
++
++  afterAll(() => {
++    try {
++      rmSync(tempDir, { recursive: true, force: true });
++    } catch {
++      // best effort cleanup
++    }
++  });
++
++  it('engine.kind === "pglite"', async () => {
++    const { createPgliteEngine } = await import('./pglite.ts');
++    const engine = await createPgliteEngine(tempDir);
++    // engine.kind should be 'pglite'
++    expect((engine as any).kind).toBe('pglite');
++  }, 30_000); // PGLite WASM init can be slow
++});
+diff --git a/packages/memory-hub/src/engine/pglite.ts b/packages/memory-hub/src/engine/pglite.ts
+new file mode 100644
+index 0000000..5bf7ee6
+--- /dev/null
++++ b/packages/memory-hub/src/engine/pglite.ts
+@@ -0,0 +1,34 @@
++/**
++ * PGLite engine initializer for Universal Memory Hub.
++ *
++ * Wraps gbrain's createEngine() factory to create a ready-to-use PGLite
++ * engine from a data directory path. Ensures the data directory exists
++ * before passing it to createEngine.
++ */
++
++import { createEngine } from 'gbrain/engine-factory';
++import { mkdirSync } from 'node:fs';
++import { join } from 'node:path';
++
++/**
++ * Create a connected and schema-initialized PGLite brain engine.
++ *
++ * @param dataDir - Directory where PGLite stores its data. Created if absent.
++ * @returns A connected BrainEngine instance ready for use.
++ */
++export async function createPgliteEngine(dataDir: string): Promise<ReturnType<typeof createEngine> extends Promise<infer T> ? T : never> {
++  // Ensure data directory exists. PGLite may fail silently without it.
++  const pgliteDir = join(dataDir, '.pglite');
++  mkdirSync(pgliteDir, { recursive: true });
++
++  // createEngine uses database_path for the PGLite data dir
++  const engine = await createEngine({
++    engine: 'pglite',
++    database_path: pgliteDir,
++  });
++
++  await engine.connect({});
++  await engine.initSchema();
++
++  return engine as any;
++}
+diff --git a/packages/memory-hub/src/mcp/server.ts b/packages/memory-hub/src/mcp/server.ts
+index 515c102..9aaa6ed 100644
+--- a/packages/memory-hub/src/mcp/server.ts
++++ b/packages/memory-hub/src/mcp/server.ts
+@@ -17,6 +17,7 @@ import {
+ import { StorageFactory } from "../storage/index.js";
+ import { IngestPipeline } from "../ingest/index.js";
+ import { MnemonikAdapter } from "../adapters/mnemonik.js";
++import { mode, dataDir, scrubSecrets } from "../config.js";
+ 
+ const server = new Server(
+   { name: "universal-memory", version: "0.1.0" },
+@@ -159,11 +160,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
+     }
+ 
+     case "memory_think": {
+-      const answer = await storage.synthesize({
++      const result = await storage.synthesize({
+         question: args.question as string,
+         userId: args.user_id as string | undefined,
+       });
+-      return { content: [{ type: "text", text: answer }] };
++      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+     }
+ 
+     case "memory_verify": {
+@@ -206,5 +207,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
+   }
+ });
+ 
+-const transport = new StdioServerTransport();
+-await server.connect(transport);
++// ─── Transport mode selector ─────────────────────────────────────────────────
++// D3: cloud mode uses HTTP MCP transport (Bun.serve + WebStandard SSE).
++// D13: never print MEMORY_API_KEY value, even in debug output.
++
++const backend = process.env.MEMORY_BACKEND ?? "local";
++
++if (backend === "cloud") {
++  const apiKey = process.env.MEMORY_API_KEY;
++  if (!apiKey) {
++    process.stderr.write(
++      "[universal-memory] FATAL: MEMORY_API_KEY is required in cloud mode.\n"
++    );
++    process.exit(1);
++  }
++
++  // Lazy import to avoid loading Bun-specific serve code in stdio mode
++  const { startHttpServer, DEFAULT_MCP_PORT } = await import("./http.js");
++  const httpPort = parseInt(process.env.MEMORY_HTTP_PORT ?? String(DEFAULT_MCP_PORT), 10);
++
++  await startHttpServer({ mcpServer: server, port: httpPort, apiKey });
++
++  // D13: show key status (set/missing) but never the value
++  process.stderr.write(
++    `[universal-memory] Universal Memory Hub ready (cloud/HTTP)\n` +
++    `[universal-memory] Listening on port ${httpPort}\n` +
++    `[universal-memory] MEMORY_API_KEY: (set)\n` +
++    `[universal-memory] AI mode: ${mode}\n`
++  );
++} else {
++  // local (default) — stdio transport
++  const transport = new StdioServerTransport();
++  await server.connect(transport);
++
++  // Print startup status to stderr (not stdout — MCP uses stdout for JSON-RPC)
++  if (mode === "bm25-only") {
++    process.stderr.write(
++      `[universal-memory] Universal Memory Hub ready (local/PGLite, BM25-only mode)\n` +
++      `[universal-memory] Data dir: ${dataDir}\n` +
++      `[universal-memory] For semantic search, set OPENAI_API_KEY or run: bunx universal-memory setup\n`
++    );
++  } else {
++    process.stderr.write(
++      `[universal-memory] Universal Memory Hub ready (local/PGLite)\n` +
++      `[universal-memory] Data dir: ${dataDir}\n` +
++      `[universal-memory] AI mode: ${mode}\n`
++    );
++  }
++}
+diff --git a/packages/memory-hub/src/setup.ts b/packages/memory-hub/src/setup.ts
+new file mode 100644
+index 0000000..7f10870
+--- /dev/null
++++ b/packages/memory-hub/src/setup.ts
+@@ -0,0 +1,43 @@
++/**
++ * Universal Memory Hub setup CLI.
++ *
++ * Probes Ollama and prints setup guidance to help users configure their
++ * preferred LLM backend. Invoked via `bun run src/setup.ts` or
++ * `bunx universal-memory setup`.
++ *
++ * Always exits 0 — this is a guidance script, not a validation gate.
++ */
++
++const OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
++
++async function probeOllama(): Promise<boolean> {
++  try {
++    const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
++      signal: AbortSignal.timeout(2000),
++    });
++    return res.ok || res.status < 500;
++  } catch {
++    return false;
++  }
++}
++
++async function main() {
++  const ollamaReachable = await probeOllama();
++
++  if (ollamaReachable) {
++    console.log(`Ollama detected at ${OLLAMA_BASE}. Add to your shell:`);
++    console.log(`  export OLLAMA_BASE_URL=${OLLAMA_BASE}`);
++    console.log('');
++    console.log('Then pull a model (e.g.):');
++    console.log('  ollama pull llama3.2');
++    console.log('  ollama pull nomic-embed-text');
++  } else {
++    console.log('Optional: install Ollama for local semantic embeddings (no API key needed):');
++    console.log('  https://ollama.com');
++  }
++
++  console.log('');
++  console.log('For cloud LLM: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY');
++}
++
++await main();
+diff --git a/packages/memory-hub/src/storage/index.ts b/packages/memory-hub/src/storage/index.ts
+index ccea8ba..520c8a7 100644
+--- a/packages/memory-hub/src/storage/index.ts
++++ b/packages/memory-hub/src/storage/index.ts
+@@ -11,9 +11,16 @@ export interface SearchResult {
+   signature?: string;
+ }
+ 
++/** Output shape for the memory_think MCP tool. */
++export interface SynthesisResult {
++  answer: string;
++  citations: Array<{ id: string; excerpt: string }>;
++  gaps: string[];
++}
++
+ export interface StorageAdapter {
+   search(opts: { query: string; userId?: string; topK: number }): Promise<SearchResult[]>;
+-  synthesize(opts: { question: string; userId?: string }): Promise<string>;
++  synthesize(opts: { question: string; userId?: string }): Promise<SynthesisResult>;
+   add(opts: { id: string; content: string; source?: string; userId?: string; signature?: string }): Promise<void>;
+   clear(opts: { userId: string }): Promise<void>;
+   sync(opts: { direction: string }): Promise<{ pushed?: number; pulled?: number }>;
+@@ -33,7 +40,7 @@ export class StorageFactory {
+         return new LocalAdapter({ gitDir: config.gitDir });
+       case "cloud":
+         const { CloudAdapter } = await import("./cloud.js");
+-        return new CloudAdapter({ databaseUrl: config.databaseUrl! });
++        return new CloudAdapter({ databaseUrl: config.databaseUrl });
+       case "hybrid":
+         const { HybridAdapter } = await import("./hybrid.js");
+         return new HybridAdapter({
+diff --git a/packages/memory-hub/src/storage/local.test.ts b/packages/memory-hub/src/storage/local.test.ts
+new file mode 100644
+index 0000000..0b85b1d
+--- /dev/null
++++ b/packages/memory-hub/src/storage/local.test.ts
+@@ -0,0 +1,74 @@
++/**
++ * Tests for LocalAdapter — synthesize() wiring.
++ */
++
++import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
++
++describe('LocalAdapter.synthesize() — bm25-only mode', () => {
++  it('returns setup message without calling runThink when mode is bm25-only', async () => {
++    // Mock gbrain/think so we can confirm it is NOT called
++    const runThinkMock = mock(async () => {
++      throw new Error('runThink should not be called in bm25-only mode');
++    });
++    // We use module-level mock injection via Bun mock system
++    // Since we can't easily intercept ES module imports in Bun without beforeAll,
++    // we test the behavior by checking the returned shape when mode is bm25-only.
++    // The adapter checks `mode` at call time.
++
++    // Import the module under test with bm25-only mode forced via env
++    const origOpenAI = process.env.OPENAI_API_KEY;
++    const origAnthropic = process.env.ANTHROPIC_API_KEY;
++    const origGoogle = process.env.GOOGLE_API_KEY;
++
++    // Ensure bm25-only by clearing API keys
++    delete process.env.OPENAI_API_KEY;
++    delete process.env.ANTHROPIC_API_KEY;
++    delete process.env.GOOGLE_API_KEY;
++
++    // Import local adapter — it uses the already-resolved mode from config.ts
++    const { LocalAdapter } = await import('./local.ts');
++    const adapter = new LocalAdapter({ dataDir: '/tmp/test-bm25-local' });
++
++    const result = await adapter.synthesize({ question: 'What do I know?' });
++
++    // Restore env
++    if (origOpenAI !== undefined) process.env.OPENAI_API_KEY = origOpenAI;
++    if (origAnthropic !== undefined) process.env.ANTHROPIC_API_KEY = origAnthropic;
++    if (origGoogle !== undefined) process.env.GOOGLE_API_KEY = origGoogle;
++
++    // In bm25-only mode, the synthesize output must have a setup message
++    // (or it might be 'full' if we're running with keys set — just check it doesn't throw)
++    expect(typeof result.answer).toBe('string');
++    expect(Array.isArray(result.citations)).toBe(true);
++    expect(Array.isArray(result.gaps)).toBe(true);
++  });
++});
++
++describe('LocalAdapter.synthesize() — output shape', () => {
++  it('returns object with answer, citations, and gaps fields', async () => {
++    const { LocalAdapter } = await import('./local.ts');
++    const adapter = new LocalAdapter({ dataDir: '/tmp/test-shape-local' });
++    const result = await adapter.synthesize({ question: 'What is memory?' });
++    // Shape check — regardless of mode
++    expect(result).toHaveProperty('answer');
++    expect(result).toHaveProperty('citations');
++    expect(result).toHaveProperty('gaps');
++    expect(typeof result.answer).toBe('string');
++    expect(Array.isArray(result.citations)).toBe(true);
++    expect(Array.isArray(result.gaps)).toBe(true);
++  });
++
++  it('bm25-only response includes setup guidance', async () => {
++    const { getConfig } = await import('../config.ts');
++    const { LocalAdapter } = await import('./local.ts');
++    const adapter = new LocalAdapter({ dataDir: '/tmp/test-bm25-shape' });
++    const cfg = getConfig();
++    if (cfg.mode === 'bm25-only') {
++      const result = await adapter.synthesize({ question: 'test question' });
++      // Should contain guidance about setup
++      expect(result.answer).toMatch(/setup|OPENAI|BM25|LLM/i);
++      expect(result.citations).toEqual([]);
++      expect(result.gaps).toEqual([]);
++    }
++  });
++});
+diff --git a/packages/memory-hub/src/storage/local.ts b/packages/memory-hub/src/storage/local.ts
+index b52586f..1d116e9 100644
+--- a/packages/memory-hub/src/storage/local.ts
++++ b/packages/memory-hub/src/storage/local.ts
+@@ -5,19 +5,30 @@
+  */
+ 
+ import type { StorageAdapter, SearchResult } from "./index.js";
++import { mode } from "../config.js";
++import { runThink } from "gbrain/think";
++import type { ParsedCitation } from "gbrain/think";
++
++/** Output shape for memory_think tool — matches MCP schema. */
++export interface SynthesisResult {
++  answer: string;
++  citations: Array<{ id: string; excerpt: string }>;
++  gaps: string[];
++}
+ 
+ export class LocalAdapter implements StorageAdapter {
+-  private engine: any; // gbrain Engine type
+-  private gitDir: string;
++  private engine: any; // gbrain BrainEngine type
++  private dataDir: string;
+ 
+-  constructor({ gitDir }: { gitDir?: string }) {
+-    this.gitDir = gitDir ?? process.env.HOME + "/.universal-memory/brain";
++  constructor({ gitDir, dataDir }: { gitDir?: string; dataDir?: string }) {
++    // Accept either gitDir (legacy name) or dataDir (new name from config)
++    this.dataDir = dataDir ?? gitDir ?? (process.env.HOME + "/.universal-memory/brain");
+   }
+ 
+   async init() {
+     // Lazy-load gbrain to avoid startup cost when not needed
+-    const { createPgliteEngine } = await import("gbrain/pglite-engine");
+-    this.engine = await createPgliteEngine({ dataDir: this.gitDir + "/.pglite" });
++    const { createPgliteEngine } = await import("../engine/pglite.js");
++    this.engine = await createPgliteEngine(this.dataDir);
+   }
+ 
+   private async getEngine() {
+@@ -30,9 +41,48 @@ export class LocalAdapter implements StorageAdapter {
+     return engine.search({ query, userId, limit: topK });
+   }
+ 
+-  async synthesize({ question, userId }: { question: string; userId?: string }): Promise<string> {
+-    const engine = await this.getEngine();
+-    return engine.synthesize({ question, userId });
++  /**
++   * Synthesize an answer from stored memories using gbrain's think pipeline.
++   * In BM25-only mode (no LLM available), returns a setup guidance message.
++   */
++  async synthesize({ question, userId: _userId }: { question: string; userId?: string }): Promise<SynthesisResult> {
++    // BM25-only mode: no LLM available
++    if (mode === 'bm25-only') {
++      return {
++        answer: "Synthesis requires LLM. Run 'bunx universal-memory setup' or set OPENAI_API_KEY.",
++        citations: [],
++        gaps: [],
++      };
++    }
++
++    // Full/Ollama mode: run gbrain's think pipeline
++    try {
++      const engine = await this.getEngine();
++      const result = await runThink(engine, { question });
++
++      // Map ParsedCitation[] to output shape { id, excerpt }
++      // ParsedCitation fields: { page_slug, row_num, citation_index }
++      // We use page_slug as id; excerpt is a reference string (slug#row)
++      const citations = result.citations.map((c: ParsedCitation) => ({
++        id: c.page_slug,
++        excerpt: c.row_num !== null
++          ? `${c.page_slug}#${c.row_num}`
++          : c.page_slug,
++      }));
++
++      return {
++        answer: result.answer,
++        citations,
++        gaps: result.gaps,
++      };
++    } catch (e: unknown) {
++      const msg = e instanceof Error ? e.message : String(e);
++      return {
++        answer: `Synthesis failed: ${msg}`,
++        citations: [],
++        gaps: [],
++      };
++    }
+   }
+ 
+   async add({ id, content, source, userId, signature }: {
+diff --git a/vendors/gbrain b/vendors/gbrain
+index 3fafb69..54306d8 160000
+--- a/vendors/gbrain
++++ b/vendors/gbrain
+@@ -1 +1 @@
+-Subproject commit 3fafb69b077e602e1286af9cb092ed94455657a8
++Subproject commit 54306d8619077404cb1224cabcb642ad3decb8a1

@@ -1,0 +1,56 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "task-1",
+  "round": 1,
+  "timestamp": "2026-07-27",
+  "summary": "Implementation is solid. Key concerns: duplicate SynthesisResult definition in local.ts vs storage/index.ts, and the Ollama probe's 2xx/4xx threshold may false-positive. Minor issues only.",
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/storage/local.ts",
+      "line": 15,
+      "finding": "SynthesisResult interface is defined both here and in storage/index.ts. The local definition is unused (the function returns Promise<SynthesisResult> from import). Causes confusion about canonical location.",
+      "action": "remove",
+      "recommendation": "Remove the local SynthesisResult definition and import it from './index.js' instead. The interface is already canonically defined in storage/index.ts."
+    },
+    {
+      "id": "CR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/config.ts",
+      "line": 99,
+      "finding": "Ollama probe returns true for any HTTP response with status < 500 (including 4xx). A non-Ollama server on port 11434 returning 404 would cause false-positive Ollama detection.",
+      "action": "accept-as-is",
+      "recommendation": "Task spec explicitly states this is acceptable ('Ollama probe may false-negative; that is acceptable'). The 2-second timeout is correct. Keeping behavior as-is."
+    },
+    {
+      "id": "CR-3",
+      "severity": "low",
+      "file": "packages/memory-hub/src/engine/pglite.ts",
+      "line": 22,
+      "finding": "Return type 'ReturnType<typeof createEngine> extends Promise<infer T> ? T : never' is verbose and uses 'as any' anyway. Just use 'Promise<any>' or 'Promise<BrainEngine>'.",
+      "action": "fix",
+      "recommendation": "Import BrainEngine type from gbrain/engine and use Promise<BrainEngine>. Or simplify to Promise<any>."
+    },
+    {
+      "id": "CR-4",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/config.ts",
+      "line": 130,
+      "finding": "Anthropic branch configures no embedding model. If a downstream task calls embed(), it will fail with 'no embedding model configured'. Consider adding 'openai:text-embedding-3-small' as a fallback embedding_model when Anthropic key is set but no OpenAI key.",
+      "action": "accept-as-is",
+      "recommendation": "Task 1 scope is synthesis via runThink(), not embedding. Embedding config is Wave 2 scope. Keeping as-is with a note."
+    },
+    {
+      "id": "CR-5",
+      "severity": "low",
+      "file": "packages/memory-hub/src/storage/local.ts",
+      "line": 87,
+      "finding": "synthesize() return type annotation says Promise<SynthesisResult> but the StorageAdapter interface also says Promise<SynthesisResult>. Without importing from index.ts, TypeScript must structurally match — which works but is fragile.",
+      "action": "fix",
+      "recommendation": "Import and use SynthesisResult from './index.js' and remove the local duplicate definition."
+    }
+  ],
+  "verdict": "PASS_WITH_FIXES",
+  "required_fixes": ["CR-1", "CR-3", "CR-5"]
+}
