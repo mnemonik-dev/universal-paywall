@@ -1,0 +1,81 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "7",
+  "round": 1,
+  "verdict": "approve_with_fixes",
+  "summary": "Solid infrastructure foundation. Three issues require fixes before production: (1) nginx Content-Type server-level add_header conflicts with proxied responses, (2) missing .gitignore means .env can be committed accidentally, (3) Dockerfile stage alias 'AS base' is unused (cosmetic). Several minor improvements recommended.",
+  "findings": [
+    {
+      "id": "CR7-1",
+      "severity": "major",
+      "file": "nginx/memory.conf",
+      "line": 117,
+      "title": "Content-Type add_header at server level overwrites proxied response Content-Type",
+      "description": "Line 117: `add_header Content-Type 'application/json' always;` is at server level and applies to ALL responses including those proxied from memory-hub. This will incorrectly set Content-Type on MCP SSE responses (which return text/event-stream), MCP JSON-RPC responses, and the /health JSON (where upstream already sets it). The comment says it's 'for 401 JSON body' but the directive applies to every response.",
+      "recommendation": "Remove the server-level Content-Type add_header. Instead, add it only inside the `if ($auth_required = 1)` block — but nginx's return directive in an if block doesn't need add_header because `return` generates a synthetic response with no inherited headers. The correct fix is to add `add_header Content-Type 'application/json';` ONLY in the error return:\n```nginx\nif ($auth_required = 1) {\n    add_header Content-Type 'application/json' always;\n    return 401 '{\"error\":\"unauthorized\",...}';\n}\n```\nNote: nginx `if` in server context allows add_header before return. Alternatively, keep the body as-is — most HTTP clients will interpret the 401 JSON correctly regardless of Content-Type when the body is clearly JSON."
+    },
+    {
+      "id": "CR7-2",
+      "severity": "major",
+      "file": "(repo root)",
+      "line": null,
+      "title": "Missing .gitignore — .env can be committed accidentally",
+      "description": "There is no .gitignore file in the repository root. The .env.example comment says 'NEVER commit .env to git (it is in .gitignore)' but no .gitignore exists. Since MNEMONIC_IDENTITY (Ed25519 private key), MNEMONIC_JWT, and MEMORY_API_KEY are all stored in .env, an accidental `git add .` would commit them.",
+      "recommendation": "Create a .gitignore at the repo root that includes at minimum:\n```\n.env\n.env.local\n*.env\n!.env.example\nnode_modules/\n```"
+    },
+    {
+      "id": "CR7-3",
+      "severity": "minor",
+      "file": "docker/memory-hub/Dockerfile",
+      "line": 17,
+      "title": "Dockerfile stage alias 'AS base' is unused (single-stage build)",
+      "description": "Line 17: `FROM oven/bun:1.3.10-slim AS base` — the `AS base` alias is only meaningful in multi-stage builds where a later stage does `COPY --from=base`. Since this is a single-stage build, the alias is vestigial and slightly misleading (implies there's a second stage that adds production artifacts on top of base).",
+      "recommendation": "Remove `AS base`:\n```dockerfile\nFROM oven/bun:1.3.10-slim\n```"
+    },
+    {
+      "id": "CR7-4",
+      "severity": "minor",
+      "file": "docker-compose.yml",
+      "line": 54,
+      "title": "DATABASE_URL double-interpolation of POSTGRES_PASSWORD:?",
+      "description": "Line 54: `DATABASE_URL: postgres://${POSTGRES_USER:-memory}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-memory}`. The `POSTGRES_PASSWORD:?` (without error message text) will produce an unhelpful error 'required variable POSTGRES_PASSWORD is empty or unset' — compare with line 24 which has `:?POSTGRES_PASSWORD is required`. Inconsistent error messaging.",
+      "recommendation": "Use consistent `:?` error messages:\n```yaml\nDATABASE_URL: postgres://${POSTGRES_USER:-memory}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-memory}\n```"
+    },
+    {
+      "id": "CR7-5",
+      "severity": "minor",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "Missing client_max_body_size — memory_capture has no upload size guard at nginx",
+      "description": "nginx's default client_max_body_size is 1MB. The application-level limit (D8) is 10MB for memory_capture. Without setting `client_max_body_size 11m;` in the nginx config, large captures will get a 413 from nginx before reaching memory-hub. The error returned would be nginx's default HTML 413 page, not a JSON error.",
+      "recommendation": "Add inside the `server` block (HTTPS section):\n```nginx\nclient_max_body_size 11m;\n```\nThis matches the 10MB application limit with 1MB headroom for headers and metadata."
+    },
+    {
+      "id": "CR7-6",
+      "severity": "minor",
+      "file": "nginx/memory.conf",
+      "line": 65,
+      "title": "Bearer token comparison is case-sensitive on 'Bearer' prefix",
+      "description": "Line 65: `if ($http_authorization = 'Bearer $memory_api_key')` — nginx string equality is case-sensitive. An MCP client that sends `bearer <token>` (lowercase) or `BEARER <token>` will get 401 even with the correct token. RFC 7235 specifies auth-scheme tokens are case-insensitive, so 'bearer' and 'Bearer' are equivalent.",
+      "recommendation": "Document this in the nginx.conf comment. The simplest approach is to note the requirement for MCP clients to use `Authorization: Bearer <token>` (capital B) in the setup instructions. Alternatively use a Lua module or auth_request subrequest for case-insensitive comparison, but that adds complexity. Given this is single-user and nginx `if` has limitations, documenting the behavior is acceptable."
+    },
+    {
+      "id": "CR7-7",
+      "severity": "positive",
+      "file": "docker-compose.yml",
+      "line": null,
+      "title": "Correct postgres healthcheck gates memory-hub startup",
+      "description": "The `depends_on: postgres: condition: service_healthy` pattern correctly prevents memory-hub from starting until Postgres is ready. Combined with the pg_isready healthcheck, this prevents gbrain's Postgres engine from attempting to connect to an uninitialized database."
+    },
+    {
+      "id": "CR7-8",
+      "severity": "positive",
+      "file": "docker-compose.yml + nginx/memory.conf",
+      "line": null,
+      "title": "Ports correctly internal-only (expose, not ports)",
+      "description": "Both 3456 (memory-hub) and 5432 (postgres) use `expose:` not `ports:`. This means they are only accessible inside the Docker network. nginx is the only external entry point. This is the correct security posture for a single-user deployment."
+    }
+  ],
+  "required_fixes": ["CR7-1", "CR7-2"],
+  "optional_fixes": ["CR7-3", "CR7-4", "CR7-5", "CR7-6"]
+}

@@ -1,0 +1,95 @@
+{
+  "reviewer": "security-auditor",
+  "task": "7",
+  "round": 1,
+  "verdict": "approve_with_fixes",
+  "owasp_coverage": ["A01:2021 Broken Access Control", "A02:2021 Cryptographic Failures", "A04:2021 Insecure Design", "A05:2021 Security Misconfiguration", "A09:2021 Security Logging and Monitoring Failures"],
+  "summary": "The D4/D10 defense-in-depth architecture is sound. auth.ts implementation (timingSafeEqual with zero-padding) is correctly implemented. Two issues require fixes: (1) missing .gitignore risks committing MNEMONIC_IDENTITY private key and MEMORY_API_KEY to git — high severity, (2) nginx auth bypass when MEMORY_API_KEY is empty string — medium severity that could affect misconfigured deployments. No critical vulnerabilities found.",
+  "findings": [
+    {
+      "id": "SA7-1",
+      "severity": "high",
+      "owasp": "A02:2021 Cryptographic Failures",
+      "file": "(repo root — missing file)",
+      "title": "No .gitignore: MNEMONIC_IDENTITY private key and MEMORY_API_KEY can be accidentally committed",
+      "description": "The repository has no .gitignore file. MNEMONIC_IDENTITY contains an Ed25519 private key JSON, MNEMONIC_JWT is a signed JWT, and MEMORY_API_KEY is the sole authentication token. All three are stored in .env. An `git add .` or `git add .env` would commit them in plaintext. The .env.example comment warns against this but there's no technical enforcement.",
+      "attack_scenario": "Developer runs `git add . && git commit` → .env committed → pushed to GitHub → private key and API key exposed. Ed25519 private key cannot be rotated after exposure; all previously signed attestations remain valid under the compromised key.",
+      "recommendation": "Create /home/op/Projects/universal-memory/.gitignore with at minimum:\n```\n.env\n.env.local\n*.env\n!.env.example\nnode_modules/\n/tmp/\n```\nAlso add to .dockerignore: `*.env` is already there via `.env.*` ✓"
+    },
+    {
+      "id": "SA7-2",
+      "severity": "medium",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "file": "nginx/memory.conf",
+      "line": 65,
+      "title": "nginx auth bypass when MEMORY_API_KEY is empty string",
+      "description": "Line 65: `if ($http_authorization = \"Bearer $memory_api_key\")`. If /etc/nginx/memory-secrets.conf sets `$memory_api_key` to an empty string (e.g. operator creates the file but forgets to set the value, or sets it to `\"\"`), then the condition becomes `if ($http_authorization = \"Bearer \")`. An attacker sending `Authorization: Bearer ` (Bearer with trailing space) would match this condition and bypass authentication.",
+      "attack_scenario": "Operator creates /etc/nginx/memory-secrets.conf with `set $memory_api_key \"\";` as a placeholder → nginx starts successfully → attacker discovers the endpoint (e.g. via DNS enumeration) → sends `curl -H 'Authorization: Bearer ' https://memory.example.com/mcp` → reaches memory-hub → memory-hub's validateBearer() rejects empty token (empty string !== expected key even with zero-padding) → 401 from memory-hub. The defense-in-depth at memory-hub saves this case ✓, but nginx still lets it through.",
+      "recommendation": "Add a guard in nginx that explicitly rejects empty auth values:\n```nginx\n# Reject empty or missing Authorization header before variable comparison\nif ($http_authorization = \"\") {\n    return 401 '{\"error\":\"unauthorized\"}';\n}\nif ($memory_api_key = \"\") {\n    # Emergency lockout if secret file misconfigured\n    return 503 '{\"error\":\"service_unavailable\"}';\n}\n```\nAlternatively, the setup instructions could be strengthened to verify the secrets file before nginx reload."
+    },
+    {
+      "id": "SA7-3",
+      "severity": "medium",
+      "owasp": "A04:2021 Insecure Design",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "No rate limiting — brute-force attack on Bearer token possible at nginx level",
+      "description": "There is no `limit_req_zone` or `limit_conn_zone` directive. An attacker can send unlimited Authorization requests at network speed. While memory-hub's timingSafeEqual prevents timing-based attacks on individual comparisons, high-volume brute-force (millions of requests/second) is still possible if the 64-char hex key space is smaller than assumed. A 32-byte (64-char hex) key from `openssl rand -hex 32` has 2^256 entropy — brute force is computationally infeasible — but the absence of rate limiting also enables DoS attacks.",
+      "recommendation": "Add to nginx.conf (http context, not inside server block):\n```nginx\nlimit_req_zone $binary_remote_addr zone=memory_api:10m rate=10r/m;\n```\nThen inside the server block:\n```nginx\nlimit_req zone=memory_api burst=5 nodelay;\n```\nThis limits to 10 requests/minute per IP with a burst of 5, returning 429 on excess. Adjust rate based on legitimate usage patterns."
+    },
+    {
+      "id": "SA7-4",
+      "severity": "medium",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "server_tokens not disabled — nginx version disclosed in error responses",
+      "description": "nginx default behavior includes the version number in Server response headers and error pages (e.g. `Server: nginx/1.25.3`). This allows attackers to fingerprint the exact nginx version and check for known CVEs.",
+      "recommendation": "Add to the server block:\n```nginx\nserver_tokens off;\n```\nThis replaces `Server: nginx/1.25.3` with `Server: nginx`."
+    },
+    {
+      "id": "SA7-5",
+      "severity": "low",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "file": "nginx/memory.conf",
+      "line": 117,
+      "title": "Content-Type: application/json add_header at server level overwrites upstream Content-Type",
+      "description": "Line 117 adds Content-Type: application/json to ALL server responses including proxied MCP SSE streams (which should be text/event-stream). This is both a functional bug (breaks SSE) and a mild security concern (incorrect MIME types can affect browser handling). Note: this is primarily a functional issue, escalated from code-reviewer, confirmed from security perspective.",
+      "recommendation": "Remove line 117. The 401 response from `return 401 '...'` body does not need this because nginx will send it with text/html by default — but clients parsing JSON won't care about Content-Type for 401 errors. If strictly needed, move into the error if-block only."
+    },
+    {
+      "id": "SA7-6",
+      "severity": "low",
+      "owasp": "A09:2021 Security Logging and Monitoring Failures",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "No nginx access_log configuration — 401 events not explicitly structured for monitoring",
+      "description": "nginx uses its default `combined` log format. Authentication failures (401s) are logged, but the log format doesn't include response time or upstream status. For a single-user deployment this is acceptable, but a structured log format with status codes would enable better monitoring of auth failure patterns.",
+      "recommendation": "Optional for single-user deployment. If monitoring is needed, add:\n```nginx\nlog_format memory_api '$remote_addr - [$time_local] \"$request\" $status $body_bytes_sent \"$http_user_agent\" rt=$request_time';\naccess_log /var/log/nginx/memory-access.log memory_api;\n```\nNotice: Authorization header value is NOT included (would log the Bearer token)."
+    },
+    {
+      "id": "SA7-7",
+      "severity": "positive",
+      "file": "packages/memory-hub/src/mcp/auth.ts",
+      "title": "timingSafeEqual with zero-padding is correctly implemented",
+      "description": "The auth.ts implementation correctly handles the timingSafeEqual requirement: both buffers are zero-padded to max(len_a, len_b) before comparison, and a separate `lengthsMatch` boolean prevents false positives from zero-padded shorter tokens. D13 is correctly enforced: no token values appear in logs."
+    },
+    {
+      "id": "SA7-8",
+      "severity": "positive",
+      "file": "docker-compose.yml",
+      "title": "Secrets correctly passed as runtime env vars (not baked into image)",
+      "description": "MEMORY_API_KEY, MNEMONIC_IDENTITY, and MNEMONIC_JWT are passed via the `environment:` section of docker-compose.yml referencing .env file variables. They are NOT baked into the Docker image via ARG/ENV Dockerfile directives, which would expose them in `docker history` and image layers."
+    },
+    {
+      "id": "SA7-9",
+      "severity": "positive",
+      "file": "docker-compose.yml",
+      "title": "Postgres port not exposed to host — only accessible inside Docker network",
+      "description": "The postgres service uses `expose: 5432` (not `ports:`). This means Postgres is unreachable from outside the Docker network, preventing direct connection attacks against the database. memory-hub connects via the internal Docker DNS name `postgres:5432`."
+    }
+  ],
+  "required_fixes": ["SA7-1", "SA7-2"],
+  "recommended_fixes": ["SA7-3", "SA7-4", "SA7-5"],
+  "optional_fixes": ["SA7-6"]
+}

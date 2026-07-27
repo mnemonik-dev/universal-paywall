@@ -1,0 +1,100 @@
+{
+  "reviewer": "deploy-reviewer",
+  "task": "7",
+  "round": 1,
+  "verdict": "approve_with_fixes",
+  "summary": "Deployment configuration is well-structured. Services are correctly isolated from Universal Paywall. Healthchecks and startup ordering are correct. Required fixes: (1) no .gitignore — secrets risk, (2) nginx Content-Type add_header breaks SSE streaming, (3) client_max_body_size not set — 1MB nginx default will block large memory captures. Minor improvements: rate limiting, server_tokens, image pinning.",
+  "findings": [
+    {
+      "id": "DR7-1",
+      "severity": "major",
+      "file": "nginx/memory.conf",
+      "title": "Missing client_max_body_size — nginx default 1MB blocks 10MB memory_capture",
+      "description": "nginx's default `client_max_body_size` is 1MB. The application-level limit (D8) is 10MB for memory_capture content. Without overriding this, a PDF file >1MB sent to memory_capture will be rejected by nginx with a 413 Request Entity Too Large HTML error — not a JSON error from memory-hub. This breaks the D8 content limit entirely at the nginx level.",
+      "recommendation": "Add inside the HTTPS server block:\n```nginx\nclient_max_body_size 11m;\n```\nThis allows up to 11MB request bodies, letting memory-hub's own 10MB limit apply and return a proper JSON error."
+    },
+    {
+      "id": "DR7-2",
+      "severity": "major",
+      "file": "nginx/memory.conf",
+      "line": 117,
+      "title": "Content-Type: application/json at server level will break SSE streaming",
+      "description": "MCP's Streamable HTTP transport uses SSE (text/event-stream) for streaming responses. Adding `add_header Content-Type 'application/json' always` at the server level overrides the upstream Content-Type header for ALL responses. This will corrupt MCP streaming sessions where the client expects text/event-stream.",
+      "recommendation": "Remove line 117. The Content-Type for 401 errors from `return 401 '...'` will be text/plain by default, which is acceptable. Upstream proxied responses will correctly carry their original Content-Type (application/json for RPC, text/event-stream for SSE)."
+    },
+    {
+      "id": "DR7-3",
+      "severity": "major",
+      "file": "(repo root — missing)",
+      "title": "No .gitignore — MNEMONIC_IDENTITY (Ed25519 private key) and MEMORY_API_KEY risk git exposure",
+      "description": "No .gitignore exists. .env containing MNEMONIC_IDENTITY, MNEMONIC_JWT, and MEMORY_API_KEY can be accidentally committed.",
+      "recommendation": "Create .gitignore with .env, node_modules/, etc. (See SA7-1 for full content.)"
+    },
+    {
+      "id": "DR7-4",
+      "severity": "minor",
+      "file": "docker/memory-hub/Dockerfile",
+      "line": 17,
+      "title": "Dockerfile image not pinned to digest — oven/bun:1.3.10-slim tag is mutable",
+      "description": "Docker image tags are mutable — `oven/bun:1.3.10-slim` could be republished with a different underlying OS image. For production deployments, pinning to a specific digest ensures reproducibility.",
+      "recommendation": "Pin to digest for production:\n```dockerfile\nFROM oven/bun:1.3.10-slim@sha256:<digest>\n```\nOr at minimum document that the tag should be verified: `docker pull oven/bun:1.3.10-slim && docker inspect oven/bun:1.3.10-slim --format='{{.Id}}'`"
+    },
+    {
+      "id": "DR7-5",
+      "severity": "minor",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "No rate limiting — risk of DoS and resource exhaustion",
+      "description": "No limit_req_zone directive. memory_think LLM calls can take 2-10s and are expensive. Without rate limiting, a client (or attacker with the token) can submit unbounded concurrent memory_think requests, potentially exhausting Postgres connections and memory.",
+      "recommendation": "See SA7-3 for rate limiting nginx config. Recommend limiting to 30r/m (generous for single-user) with burst=10."
+    },
+    {
+      "id": "DR7-6",
+      "severity": "minor",
+      "file": "docker-compose.yml",
+      "line": null,
+      "title": "No resource limits on memory-hub or postgres containers",
+      "description": "docker-compose.yml doesn't set `mem_limit` or `cpus`. A runaway LLM synthesis call or large PDF ingestion could exhaust host memory, impacting other VPS services.",
+      "recommendation": "Add resource limits to both services:\n```yaml\nmemory-hub:\n  deploy:\n    resources:\n      limits:\n        memory: 2g\n        cpus: '2.0'\n\npostgres:\n  deploy:\n    resources:\n      limits:\n        memory: 1g\n        cpus: '1.0'\n```"
+    },
+    {
+      "id": "DR7-7",
+      "severity": "minor",
+      "file": "nginx/memory.conf",
+      "line": null,
+      "title": "server_tokens not disabled — nginx version exposed",
+      "description": "See SA7-4. Minor operational hardening.",
+      "recommendation": "Add `server_tokens off;` to the HTTPS server block."
+    },
+    {
+      "id": "DR7-8",
+      "severity": "minor",
+      "file": "docker-compose.yml",
+      "line": 54,
+      "title": "DATABASE_URL :? without message text gives unhelpful startup error",
+      "description": "Line 54: `${POSTGRES_PASSWORD:?}` — no error message. Compare with line 24's `:?POSTGRES_PASSWORD is required`. Inconsistency.",
+      "recommendation": "Change to `${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}`."
+    },
+    {
+      "id": "DR7-9",
+      "severity": "positive",
+      "title": "Service isolation is correct — memory-hub can be started independently",
+      "description": "`docker compose up memory-hub postgres -d` starts only these two services. No shared network or volume references to Universal Paywall services. `docker compose up memory-hub -d --no-deps` also works correctly. The acceptance criterion 'does NOT restart paywall services' is met."
+    },
+    {
+      "id": "DR7-10",
+      "severity": "positive",
+      "title": "Healthcheck with condition: service_healthy correctly gates memory-hub on Postgres",
+      "description": "memory-hub waits for postgres to pass its pg_isready healthcheck before starting. This prevents the gbrain Postgres engine from attempting to connect during DB initialization, avoiding connection errors on cold start."
+    },
+    {
+      "id": "DR7-11",
+      "severity": "positive",
+      "title": "Dockerfile workspace path layout mirrors repo — bun workspace resolution correct",
+      "description": "The Dockerfile sets up /app/packages/memory-hub/ and /app/vendors/gbrain/, mirroring the repo's relative path structure. bun.lock's workspace reference `../../vendors/gbrain` resolves correctly to /app/vendors/gbrain from /app/packages/memory-hub/. Layer ordering (manifest COPYs before source COPYs) enables correct Docker layer caching."
+    }
+  ],
+  "required_fixes": ["DR7-1", "DR7-2", "DR7-3"],
+  "recommended_fixes": ["DR7-5", "DR7-6"],
+  "optional_fixes": ["DR7-4", "DR7-7", "DR7-8"]
+}
