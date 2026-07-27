@@ -118,3 +118,27 @@
 **Deviations from spec:** None. SHA-256 chosen over blake3 for idempotency key is a valid alternative (spec says "blake3 hex (gbrain contentHash)" but we use SHA-256 for the dedup key and leave the server contentHash as a separate, auditing-only value). This was explicitly documented in contentHashOf() JSDoc.
 
 **Verification (smoke):** `MNEMONIK_SIGNING=true bun test src/tools/sign.test.ts` → 11 pass. `bun test src/` → 164 pass, 0 fail.
+
+## Task 7: Docker Compose + nginx + HTTPS infra
+
+**What was done:** Created four infra files from scratch (no existing docker-compose.yml or nginx/ directory in the repo). `docker/memory-hub/Dockerfile` uses `oven/bun:1.3.10-slim`, mirrors the repo layout inside `/app/` so the bun workspace path `../../vendors/gbrain` resolves correctly, uses layer caching (manifest files before source), and exposes port 3456 internally. `docker-compose.yml` adds `memory-hub` and `pgvector/pgvector:pg16` postgres services with `expose:` (not `ports:`) for both — nginx is the only external entry point. postgres service has healthcheck; memory-hub uses `condition: service_healthy` to wait for postgres. `nginx/memory.conf` implements HTTP→HTTPS redirect, Let's Encrypt TLS, Bearer auth at nginx level (D4), health endpoint bypass, rate limiting (30r/m, burst 10), `server_tokens off`, `client_max_body_size 11m`. `.env.example` documents all MEMORY_*, MNEMONIC_*, and LLM API key vars with inline comments. `.gitignore` and `.dockerignore` also added. Review fixes applied in round 1.
+
+**Key decisions:**
+- **Dockerfile workspace layout**: The bun.lock is at `packages/memory-hub/bun.lock` (not repo root) with workspace reference `../../vendors/gbrain`. Dockerfile sets `WORKDIR /app/packages/memory-hub` for `bun install --frozen-lockfile`, then copies source to `/app/packages/memory-hub/src` and `/app/vendors/gbrain` — preserving the relative workspace path. The `.dockerignore` excludes `**/node_modules` to prevent copying host node_modules into build context.
+- **nginx Bearer auth**: Uses `if ($http_authorization = "Bearer $memory_api_key")` at server level (before location processing). Not timing-safe, but HTTPS channel + memory-hub's timingSafeEqual (D10) provide defense-in-depth (D4). Added empty-key guard: `if ($memory_api_key = "") { return 503; }` prevents auth bypass on misconfigured secrets file.
+- **Content-Type NOT set at nginx level**: MCP Streamable HTTP uses `text/event-stream` for SSE. Adding `add_header Content-Type application/json` at server level would corrupt SSE streams. Removed after review (CR7-1/DR7-2). Memory-hub sets correct Content-Type per response type.
+- **client_max_body_size 11m**: nginx default is 1MB; D8 application limit is 10MB. Without override, large file captures return nginx 413 HTML before reaching memory-hub. Set to 11MB (1MB headroom).
+- **Rate limiting note in nginx.conf**: `limit_req_zone` must be in nginx.conf `http{}` block (not a server block config file). Added as a comment with setup instructions since this is a site config file, not nginx.conf itself.
+- **Services are independent from Universal Paywall**: No shared networks, volumes, or env var references. `docker compose up memory-hub postgres -d` starts only these two; `--no-deps` flag skips postgres if already running.
+
+**Review findings applied (round 1):**
+- CR7-1/SA7-5/DR7-2 (major): Removed `add_header Content-Type application/json` at server level — would break SSE streaming.
+- SA7-1/CR7-2/DR7-3 (high/major): Created `.gitignore` to prevent accidental commit of .env (MNEMONIC_IDENTITY private key, MNEMONIC_JWT, MEMORY_API_KEY).
+- DR7-1 (major): Added `client_max_body_size 11m` — nginx 1MB default would block 10MB memory_capture content.
+- SA7-2 (medium): Added empty-key guard `if ($memory_api_key = "") { return 503; }` — prevents auth bypass on misconfigured secrets file.
+- SA7-3/DR7-5 (medium): Added rate limiting directives and setup instructions for `limit_req_zone` in nginx.conf.
+- SA7-4/DR7-7 (medium): Added `server_tokens off`.
+- CR7-3 (minor): Removed unused `AS base` alias from single-stage Dockerfile.
+- CR7-4/DR7-8 (minor): Fixed `DATABASE_URL` `:?` to include error message text.
+
+**Deviations from spec:** None. Tech-spec said "nginx Bearer check at nginx level" (D4) and "defense-in-depth" (D10) — both implemented. pgvector/pgvector:pg16 image used as specified (D9). Bun 1.3.10 minimum enforced in Dockerfile (D2).
