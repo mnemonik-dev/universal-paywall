@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/memory-hub/src/storage/integration.test.ts",
+    "line": 29,
+    "summary": "InMemoryStorage implements StorageAdapter but is missing the required getById() method added by this PR",
+    "failure_scenario": "Any future integration test that exercises a memory_sign flow through InMemoryStorage (calling signMemory() with storage) will throw TypeError: storage.getById is not a function. TypeScript would flag this as a type error in a properly configured TS project. The interface contract is violated."
+  },
+  {
+    "file": "packages/memory-hub/src/ingest/ingestion.test.ts",
+    "line": 20,
+    "summary": "InMemoryStorage in ingestion tests implements StorageAdapter but is missing getById()",
+    "failure_scenario": "Same as integration.test.ts — StorageAdapter interface now requires getById(); this implementation is missing it, creating a type gap that will cause runtime TypeError if getById is called on this mock."
+  },
+  {
+    "file": "packages/memory-hub/src/mcp/server.ts",
+    "line": 187,
+    "summary": "Stale comment says 'Use signMemory() so idempotency...' but the call on line 190 is now signContent()",
+    "failure_scenario": "Misleading: a future maintainer reading the comment will assume signMemory() is being called, but signContent() is the actual call. No runtime impact, but documentation diverges from code."
+  },
+  {
+    "file": "packages/memory-hub/src/tools/sign.ts",
+    "line": 181,
+    "summary": "signMemory() calls storage.getById(id) before checking if adapter is null, wasting a DB roundtrip in local/signing-disabled mode",
+    "failure_scenario": "When MNEMONIK_SIGNING is not set (adapter=null), signMemory() still performs a storage lookup before returning the cloud-only error. In high-traffic local-mode deployments the extra getById() call is unnecessary I/O on every memory_sign invocation."
+  }
+]

@@ -1,0 +1,64 @@
+{
+  "validator": "mirage-detector",
+  "timestamp": "2026-07-27T00:00:00Z",
+  "pass": false,
+  "summary": "Found 4 significant mirages: 2 major (blocking implementation), 2 minor (require API adaptation)",
+  "findings": [
+    {
+      "severity": "major",
+      "component": "gbrain imports",
+      "claim": "Standalone function runThink() can be imported from 'gbrain/think'",
+      "reality": "The file vendors/gbrain/src/core/think/index.ts exists and exports runThink(), but gbrain's package.json does NOT include './think' in its exports map. Only these paths are exported: '.', './engine', './types', './operations', './minions', './engine-factory', './pglite-engine', './link-extraction', './import-file', './transcription', './embedding', './config', './markdown', './backoff', './search/hybrid', './search/expansion', './ai/gateway', './extract', './ingestion', './ingestion/test-harness'",
+      "fix": "Either (1) add './think': './src/core/think/index.ts' to gbrain's package.json exports, OR (2) import directly via: import { runThink } from 'gbrain/src/core/think/index.ts' (non-standard), OR (3) add re-export wrapper in memory-hub's config.ts that imports the function internally and re-exports it"
+    },
+    {
+      "severity": "major",
+      "component": "gbrain pglite-engine",
+      "claim": "Function createPgliteEngine() is exported from 'gbrain/pglite-engine'",
+      "reality": "The file vendors/gbrain/src/core/pglite-engine.ts only exports the PGLiteEngine class constructor, not a factory function named createPgliteEngine(). The factory pattern is implemented in gbrain/engine-factory.ts as createEngine() which handles both pglite and postgres. PGLiteEngine must be instantiated directly: new PGLiteEngine(), not via a factory function",
+      "fix": "Use the correct pattern: (1) Import createEngine from 'gbrain/engine-factory' and pass config.engine='pglite', OR (2) Import PGLiteEngine class directly and instantiate with new PGLiteEngine()"
+    },
+    {
+      "severity": "major",
+      "component": "@modelcontextprotocol/sdk",
+      "claim": "StreamableHTTPServerTransport is provided by @modelcontextprotocol/sdk for remote MCP servers supporting SSE",
+      "reality": "MCP SDK v1.x provides StdioServerTransport (confirmed in memory-hub code), but does not export a class literally named 'StreamableHTTPServerTransport'. MCP spec defines HTTP transport types (SSE-based), but the SDK implementation may use different class names (possibly SSEServerTransport, HttpServerTransport, or require direct implementation)",
+      "fix": "Before Wave 2 Task 2: (1) Install @modelcontextprotocol/sdk and inspect the actual exports: grep -r 'export class.*Transport' node_modules/@modelcontextprotocol/sdk, (2) If StreamableHTTPServerTransport does not exist, either implement custom SSE transport following MCP spec, OR use gbrain's existing HTTP transport pattern (referenced in CHANGELOG.md as proven working), OR check if the SDK requires HttpServerTransport with options parameter"
+    },
+    {
+      "severity": "minor",
+      "component": "gbrain search/hybrid",
+      "claim": "hybridSearch() is exported from 'gbrain/search/hybrid'",
+      "reality": "hybridSearch() DOES exist and is exported (line 832 of hybrid.ts). However, there's also rrfFusionWeighted() which is the primary utility. The tech-spec also mentions 'rrfFusion' function but doesn't distinguish between rrfFusion() (line 2015, internal helper) and rrfFusionWeighted() (line 1972, primary public API). Both exist and are exported, so this is not a mirage per se, but naming ambiguity",
+      "fix": "No code change needed; this is a documentation clarification. Document that hybridSearch() wraps the RRF internals; for custom search logic, use rrfFusionWeighted() (preferred) or rrfFusion() (lower-level)"
+    },
+    {
+      "severity": "minor",
+      "component": "@mnemonik-xyz/sdk exports",
+      "claim": "Exports MnemonicClient, LocalSigner, Keypair, parseJwtPayload",
+      "reality": "All four are correctly exported: MnemonicClient (client.ts line 49), LocalSigner (signer.ts line 36), Keypair (keypair.ts line 27), parseJwtPayload (oauth.ts line 712, re-exported via index.ts line 47)",
+      "fix": "No fix needed; this claim is validated ✓"
+    },
+    {
+      "severity": "info",
+      "component": "gbrain engine factory",
+      "claim": "createEngine() is exported from 'gbrain/engine-factory'",
+      "reality": "createEngine() IS exported correctly (line 8 of engine-factory.ts, re-exported via package.json './engine-factory' mapping)",
+      "fix": "No fix needed; this claim is validated ✓"
+    }
+  ],
+  "blocking_tasks": [
+    "Wave 1 Task 1: config.ts must handle 'gbrain/think' import carefully (no export path exists)",
+    "Wave 2 Task 2: HTTP MCP transport implementation must first verify StreamableHTTPServerTransport exists or implement alternative"
+  ],
+  "verification_complete": true,
+  "source_files_checked": [
+    "/home/op/Projects/universal-memory/vendors/gbrain/package.json",
+    "/home/op/Projects/universal-memory/vendors/gbrain/src/core/think/index.ts",
+    "/home/op/Projects/universal-memory/vendors/gbrain/src/core/pglite-engine.ts",
+    "/home/op/Projects/universal-memory/vendors/gbrain/src/core/search/hybrid.ts",
+    "/home/op/Projects/universal-memory/vendors/gbrain/src/core/engine-factory.ts",
+    "/home/op/Projects/universal-memory/vendors/mnemonik/packages/sdk/src/index.ts",
+    "/home/op/Projects/universal-memory/packages/memory-hub/package.json"
+  ]
+}

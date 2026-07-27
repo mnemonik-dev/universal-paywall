@@ -1,0 +1,73 @@
+{
+  "reviewer": "test-reviewer",
+  "task": "3",
+  "round": 1,
+  "timestamp": "2026-07-27T00:00:00Z",
+  "summary": "Strong TDD coverage with all 13 anchors from the task covered. 82 tests passing. Several gaps worth addressing.",
+  "findings": [
+    {
+      "id": "TR-1",
+      "severity": "major",
+      "file": "packages/memory-hub/src/ingest/fetcher.test.ts",
+      "line": "210-229",
+      "finding": "The redirect-limit test mocks fetch to return 302 4 times but the test comment is confusing ('with redirect: error, fetch throws on any redirect'). The actual test validates that > 3 redirects throws. The comment says callCount <= 4 and 'return 302 for first 4 calls' — this correctly triggers the 'redirectsFollowed >= MAX_REDIRECTS' check on the 4th redirect (callCount = 4, redirectsFollowed = 3 at that point). Test is correct but should clean up the misleading comment.",
+      "action": "cleanup_comment"
+    },
+    {
+      "id": "TR-2",
+      "severity": "major",
+      "file": "packages/memory-hub/src/ingest/file.test.ts",
+      "line": "90-126",
+      "finding": "Missing test for PDF file ingestion. The task TDD anchors don't include a PDF test, but the file.ts PDF branch is a meaningful code path that deserves at least one test. A simple mock of pdf-parse (or a tiny PDF buffer) would give coverage.",
+      "action": "add_test"
+    },
+    {
+      "id": "TR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/pipeline.test.ts",
+      "line": "159-168",
+      "finding": "The '10MB exactly should not throw' test uses `'x'.repeat(10 * 1024 * 1024)`. 'x' is a single ASCII byte so byteLength = 10MB exactly. The limit check is `> maxBytes`, so 10MB === 10MB passes. Test is correct. However this test creates a 10MB string in memory — fine for unit tests but note it will slow down the suite slightly.",
+      "action": "note_only"
+    },
+    {
+      "id": "TR-4",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/ingestion.test.ts",
+      "line": "40-62",
+      "finding": "The URL integration test uses spyOn on fetcherMod which works when pipeline.ts and the test import from the same module cache entry. This is correct in Bun's ESM. But if `pipeline.ts` ever switches to a different import path (e.g. named re-export from index.ts), the spy would silently stop working. Add a comment noting the spy depends on module identity.",
+      "action": "add_comment"
+    },
+    {
+      "id": "TR-5",
+      "severity": "low",
+      "file": "packages/memory-hub/src/ingest/fetcher.test.ts",
+      "line": "51-62",
+      "finding": "The test `afterEach` restores `global.fetch = originalFetch` AND calls `mock.restore()`. `mock.restore()` is redundant since global.fetch is manually restored. Not a bug, but removes any confusion about which restoration mechanism is authoritative.",
+      "action": "minor_cleanup"
+    }
+  ],
+  "coverage_assessment": {
+    "tdd_anchors_covered": [
+      "plain_text_routes_direct",
+      "http_url_calls_fetcher",
+      "file_path_calls_file_reader",
+      "base64_image_routes_to_image_handler",
+      "oversized_content_throws_content_too_large",
+      "valid_url_returns_markdown",
+      "file_scheme_blocked",
+      "localhost_blocked",
+      "private_ip_blocked",
+      "non_200_throws",
+      "path_traversal_blocked",
+      "outside_allowed_dir_blocked",
+      "markdown_file_returns_content"
+    ],
+    "missing_coverage": ["pdf_file_ingestion (TR-2)", "ipv6_private_ranges (SA-2)"],
+    "total_tests": 82,
+    "new_tests": 43
+  },
+  "verdict": "approve_with_minor_fixes",
+  "required_fixes": [],
+  "recommended": ["TR-2"],
+  "optional": ["TR-1", "TR-3", "TR-4", "TR-5"]
+}

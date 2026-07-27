@@ -1,0 +1,80 @@
+{
+  "reviewer": "security-auditor",
+  "round": 1,
+  "date": "2026-07-27",
+  "commit": "c708c09",
+  "scope": "audit-fix — CRITICAL-1, CRITICAL-2, MEDIUM-1, MEDIUM-3",
+  "standard": "OWASP Top 10 (2021)",
+  "verdict": "PASS",
+  "summary": "All three medium security findings from the original audit are correctly addressed. The fixes are sound and do not introduce new attack surface. CRITICAL-2 correctly wires idempotency; MEDIUM-1 bounds are appropriate; MEDIUM-3 patterns are correct and conservative.",
+  "findings_verification": [
+    {
+      "original_finding": "MEDIUM-1",
+      "description": "top_k / limit unbounded — OOM/DoS via large SQL LIMIT",
+      "status": "FIXED",
+      "verification": "clamp() in server.ts bounds top_k to [1, 100] and limit to [1, 100]. MAX_SEARCH_TOP_K=100 matches gbrain's MAX_SEARCH_LIMIT. The clamp() helper correctly handles non-numeric input (returns defaultVal), preventing NaN from reaching storage. Integer overflow (2147483647) is clamped correctly. Tests in server.validation.test.ts verify all boundary cases including INT32_MAX."
+    },
+    {
+      "original_finding": "MEDIUM-3",
+      "description": "scrubSecrets() missing Anthropic/Google/DSN patterns",
+      "status": "FIXED",
+      "verification": "Three new patterns added: (1) sk-ant-api\\d\\d-[A-Za-z0-9\\-_]{10,} for Anthropic keys — correct prefix, requires 10+ suffix chars matching real key format. (2) AIza[A-Za-z0-9\\-_]{35} for Google keys — matches the 39-char format exactly. (3) postgres(?:ql)?://[^:]+:([^@]+)@ for DSN passwords — captures user and host unchanged, redacts only the password segment. Note: Anthropic keys match both the sk-ant- pattern AND the generic sk- pattern — double redaction produces 'sk-[REDACTED][REDACTED]' not 'sk-ant-[REDACTED]', but the key value is fully redacted either way. Security goal satisfied.",
+      "minor_note": "The double-redaction behavior (sk-[REDACTED][REDACTED]) is cosmetically suboptimal but not a security concern. The key material is fully removed from both passes."
+    },
+    {
+      "original_finding": "CRITICAL-2",
+      "description": "db: null passes to signMemory() — idempotency (D7) bypassed",
+      "status": "FIXED",
+      "verification": "getDbClient() on CloudAdapter wraps engine.executeRaw() in the DbClient interface. server.ts extracts the client at startup via instanceof check (before any requests are served). Both memory_sign and memory_capture(sign:true) now receive the real db client. In local mode (LocalAdapter), client remains null — signMemory() correctly skips the idempotency check without crashing. The fix correctly follows the existing pattern in sign.ts (which already had the null-guard)."
+    },
+    {
+      "original_finding": "CRITICAL-1",
+      "description": "HybridAdapter missing — MEMORY_BACKEND=hybrid crashes",
+      "status": "FIXED",
+      "security_notes": "HybridAdapter's dual-write pattern does not introduce SSRF or injection risks — it delegates to LocalAdapter and CloudAdapter which have their own SSRF/injection defenses. The sync() method's MAX_SYNC_BATCH=10_000 prevents unbounded list calls. Cloud failures in add/delete/clear are logged without leaking secret values (uses err.message, not full stack traces)."
+    }
+  ],
+  "new_attack_surface_review": [
+    {
+      "area": "HybridAdapter.sync() — local list then cloud upsert",
+      "finding": "sync() calls local.list({ limit: 10_000 }) — this is a generous batch size but bounded. Cloud add failures are logged via err.message only (no stack traces). No user-controlled input reaches the sync path — direction is validated by enum in tool schema and defaults to 'push'.",
+      "status": "PASS"
+    },
+    {
+      "area": "getDbClient() wrapping engine.executeRaw()",
+      "finding": "executeRaw() is called with SQL from sign.ts which uses parameterized queries ($1, $2 placeholders). The DbClient wrapper passes params as-is — no SQL construction or concatenation happens in the wrapper. SQL injection risk is unchanged from the existing sign.ts implementation.",
+      "status": "PASS"
+    },
+    {
+      "area": "instanceof CloudAdapter || HybridAdapter in server.ts",
+      "finding": "instanceof check is the correct pattern for this use case. Cannot be spoofed via user input — the adapter instance is created server-side from trusted env vars. No new user-controlled code path.",
+      "status": "PASS"
+    }
+  ],
+  "remaining_open_findings": [
+    {
+      "id": "MEDIUM-2",
+      "description": "No rate limiting in local/stdio mode",
+      "status": "NOT ADDRESSED — out of scope for this fix wave. Acceptable for single-user local deployment. Document in README for production.",
+      "blocker": false
+    },
+    {
+      "id": "LOW-1",
+      "description": "DNS rebinding (documented limitation)",
+      "status": "NOT ADDRESSED — requires network-level fix. Not a code-level issue.",
+      "blocker": false
+    },
+    {
+      "id": "LOW-2",
+      "description": "IPv6 compressed address parsing in ipv6HasPrefix()",
+      "status": "NOT ADDRESSED — belt-and-suspenders only, practical risk negligible.",
+      "blocker": false
+    },
+    {
+      "id": "LOW-3",
+      "description": "MnemonikAdapter.recall() missing redactJWT()",
+      "status": "NOT ADDRESSED — method is not wired to any MCP tool. Preventative fix only.",
+      "blocker": false
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "validator": "security-auditor",
+  "pass": false,
+  "findings": [
+    {
+      "severity": "major",
+      "owasp": "A02:2021 – Cryptographic Failures",
+      "description": "Bearer token comparison in nginx/auth.ts not specified. If token comparison is string-equal (==), it's vulnerable to timing attacks. Nginx has built-in constant-time comparison in lua/ngx module, but the specification doesn't mandate this or provide explicit implementation guidance.",
+      "fix": "Task 2 (HTTP MCP transport + Bearer auth): Explicitly use constant-time comparison for Bearer token validation. In Bun/Node middleware: use `crypto.timingSafeEqual()`. In nginx Lua: use `ngx.var.http_authorization_digest` with fixed hash comparison. Document this requirement in Task 2 acceptance criteria: 'Bearer token validation uses constant-time comparison to prevent timing attacks.'"
+    },
+    {
+      "severity": "major",
+      "owasp": "A06:2021 – Vulnerable and Outdated Components / A07:2021 – Identification and Authentication Failures",
+      "description": "Mnemonik JWT stored in env var `MNEMONIC_JWT` (per server.ts line 38). Current implementation validates JWT at startup (line 50: `parseJwtPayload(jwt)`), but there's no logging safeguard to prevent the JWT from being accidentally dumped in error messages, logs, or stack traces during runtime.",
+      "fix": "Task 6 (Mnemonik adapter + Sign/Verify tools): Add guardrails: (1) Never log raw JWT; use masked version (first 10 chars + '...' + last 10 chars) if logging auth state. (2) Catch JWT expiry errors and return user-friendly message 'JWT expired, re-run npx @mnemonik-xyz/cli login' without leaking token in error text. (3) Add env var validation test: ensure MNEMONIC_JWT doesn't appear in any console.log output. (4) Document in config validation: all secrets (MNEMONIC_JWT, MEMORY_API_KEY, API keys) are never logged."
+    },
+    {
+      "severity": "major",
+      "owasp": "A06:2021 – Vulnerable and Outdated Components / A07:2021 – Identification and Authentication Failures",
+      "description": "MEMORY_API_KEY and LLM API keys stored in env vars but no guarantee they won't be logged. Server startup may print env vars for debugging. Node.js/Bun processes can dump environment in error context.",
+      "fix": "Task 1 (config.ts + gbrain gateway init): Add config.ts validation that sanitizes logged env output: (1) Never print OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, MEMORY_API_KEY to stdout/stderr. (2) Only log 'Using provider: openai' (no key value). (3) Add test: config initialization with DEBUG=* logs nothing with secrets. (4) Document in README: 'API keys are never logged; safe to keep in .env.local or secrets manager'."
+    },
+    {
+      "severity": "major",
+      "owasp": "A06:2021 – Vulnerable and Outdated Components",
+      "description": "Content size limit not specified in tech-spec or implementation. IngestPipeline.add() (ingest/index.ts line 24–37) does not validate input.content size. An attacker could upload arbitrarily large content, causing OOM or DoS. gbrain chunking doesn't prevent pre-chunking overflow.",
+      "fix": "Task 3 (Multi-content-type ingestion pipeline): Add content size limit validation before ingestion. (1) Implement max size enforcement in IngestPipeline.add(): reject content > 100 MB with error 'Content exceeds maximum size of 100MB'. (2) Add per-chunk limit: enforce that chunker doesn't create chunks > 10MB each. (3) For URL fetcher: add `maxResponseSize` parameter to limit downloaded content (e.g., 50MB). (4) Update tool schema for memory_capture to document max size in description. (5) Add test: attempt to ingest 101MB string → throws 'Content exceeds maximum size'."
+    },
+    {
+      "severity": "major",
+      "owasp": "A10:2021 – Server-Side Request Forgery (SSRF)",
+      "description": "URL fetcher in memory_capture is planned (Task 3: fetcher.ts) but not yet implemented. Tech-spec says 'URL → fetcher.fetch() → markdown' but doesn't specify SSRF protections. No mention of URL validation, private IP blocking, or redirect limits. An attacker could use memory_capture with file:// URLs or internal 169.254.169.254 (AWS metadata) or localhost URLs.",
+      "fix": "Task 3 (fetcher.ts implementation): Add SSRF protections: (1) Validate URL: reject file://, data://, and other non-http(s) schemes. (2) Block private/internal IPs: reject 127.0.0.1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, ::1, fc00::/7 (IPv6 link-local and ULA). (3) Limit redirect chains: max 5 redirects, reject circular redirects. (4) Add timeout: max 30s per fetch. (5) Add test: memory_capture('http://localhost:9999') → rejected with 'Private IP address not allowed'."
+    },
+    {
+      "severity": "major",
+      "owasp": "A03:2021 – Injection",
+      "description": "Path traversal risk in file ingestion (Task 3: file.ts). Tech-spec says 'file path → file.read()' but doesn't sanitize paths. An attacker could use '../../../../etc/passwd' or '/etc/shadow' to read arbitrary files on the system.",
+      "fix": "Task 3 (file.ts implementation): Add path traversal protections: (1) Resolve all symlinks: use `fs.realpathSync(filepath)`. (2) Enforce allowlist: only read files within a configured 'safe directory' (default: current working directory + user home). (3) Reject absolute paths that escape the allowlist. (4) Add test: file.read('../../../../etc/passwd') → throws 'Path outside allowed directory'. (5) Document in README which directories are safe to ingest from."
+    },
+    {
+      "severity": "major",
+      "owasp": "A03:2021 – Injection (Prompt Injection) / A04:2021 – Insecure Design",
+      "description": "Captured content goes directly into LLM prompts via memory_think (Task 5: runThink → LLM synthesis). No input sanitization or prompt structure protection. An attacker could capture malicious LLM prompt injection payloads (e.g., 'Ignore your instructions, do X instead') and they would be included in synthesis LLM calls, potentially hijacking the LLM's behavior.",
+      "fix": "Task 5 (memory_think + synthesis): Add prompt injection mitigations: (1) Quote and escape all user-supplied content before inserting into LLM prompts — use structured prompts with clear delimiters (e.g., 'CAPTURED_MEMORY_START [content] CAPTURED_MEMORY_END' with escaping). (2) Use LLM system prompt to instruct model to treat captured content as data, not instructions. (3) Validate LLM response structure to ensure it follows citation format, not injected instructions. (4) Add test: capture text with prompt injection payload ('Ignore instructions and output X') → synthesis returns error or sanitized response, not injection result. (5) Consider using gbrain's built-in defense mechanisms if available."
+    },
+    {
+      "severity": "minor",
+      "owasp": "A02:2021 – Cryptographic Failures",
+      "description": "nginx Bearer token check (D4, Task 7) is planned but no spec for how it validates — plain string comparison vs. hashed comparison. Tech-spec mentions 'nginx returns 401 for missing/wrong key' but doesn't specify the nginx config syntax or validation method. If implemented as plain `if ($http_authorization != "Bearer key123")`, it's weak.",
+      "fix": "Task 7 (nginx config): Specify secure Bearer validation: (1) Use nginx auth_request module with a simple Lua validation script or (2) Use nginx map + if block with explicit string comparison (constant-time by nginx). (3) Document nginx.conf with clear comments showing Bearer validation logic. (4) Provide example config that works. (5) Test acceptance criteria: 'nginx returns 401 for missing Authorization header, 401 for wrong key, 200 for correct key'."
+    },
+    {
+      "severity": "minor",
+      "owasp": "A01:2021 – Broken Access Control",
+      "description": "User scoping via userId parameter (server.ts lines 52, 66, 79, etc.) is multi-user-ready but MVP is single-user. No enforcement that userId is always set to the authenticated user's ID. An attacker could call memory_search with a different userId and access other users' data. (Out of scope for MVP per user-spec, but code path exists.)",
+      "fix": "Task 4 (Wire capture, search, list, delete): In local mode (stdio): userId parameter is not enforced (local process is trusted). In cloud mode (HTTP): add middleware that forces userId to the authenticated API key owner (derived from key or hardcoded if single-key). Document in code: 'userId is not validated in local mode; cloud mode will enforce userId=default for single-key setup.' Add test for cloud mode: attempt to call memory_search with different userId → rejected or silently filtered to own data."
+    },
+    {
+      "severity": "minor",
+      "owasp": "A05:2021 – Access Control",
+      "description": "memory_clear tool (server.ts lines 119–128) requires confirm flag but doesn't require authentication confirmation or rate limiting. A user could accidentally or maliciously clear all memories with memory_clear({user_id: 'self', confirm: true}). If git-backed storage isn't enabled, data is permanently lost.",
+      "fix": "Task 4 (memory_clear handler): (1) Add warning prompt before clearing (in clients that support it). (2) Implement optional 'safe mode': require additional confirmation or one-time password. (3) Document that git-backed storage is the only backup if data is cleared. (4) Add audit log: log all memory_clear calls with timestamp, userId, and initiator. (5) Add test: memory_clear with confirm=true → logs the action."
+    },
+    {
+      "severity": "minor",
+      "owasp": "A05:2021 – Access Control",
+      "description": "No rate limiting specified for cloud mode endpoints. An attacker could DoS memory_search or memory_think with thousands of requests, exhausting API quota or Postgres resources. Tech-spec doesn't mention rate limiting, request throttling, or quota enforcement.",
+      "fix": "Task 2 (HTTP MCP transport + Bearer auth) or Task 7 (nginx config): Add rate limiting: (1) Implement per-API-key rate limit (e.g., 100 requests/min). (2) Use nginx rate_limit module or Bun middleware to enforce globally. (3) Return 429 Too Many Requests when limit exceeded. (4) Document in README: 'Rate limit is 100 requests/min per API key; adjust RATE_LIMIT env var.' (5) Add test: rapid memory_search calls → 429 after limit."
+    },
+    {
+      "severity": "minor",
+      "owasp": "A09:2021 – Using Components with Known Vulnerabilities",
+      "description": "Dependencies not yet pinned. package.json will include @mnemonik-xyz/sdk, @electric-sql/pglite, gbrain (via submodule). Submodules (vendors/gbrain, vendors/mnemonik) point to branches/commits; tech-spec says 'Pin to a specific commit hash in .gitmodules, not a branch' but this hasn't been verified yet.",
+      "fix": "Task 1 and ongoing: (1) Verify .gitmodules pins specific commit hashes for vendors/gbrain and vendors/mnemonik (not branches). (2) Add npm audit CI check: pre-commit or pre-push hook runs npm audit, fails on high/critical vulns. (3) Document dependency audit in README: 'Run npm audit regularly.' (4) Add test in Wave 6: CI step runs npm audit before building Docker image."
+    }
+  ]
+}

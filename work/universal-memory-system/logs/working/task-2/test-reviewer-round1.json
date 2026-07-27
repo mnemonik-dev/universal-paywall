@@ -1,0 +1,26 @@
+{
+  "reviewer": "test-reviewer",
+  "task": "2",
+  "round": 1,
+  "timestamp": "2026-07-27",
+  "verdict": "approved_with_minor",
+  "summary": "All TDD anchors from task spec are covered. Auth tests are thorough including the timing-safe spy. HTTP integration tests exercise real transport. Two improvements worth making.",
+  "findings": [
+    {
+      "id": "TEST-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/http.test.ts",
+      "line": 120,
+      "finding": "createMockMcpServer() uses require() (CJS) in an ES module file. While Bun tolerates this, it breaks if tree-shaking or bundling is applied. Also, the Server is created fresh per test but the MCP transport in http.ts is shared across tests via module cache (dynamic imports are cached). Multiple tests that call startHttpServer() with separate mcpServer instances will share the SAME transport if the module is only loaded once. Each test needs isolation — either use a fresh port:0 server per test (currently done with afterEach stop) but the transport is not reset. This may cause test flakiness on sequential runs.",
+      "suggested_fix": "Create mcpServer inside each test body (not in a shared factory), or verify the test suite remains stable across multiple bun test runs. The afterEach cleanup correctly stops the server. Current tests pass — marking minor."
+    },
+    {
+      "id": "TEST-2",
+      "severity": "low",
+      "file": "packages/memory-hub/src/mcp/auth.test.ts",
+      "line": 49,
+      "finding": "The `timing_safe_comparison_used` test spies on `crypto.timingSafeEqual` but the auth.ts module imports `timingSafeEqual` directly via named import (`import { timingSafeEqual } from 'node:crypto'`). The spy patches the crypto module object, but the named import is already bound — the spy may not intercept the already-bound function reference. This test may be a false pass.",
+      "suggested_fix": "Verify the spy actually intercepts the call (add a call count assertion and check it's > 0 before mockRestore). Alternatively, restructure auth.ts to call `crypto.timingSafeEqual()` through the module object, or accept that this test documents intent rather than strictly verifying the call path."
+    }
+  ]
+}

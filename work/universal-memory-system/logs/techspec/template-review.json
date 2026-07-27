@@ -1,0 +1,84 @@
+{
+  "validator": "tech-spec-validator",
+  "pass": false,
+  "findings": [
+    {
+      "severity": "major",
+      "section": "User-Spec Deviations",
+      "description": "DEV-1 section is present with [PENDING USER APPROVAL] marker, but the deviation is incomplete. The mitigation options (A/B/C) are described but no commitment to a specific path is made. This leaves ambiguity about the actual implementation direction.",
+      "fix": "Resolve DEV-1 by selecting one mitigation option (recommend Option A: fall back to BM25-only search if no key) and update the section to state the chosen resolution. Alternatively, mark as [RESOLVED: Option X] with clear implementation guidance for Wave 1."
+    },
+    {
+      "severity": "major",
+      "section": "Frontmatter",
+      "description": "Tech-spec status is 'draft', but it contains detailed implementation tasks and architectural decisions that suggest it is submission-ready. Reference tech-spec (x402-agent-payment) has status 'approved'.",
+      "fix": "Update status field to 'approved' or 'in-review' if tech-spec should proceed to implementation. Keep as 'draft' only if awaiting further user input beyond DEV-1 resolution."
+    },
+    {
+      "severity": "major",
+      "section": "Implementation Tasks - Wave 1 Task 1",
+      "description": "Task 1 description references 'LocalAdapter.synthesize()' and 'runThink' import, but the architecture shows adapters are not the primary pattern — instead, tool handlers in tools/ directory call engine directly. The description conflates storage adapters (local/cloud) with synthesis behavior. Files to modify list 'storage/local.ts' which doesn't appear in the scaffolding (packages/memory-hub/src/storage/ is not shown).",
+      "fix": "Clarify the adapter pattern: are LocalAdapter/CloudAdapter wrapping BrainEngine, or are tool handlers (tools/capture.ts, tools/think.ts, etc.) directly calling engine? Update Task 1 to list correct files. Reference code-research.md for the actual storage layer structure."
+    },
+    {
+      "severity": "major",
+      "section": "Implementation Tasks - Wave 1 Task 2",
+      "description": "Task 2 description adds HTTP MCP transport for cloud mode. Verify-smoke command references 'packages/memory-hub/src/mcp/server.ts' but current scaffolding shows incomplete server.ts. The task should clarify whether this is a greenfield implementation or completion of existing stub code.",
+      "fix": "Confirm whether server.ts is scaffold-ready or fully unwritten. Update description if this is a complete rewrite vs. completion. Files to read should include the current state of server.ts for context."
+    },
+    {
+      "severity": "major",
+      "section": "Implementation Tasks - All Tasks",
+      "description": "All 14 implementation tasks have 'Reviewers' field, but Audit Wave tasks (10-12) and Final Wave tasks (13-14) specify 'Reviewers: none' per the reference tech-spec pattern. These 'none' entries are correct, but the description in the instructions above says Reviewers field should be present on every task — this is satisfied.",
+      "fix": "No fix needed; pattern is correct. Audit Wave and Final Wave tasks correctly have 'none' for reviewers."
+    },
+    {
+      "severity": "minor",
+      "section": "Testing Strategy - RUMBA benchmark",
+      "description": "RUMBA benchmark section references 'packages/eval/' directory and 'research/RUMBA/results/baselines.json' but the main scaffold path shown is '/home/op/Projects/universal-memory/' with no 'eval' or 'research' subdirectories listed. This may be out-of-scope for MVP or assumed to exist in the parent project.",
+      "fix": "Clarify whether RUMBA benchmark is in-scope for Wave 6 or a future phase. If in-scope, add RUMBA directory structure to Architecture section or move eval task to separate tracking."
+    },
+    {
+      "severity": "minor",
+      "section": "Architecture - Shared resources table",
+      "description": "Shared resources table includes 'gbrain AI gateway' with 'Owner: config.ts' but the table doesn't clarify whether the gateway is initialized per-process or per-request. Decision D5 specifies it's per-process, but the table could be more explicit.",
+      "fix": "Update table entry for 'gbrain AI gateway' to add '(singleton per process, per D5)' in the Instance count column for clarity."
+    },
+    {
+      "severity": "minor",
+      "section": "Implementation Tasks - Wave 3 Task 5",
+      "description": "Task 5 references 'CloudAdapter' implementation but the Architecture section shows tool handlers call engine directly via a factory pattern (engine/factory.ts). The task description mixes adapter terminology with handler flow. The reference to 'CreateEngine({ engine: \"postgres\", ... })' suggests factory pattern, not adapter.",
+      "fix": "Rewrite Task 5 description to clarify: are we creating a CloudAdapter class wrapping PostgresEngine, or just using engine/factory.ts + tool handlers? Align with actual architecture pattern shown in Architecture section."
+    },
+    {
+      "severity": "minor",
+      "section": "Decisions - D5",
+      "description": "Decision D5 (gbrain AI gateway configureGateway()) references 'per-provider module-level caching' but doesn't specify whether the gateway survives across HTTP requests in cloud mode or if it's tied to a single process lifecycle. Cloud mode with multiple concurrent requests may expose thread-safety issues.",
+      "fix": "Add clarification: in cloud mode, the singleton gateway is per-Bun process (not per-request). If multi-process cloud deployment is planned post-MVP, note that each process has its own gateway instance. This is already correct per implementation but should be explicit in Decision text."
+    },
+    {
+      "severity": "minor",
+      "section": "Acceptance Criteria",
+      "description": "Acceptance Criteria section lists 'DEV-1 resolution implemented (Option A or B or C, per user decision)' but DEV-1 itself is not yet resolved at time of tech-spec writing. This creates a forward-dependency.",
+      "fix": "Update AC to state: '[ ] DEV-1 resolved and implemented per user approval; LLM key fallback path working (if Option A chosen)' or similar, tied to the resolution action."
+    },
+    {
+      "severity": "minor",
+      "section": "Risks",
+      "description": "Risks table includes 'LLM API key required for local mode' but doesn't reference the DEV-1 deviation section which addresses this exact issue. Cross-reference would improve clarity.",
+      "fix": "Add a note to the Risks row: '(See also DEV-1 User-Spec Deviation for mitigation options)'."
+    },
+    {
+      "severity": "minor",
+      "section": "Dependencies",
+      "description": "Dependencies section lists '@electric-sql/pglite/contrib/pg_trgm' but the imports in the Architecture section don't show this module being used in the listed files. gbrain's search module handles BM25 fusion internally via pg_trgm, but it's not clear if memory-hub needs to import it directly.",
+      "fix": "Clarify: does memory-hub import pg_trgm directly, or is it a transitive dependency from gbrain? If transitive, note it as '(transitive via gbrain)' in the Dependencies list."
+    },
+    {
+      "severity": "minor",
+      "section": "Implementation Tasks - Verify-smoke commands",
+      "description": "Several Verify-smoke commands reference env vars (OPENAI_API_KEY, MEMORY_API_KEY, etc.) but don't show how test fixtures will handle missing keys. For example, Task 1 smoke assumes a real key is available.",
+      "fix": "Update smoke commands to use mock/test keys or clarify that local testing requires a real key. Alternatively, create separate 'Verify-offline' commands that run without external dependencies for CI."
+    }
+  ]
+}

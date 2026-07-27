@@ -1,0 +1,54 @@
+{
+  "reviewer": "code-reviewer",
+  "task": 4,
+  "round": 1,
+  "verdict": "approved_with_minor_findings",
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/storage/local.ts",
+      "location": "LocalAdapter.list()",
+      "finding": "The list() implementation spreads the PageFilters conditional using object spread `...(userId ? { sourceId: userId } : {})`. This is fine but inconsistent with the existing LocalAdapter.search() method which passes userId directly as `engine.search({ userId })`. Minor style inconsistency — not a bug.",
+      "action": "skip",
+      "reason": "listPages() uses sourceId (not userId) so the mapping is correct. The spread is the idiomatic way to make it conditional. Acceptable."
+    },
+    {
+      "id": "CR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/storage/local.ts",
+      "location": "LocalAdapter.delete()",
+      "finding": "The delete() method calls getPage(id) then deletePage(id) — two sequential engine calls for what could be a single atomic operation if gbrain's deletePage() returned a signal about whether the row existed. However gbrain's interface doesn't expose that, so this is the correct approach given the available API.",
+      "action": "skip",
+      "reason": "Can't be improved without modifying gbrain internals. The pattern is correct and safe."
+    },
+    {
+      "id": "CR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/ingest/pipeline.ts",
+      "location": "IngestPipeline.add()",
+      "finding": "The add() method is documented as an alias for dispatch() for server.ts. This is appropriate, but the alias creates two public API entry points for the same operation. If dispatch() is the primary API, consider marking add() as @deprecated in favor of eventually unifying around one name. Not a bug — a maintenance note.",
+      "action": "skip",
+      "reason": "This is a valid design choice to fix the pre-existing server.ts mismatch without breaking task separation. Out of scope for task 4 to unify."
+    },
+    {
+      "id": "CR-4",
+      "severity": "major",
+      "file": "packages/memory-hub/src/storage/local.ts",
+      "location": "LocalAdapter.list() — created_at mapping",
+      "finding": "The created_at field is mapped as `(p.created_at instanceof Date ? p.created_at : new Date(p.created_at)).toISOString()`. This is correct. However if gbrain's Page.created_at is undefined (e.g., older schema versions), `new Date(undefined)` produces 'Invalid Date'. A safe fallback: `p.created_at ? new Date(p.created_at).toISOString() : new Date().toISOString()` would prevent NaN timestamp strings from reaching clients.",
+      "action": "apply",
+      "reason": "Valid defensive improvement — the current code can produce 'Invalid Date' strings if gbrain returns null/undefined created_at, which would break client JSON parsing."
+    },
+    {
+      "id": "CR-5",
+      "severity": "low",
+      "file": "packages/memory-hub/src/mcp/server.ts",
+      "location": "memory_capture handler — args.sign without guard",
+      "finding": "The memory_capture handler changed from `if (args.sign && mnemonik)` to `if (args.sign)` — relying on signMemory() to handle null adapter. This is correct and consistent with the signMemory() contract. Just noting the intentional behavior change: previously when mnemonik was null and sign=true, nothing happened silently. Now, signMemory() returns an error object, and that error is discarded since only attestationId is extracted. The error goes unlogged. Consider logging when sign=true but signing fails, to aid debugging.",
+      "action": "skip",
+      "reason": "The attestationId will be undefined in the response which is observable by the client. Adding a log is nice-to-have but out of scope for this task."
+    }
+  ],
+  "summary": "Code is well-structured. The rename is correct, list/delete handlers are properly wired, and the StorageAdapter interface extension is clean. One actionable finding (CR-4): created_at mapping can produce 'Invalid Date' strings if gbrain returns null. Apply the defensive fallback. Everything else is minor or skip."
+}

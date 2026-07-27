@@ -1,0 +1,27 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "3",
+  "round": 2,
+  "timestamp": "2026-07-27T00:01:00Z",
+  "summary": "All required fixes from round 1 applied. CR-4 (htmlToText fallback) and CR-5 (PDF error note) are resolved. Minor items remain as documented.",
+  "findings": [
+    {
+      "id": "CR-4-verify",
+      "severity": "resolved",
+      "finding": "htmlToText now uses stripHtmlTags() as final fallback — raw HTML never stored. Script/style blocks are removed before tag stripping. RESOLVED."
+    },
+    {
+      "id": "CR-5-verify",
+      "severity": "resolved",
+      "finding": "PDF error fallback now returns '[PDF extraction failed for <path>: <reason>]' string. pdf-parse v2 API usage (PDFParse class constructor with data: Uint8Array) is correct. RESOLVED."
+    },
+    {
+      "id": "CR-2-open",
+      "severity": "low",
+      "finding": "Image source fallback asymmetry (source ?? 'file') still present but documented in code. Acceptable as-is."
+    }
+  ],
+  "verdict": "approved",
+  "required_fixes": [],
+  "optional": ["CR-2-open"]
+}

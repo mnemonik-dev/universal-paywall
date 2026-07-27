@@ -1,0 +1,45 @@
+{
+  "reviewer": "test-reviewer",
+  "task": "5",
+  "round": 1,
+  "commit": "e9fb43b",
+  "timestamp": "2026-07-27",
+  "summary": "Test coverage is adequate for the TDD anchors defined in the task. Three findings: one major gap (no test for bm25-only synthesize DATABASE_URL-missing case in full/ollama mode), one minor test clarity issue, one low note on test file placement.",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "major",
+      "file": "packages/memory-hub/src/storage/cloud.test.ts",
+      "line": 49,
+      "title": "synthesize() DATABASE_URL test was changed to not test the error path",
+      "description": "The TDD anchor `storage/cloud.ts::invalid_database_url_throws_actionable_error` requires that synthesize() throws a DATABASE_URL error when not set. The test was modified to accept a resolved promise instead because bm25-only mode short-circuits before reaching getEngine(). This means the guard in synthesize() is only tested when mode !== 'bm25-only', which the test environment never achieves without LLM keys. The actionable error path for synthesize() is untested.",
+      "suggestion": "Add a test that sets mode to 'full' (or mocks it) and verifies synthesize() throws DATABASE_URL. Alternatively, document that this is a known gap and only testable in an integration environment with real LLM keys.",
+      "action": "valid",
+      "disposition": "apply"
+    },
+    {
+      "id": 2,
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/think.test.ts",
+      "line": 1,
+      "title": "think.test.ts tests output shapes via stubs, not the actual handler",
+      "description": "The TDD anchor calls_storage_synthesize implies testing that the memory_think handler actually calls storage.synthesize(). The test file tests the output shape via makeStubSynthesis() helper but never actually invokes the MCP handler. The handler is a one-liner (storage.synthesize → JSON.stringify) so this is acceptable, but the test description claims to test the handler when it only tests the output contract.",
+      "suggestion": "Rename describe blocks to 'SynthesisResult contract' rather than 'memory_think — calls_storage_synthesize' for accuracy, or add a handler test that spies on storage.synthesize().",
+      "action": "valid",
+      "disposition": "apply"
+    },
+    {
+      "id": 3,
+      "severity": "low",
+      "file": "packages/memory-hub/src/storage/cloud.test.ts",
+      "line": 98,
+      "title": "connects_to_postgres test can pass without any actual engine init code",
+      "description": "The test `engine error message is a connection error, not missing-URL error` passes as long as the error doesn't contain 'DATABASE_URL is required'. This would pass even if CloudAdapter threw a completely different error. The test is weaker than ideal — it doesn't verify that createEngine() was actually called.",
+      "suggestion": "Consider spying on createEngine import to verify it was called with engine:'postgres'. Lower priority since real integration is tested via smoke test.",
+      "action": "skip",
+      "reason": "Integration-level verification belongs in smoke test, not unit tests. Accepted as-is."
+    }
+  ],
+  "verdict": "approve_with_minor_fixes",
+  "notes": "17 new tests pass. TDD anchors are covered (with the noted bm25-only gap for synthesize). The LocalAdapter tests from round 1 continue to pass. Test structure is clean and follows existing patterns."
+}

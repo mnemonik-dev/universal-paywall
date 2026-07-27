@@ -1,0 +1,154 @@
+metadata:
+  feature_name: snark-policy-certificates
+  work_type: feature
+  size: M
+  status: completed
+  started: "2026-06-29"
+  last_updated: "2026-06-29"
+  current_question_num: 0
+
+phase1_feature_overview:
+  feature_name:
+    value: "snark-policy-certificates"
+    score: 100
+    status: done
+
+  work_type:
+    value: "feature"
+    score: 100
+    status: done
+
+  what_we_build:
+    value: |
+      End-to-end pipeline: policy predicate → SNARK proof → verifiable certificate.
+      Phase 1 (this spec): circom + snarkjs circuit for one concrete payment policy
+      (spend ≤ budget ∧ recipient ∈ allowlist ∧ tool_args satisfy schema).
+      New package packages/policy-certs/ in the monorepo.
+      Optional integration hook in withPaywall() middleware.
+    score: 90
+    gaps: []
+    status: done
+
+  why:
+    value: |
+      AI agents in the trustless economy need to prove compliance with declared policies
+      without the verifier re-executing their computation or trusting the operator.
+      SNARK certificates let a verifier check compliance in sublinear time — no re-execution,
+      no trusted intermediary. Direct application to Universal Paywall: middleware can verify
+      a proof that the agent's payment satisfies the policy rather than just verifying the tx.
+    score: 90
+    gaps: []
+    status: done
+
+  target_users:
+    value: |
+      - AI agents (provers): generate proof that their action satisfies a declared policy
+      - Developers (verifiers): verify agent compliance without trusting the agent
+      - Universal Paywall middleware: optional policy-proof extension to withPaywall()
+    score: 88
+    gaps: []
+    status: done
+
+  key_scenarios:
+    value: |
+      Happy path: agent executes action → generates (action, pub_inputs, proof) →
+        verifier calls verify(action, proof, vk) → bool true → access granted.
+      Non-compliant action: proof generation fails (witness doesn't satisfy constraints) →
+        agent cannot produce a valid certificate → verifier rejects.
+      Replay attack: pub_inputs includes action_hash = blake3(action_manifest) →
+        proof is bound to specific action, cannot be reused.
+      ZK variant: private witness (full tx context) hidden in proof;
+        verifier confirms compliance without seeing the witness.
+    score: 90
+    gaps: []
+    status: done
+
+  out_of_scope:
+    value: |
+      - zkVM general path (RISC Zero / SP1) — Phase 2, separate spec
+      - ZK private witness variant — Phase 3, separate spec
+      - On-chain proof verification (Solidity verifier contract) — post-MVP
+      - Arbitrary policy compilation (only the one concrete 3-clause policy in Phase 1)
+      - Production integration into withPaywall() — PoC hook only
+    score: 90
+    gaps: []
+    status: done
+
+phase2_user_experience:
+  api_design:
+    value: |
+      packages/policy-certs/src/
+        prover.ts    — generateCertificate(action, witness) → Certificate
+        verifier.ts  — verifyCertificate(action, cert, vk) → boolean
+      Certificate type: { policyId, actionHash, pubInputs, vk, proof }
+      Policy: PaymentPolicy = { maxSpend: number, allowlist: string[], schemaFields: string[] }
+    score: 90
+    gaps: []
+    status: done
+
+  developer_config:
+    value: |
+      withPaywall(handler, { price, developerId, policyProof: true })
+      If policyProof: true — middleware also expects X-Policy-Proof header with base64(certificate).
+      Verifying key (vk) shipped with the package as a static asset.
+    score: 85
+    gaps: []
+    status: done
+
+  error_handling:
+    value: |
+      Invalid proof → HTTP 402 { error: "policy_violation", reason: "invalid_proof" }
+      Proof for wrong action (hash mismatch) → 402 { reason: "action_hash_mismatch" }
+      Missing proof when policyProof: true → 402 { reason: "proof_required" }
+    score: 88
+    gaps: []
+    status: done
+
+phase3_integration:
+  proving_stack:
+    value: |
+      circom 2.x + snarkjs (Groth16). No new tooling beyond existing npm ecosystem.
+      Circuit: circuits/payment_policy_v1.circom
+      Gadgets: range check (spend ≤ budget), Merkle inclusion (recipient ∈ allowlist),
+               field equality constraints (schema check).
+      Trusted setup: Powers of Tau ceremony (existing ptau files from hermez/snarkjs).
+    score: 90
+    gaps: []
+    status: done
+
+  deploy_approach:
+    value: |
+      No on-chain deployment needed for Phase 1.
+      npm package: @universal-paywall/policy-certs
+      Verifying key shipped as static JSON asset in the package.
+      Tests run locally (no external RPC needed).
+    score: 90
+    gaps: []
+    status: done
+
+  manual_user_actions:
+    value: |
+      Developer: install @universal-paywall/policy-certs, use pre-shipped vk.
+      Agent (prover): have the witness (spend amount, recipient, args) ready before calling generateCertificate().
+      No on-chain registration or USDC balance needed for policy-certs package itself.
+    score: 90
+    gaps: []
+    status: done
+
+  mnemonik_tieIn:
+    value: |
+      pub_inputs.action_hash = blake3(action_manifest)
+      Proof is anchored to a specific action via its blake3 hash.
+      Cannot be replayed on a different action.
+    score: 88
+    gaps: []
+    status: done
+
+conversation_history: []
+
+notes:
+  - "Phase 1 only: circom + snarkjs, one concrete 3-clause policy"
+  - "Based on arxiv:2606.23768 — polynomial semantics: equality=(t-t')², AND=sum, OR=product"
+  - "Certificate format: { policyId, actionHash, pubInputs, vk, proof }"
+  - "Phase 2 (zkVM) and Phase 3 (ZK private witness) are separate future specs"
+  - "Optional middleware hook: withPaywall({ policyProof: true })"

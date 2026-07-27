@@ -1,0 +1,8 @@
+{
+  "reviewer": "code-reviewer",
+  "task": 4,
+  "round": 2,
+  "verdict": "approved",
+  "findings": [],
+  "summary": "CR-4 fix verified: LocalAdapter.list() now has defensive created_at fallback preventing 'Invalid Date' strings. All other round 1 findings were correctly skipped. Code is approved."
+}

@@ -1,0 +1,60 @@
+{
+  "validator": "completeness-validator",
+  "pass": false,
+  "findings": [
+    {
+      "severity": "major",
+      "type": "gap",
+      "description": "DEV-1 (LLM API key requirement for local mode) is identified but not resolved into a concrete implementation task. Tech-spec offers 3 mitigation options (A: BM25 fallback, B: local embeddings, C: require key) but states 'PENDING USER APPROVAL'. This blocks Wave 1 Task 1 acceptance criteria until a decision is committed to a task.",
+      "fix": "Create Task 1a (pre-Task 1) or add conditional logic task: decide on LLM API key strategy, update Task 1 acceptance criteria to specify chosen path, implement in Task 1 or as standalone task. Recommend Option A (BM25 fallback) to match zero-external-dependency promise."
+    },
+    {
+      "severity": "major",
+      "type": "gap",
+      "description": "Coding Fabric agent integration is mentioned in user-spec AC ('Coding Fabric CLAUDE.md / агенты имеют MCP config') and referenced in tech-spec (Task 9, Fabric patterns under 'adapters/fabric/patterns/'), but no concrete task for setting up or verifying Fabric CLAUDE.md MCP config exists. Task 9 mentions only Claude Code, KimiClaw, Kini.",
+      "fix": "Add Task 9.1 or include in Task 9: 'Verify Coding Fabric CLAUDE.md has universal-memory MCP config; test that a Fabric agent can call memory_capture + memory_think during task execution (E2E-4 scenario).' Add acceptance criteria to Task 9."
+    },
+    {
+      "severity": "minor",
+      "type": "gap",
+      "description": "Task 1 verify-smoke command uses `.then().then()` chaining on potentially non-Promise exports from config.ts. If configureGateway() or getEngine() don't return Promises, the command will fail silently or produce misleading errors. The check doesn't actually verify that synthesis (memory_think) works or that PGLite connects.",
+      "fix": "Update Task 1 verify-smoke: replace with concrete check like 'bun run -e \"import('./src/config').then(() => console.log('OK'))\"' and separate synthesis test. Or add Task 1 acceptance criterion: 'PGLiteEngine.connect() returns a live connection; memory_think synthesis can be called (mock LLM).' Verify in integration test, not smoke."
+    },
+    {
+      "severity": "minor",
+      "type": "gap",
+      "description": "Task 4 description notes that 'memory_clear in current scaffold becomes memory_delete (rename to match user-spec)' but does not confirm whether this rename is handled by Task 4 or assumed to already be done. Current scaffold not verified.",
+      "fix": "Add to Task 4 acceptance criterion: 'Rename memory_clear to memory_delete in server.ts tool registry; verify no other references remain.' Or add pre-task: verify scaffold state before Task 4."
+    },
+    {
+      "severity": "minor",
+      "type": "gap",
+      "description": "Mnemonik JWT expiry (24h TTL) is documented in Risks section but no acceptance criterion in Task 6 requires handling it. Currently, tech-spec says 'log warning but don't crash' but doesn't specify user-facing messaging or test coverage.",
+      "fix": "Add to Task 6 acceptance criterion: 'On startup: parse MNEMONIC_JWT, if expired log warning 'Mnemonik JWT expired, re-run npx @mnemonik-xyz/cli login'; memory_sign/verify tools return actionable error if JWT invalid.' Add unit test for expired JWT scenario."
+    },
+    {
+      "severity": "minor",
+      "type": "gap",
+      "description": "Memory_sign idempotency via content-hash is required by Decision D7 and user-spec AC ('Повторный вызов с тем же id → idempotent'), but the memory_attestations table migration is only mentioned in Task 6 description ('Create memory_attestations table migration'). No separate migration task or Wave 4 pre-conditions documented.",
+      "fix": "Ensure Task 6 acceptance criterion includes: 'memory_attestations table created with (page_id PK, content_hash, attestation_id); idempotency test: call memory_sign(id1) twice → same attestationId both times.' Add to Wave 4 pre-conditions if DB setup is Wave 5."
+    },
+    {
+      "severity": "minor",
+      "type": "gap",
+      "description": "PGLite cold start (5–20s per Risks) is identified but no Task 1 acceptance criterion requires documenting it in README or user-facing logs. MCP clients should 'expect slow first response' but this isn't spec'd as a requirement.",
+      "fix": "Add to Task 1 acceptance criterion: 'Startup logs include 'Initializing PGLite (first run, ~5-20s)...' message to stderr.' Alternatively, add Task 1 AC for README: 'Document PGLite cold start latency and SSE client timeout expectations.'"
+    },
+    {
+      "severity": "minor",
+      "type": "overengineering",
+      "description": "Task 1 mentions 'confirm PGLiteEngine.connect() + initSchema() call sequence is correct (per code-research)' but code-research.md is not provided in the read-only scope. This is a forward reference to external documentation that may not exist or may be out of sync.",
+      "fix": "Replace reference to code-research.md with inline Task 1 pre-condition: 'Verify vendors/gbrain/src/core/pglite-engine.ts exports connect() and initSchema(); test that calling them in sequence initializes DB without error.' Or remove external reference and rely on gbrain's own test suite."
+    },
+    {
+      "severity": "minor",
+      "type": "shallow_solution",
+      "description": "Option A for DEV-1 (BM25-only fallback if no LLM key) is mentioned but not detailed: search would work, synthesis would return error. This asymmetry may confuse users who expect all tools to fail-safe together.",
+      "fix": "If Option A chosen: add tech-spec decision D9 clarifying behavior: 'memory_capture without LLM key → succeed (BM25 indexing only); memory_think without key → error \"LLM API key required for synthesis\"; memory_search returns BM25 results only (no vector re-ranking).' Document in README as a trade-off."
+    }
+  ]
+}

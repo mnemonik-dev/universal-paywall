@@ -1,0 +1,34 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "2",
+  "round": 1,
+  "timestamp": "2026-07-27",
+  "verdict": "approved_with_minor",
+  "summary": "Implementation is solid. auth.ts is correct and well-documented. http.ts correctly uses WebStandardStreamableHTTPServerTransport (Bun-native). Cloud stub is appropriate for this wave. Three minor findings below.",
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/http.ts",
+      "line": 17,
+      "finding": "Unused import: `Server` from @modelcontextprotocol/sdk is imported but only used as a type in the interface. TypeScript will emit a type-only import at runtime unnecessarily in Bun. Should be `import type { Server }`.",
+      "suggested_fix": "Change `import { Server }` to `import type { Server }` in http.ts"
+    },
+    {
+      "id": "CR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/http.test.ts",
+      "line": 120,
+      "finding": "Test uses `require()` (CommonJS) inside an ES module test file. While Bun supports this, it's inconsistent with the rest of the codebase which uses ES module `import`. Should use dynamic `await import()` for consistency and proper type inference.",
+      "suggested_fix": "Replace `const { Server } = require(...)` with `const { Server } = await import('@modelcontextprotocol/sdk/server/index.js')`"
+    },
+    {
+      "id": "CR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/mcp/auth.test.ts",
+      "line": 11,
+      "finding": "Unused imports: `beforeAll`, `afterAll`, `mock` are imported from 'bun:test' but never used in the test file.",
+      "suggested_fix": "Remove unused imports: `beforeAll`, `afterAll`, `mock` from the import statement"
+    }
+  ]
+}
