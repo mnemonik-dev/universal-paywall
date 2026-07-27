@@ -1,5 +1,24 @@
 # Universal Memory System — Decisions Log
 
+## Task 13: Pre-deploy QA
+
+**Status:** Done  
+**Agent:** qa-engineer  
+**Summary:** QA passed. 369 tests green, 38 acceptance criteria checked (32 passed, 1 failed, 5 not_verifiable). Zero criticals. 3 majors, 2 minors. One blocking concern: MAJOR-1 (memory_sign API deviation — takes `{content}` not `{id}` as spec requires). Workaround exists via capture(sign:true).
+
+**Deviations:**  
+- MAJOR-1: `memory_sign` takes `{ content, tags? }` instead of `{ id, tags? }`. Id-based page lookup (engine.getPage(id)) not implemented. Primary flow (capture with sign:true) works. Standalone sign-by-id does not.  
+- MAJOR-2: Server exposes 8 tools; user-spec defines 7. `memory_sync` added for hybrid mode but not in spec.  
+- MAJOR-3: RUMBA benchmark results are dry-run placeholder values only — no actual measurement performed.  
+
+**Verification:**  
+- Full report: [logs/working/qa-report.json](logs/working/qa-report.json)  
+- Human-readable: [qa-report.md](qa-report.md)  
+
+**Deferred to post-deploy:** 5 criteria require live environment (Docker Compose, Mnemonik JWT, client apps, LLM API key, RUMBA full eval). See `deferredToPostDeploy` in qa-report.json.
+
+---
+
 ## Audit Fix Wave (post Task 11): Critical + Medium Findings
 
 **What was done:** Fixed all critical and medium issues found in the code audit (Task 10) and security audit (Task 11). Committed as `c708c09` on `main`.
