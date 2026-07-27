@@ -1,6 +1,6 @@
 ---
 feature: universal-memory-system
-status: draft
+status: approved
 created: 2026-07-26
 ---
 
@@ -30,29 +30,37 @@ created: 2026-07-26
 
 ## Пользователи
 
-- **Разработчик (владелец):** один человек. Явно вызывает `memory_capture` чтобы сохранить важный результат, `memory_search` или `memory_think` чтобы получить контекст перед задачей.
-- **AI-агенты:** агенты в Claude Code, Kini, KimiClaw (OpenClaw на Kimi), Coding Fabric — вызывают MCP tools автоматически в ходе работы.
+- **Разработчик (владелец):** один человек. Использует через любой AI-инструмент с MCP поддержкой — на десктопе, ноутбуке, или мобильном.
+- **AI-агенты:** агенты в Claude Code, Kini, KimiClaw (OpenClaw на Kimi), Coding Fabric — вызывают MCP tools в ходе работы (явно по команде или самостоятельно по контексту задачи).
 - **Внешние пользователи:** out of scope.
 
-**Клиентские поверхности (все через MCP config):**
-- Claude Code → `mcpServers` в `.claude/settings.json`
-- Kini → MCP config
-- KimiClaw → OpenClaw-compatible MCP config
+**Клиентские поверхности (все через MCP config, один HTTP endpoint):**
+- Claude Code (desktop) → `mcpServers` в `.claude/settings.json`
+- Claude mobile → remote MCP через HTTP
+- Kini (desktop + mobile) → MCP config
+- KimiClaw (OpenClaw на Kimi) → MCP config
 - Coding Fabric agents → через Claude Code или KimiClaw runner
-- Любой MCP-совместимый инструмент (stdio или HTTP)
+- Любой MCP-совместимый инструмент
+
+**Доступ и защита:**
+- Один HTTPS endpoint на Hetzner VPS (Let's Encrypt через nginx)
+- Один API key в заголовке: `Authorization: Bearer <key>`
+- Ключ добавляется один раз в MCP config каждого клиента
+- Внешние запросы без ключа → 401
 
 ## Флоу
 
 ### Захват знания (Capture)
 
 ```
-Агент работает в Claude Code / KimiClaw / Kini
-  → находит важный результат исследования / принял решение / получил артефакт
-  → явно вызывает: memory_capture({ content: "...", source: "research", tags: ["mnemonik"] })
+Агент (или пользователь) вызывает memory_capture() — явно или самостоятельно:
+  → memory_capture({ content: "...", source: "research", tags: ["mnemonik"] })
   → gbrain chunking + embedding + upsert в PGLite (local) или Postgres (cloud)
   → возвращает: { id, chunks }
   → опционально: memory_sign({ id }) → Mnemonik attestationId
 ```
+
+С точки зрения memory системы явный и неявный захват — один и тот же tool call. Разница только в системном промпте агента на стороне клиента.
 
 **Поддерживаемый контент:** text, URLs (система скачивает), files (PDF, markdown, code), images.
 
@@ -147,7 +155,9 @@ CLOUD режим (HTTP MCP, VPS):
 - [ ] Независимый деплой от Universal Paywall (`docker compose up memory-hub -d`)
 - [ ] gbrain + Postgres: все captures попадают в cloud (source of truth)
 - [ ] `memory_sign` работает в cloud режиме (требует `MNEMONIC_JWT` + `MNEMONIC_IDENTITY` env vars)
-- [ ] HTTP MCP endpoint доступен через nginx (отдельный subdomain или путь)
+- [ ] HTTPS endpoint доступен через nginx с Let's Encrypt (subdomain `memory.`)
+- [ ] Запросы без `Authorization: Bearer <key>` → 401 до обработки MCP
+- [ ] Один API key в env var на сервере; ротация через env update + restart
 
 ### Клиентская совместимость
 

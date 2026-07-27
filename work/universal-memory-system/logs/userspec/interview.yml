@@ -2,7 +2,7 @@ metadata:
   feature_name: universal-memory-system
   work_type: feature
   size: L
-  status: in_progress
+  status: completed
   started: "2026-07-26"
   last_updated: "2026-07-26"
   current_question_num: 23
@@ -130,7 +130,7 @@ phase3_integration:
       ОТКРЫТЫЙ ВОПРОС: extend gbrain MCP vs import as library.
     score: 80
     gaps: ["extend gbrain MCP server или import gbrain как library в свой server?"]
-    status: in_progress
+    status: completed
   deploy_approach:
     value: |
       Hetzner VPS. Отдельный Docker Compose сервис.
@@ -138,7 +138,7 @@ phase3_integration:
       HTTP MCP endpoint для cloud клиентов.
     score: 80
     gaps: ["порт, nginx — в tech spec"]
-    status: in_progress
+    status: completed
   testing_approach:
     value: |
       1. Integration tests: каждый MCP tool (capture/search/think/sign/verify/list/delete)
