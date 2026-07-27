@@ -1,0 +1,32 @@
+[
+  {
+    "file": "packages/memory-hub/src/config.extra.test.ts",
+    "line": 317,
+    "summary": "bm25-only mode assertion fails on any machine where Ollama is reachable at localhost:11434",
+    "failure_scenario": "The test asserts `cfg.mode === 'bm25-only'` when no cloud API keys are set. But `config.ts` also auto-detects Ollama via a 2-second probe (`probeOllama()`). On any developer machine running Ollama, mode resolves to `'ollama'` (not `'bm25-only'`), causing this assertion to fail. The guard only checks cloud keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`), not `OLLAMA_BASE_URL` or local Ollama availability."
+  },
+  {
+    "file": "packages/memory-hub/src/ingest/fetcher.extra.test.ts",
+    "line": 211,
+    "summary": "Test name says 'throws for 172.32.0.1' but the test body expects NO throw — inverted intent",
+    "failure_scenario": "The `it(\"throws for 172.32.0.1 ...\")` name implies the test verifies a throw. The test body actually calls `expect(typeof result).toBe('string')`, asserting success. A developer reading test output or the test name would conclude the opposite behavior. If someone later refactors to make 172.32.0.1 block (e.g., adding it to a denylist), this test would fail with a confusing error rather than a clear assertion mismatch."
+  },
+  {
+    "file": "packages/memory-hub/src/storage/integration.test.ts",
+    "line": 22,
+    "summary": "Unused import of `beforeEach` from bun:test — dead symbol inflates import surface",
+    "failure_scenario": "Line 22 imports `beforeEach` but no test in the file uses it. While not a runtime failure, it creates misleading signal (readers may search for `beforeEach` usage expecting shared setup), and if Bun or TypeScript strict-mode checks flag unused imports this file would fail linting."
+  },
+  {
+    "file": "packages/memory-hub/src/storage/cloud.unit.test.ts",
+    "line": 13,
+    "summary": "JSDoc TDD anchor claims `CloudAdapter.synthesize()` is tested in this file but no such test exists",
+    "failure_scenario": "The file header at lines 5 and 13 lists `CloudAdapter.synthesize() bm25-only returns setup message` as a TDD anchor, implying it is covered here. However, there is no `describe('CloudAdapter.synthesize()')` block in this file. The synthesize test lives in `cloud.test.ts`. A reviewer or future contributor auditing this file against the TDD anchors would incorrectly believe synthesize coverage is present here."
+  },
+  {
+    "file": "packages/memory-hub/src/storage/integration.test.ts",
+    "line": 29,
+    "summary": "Duplicate InMemoryStorage class already exists in ingestion.test.ts — maintenance split risk",
+    "failure_scenario": "Two identical-but-slightly-different `InMemoryStorage` classes now exist: one in `ingest/ingestion.test.ts` (line 20, without `signature` in `add()` opts) and one in `storage/integration.test.ts` (line 29, with `signature`). The ingestion.test.ts version doesn't include `signature?: string` in the `add()` parameter type, meaning it is not strictly compliant with `StorageAdapter`. When `StorageAdapter.add()` is extended (e.g., adding a new optional field), only one of the two classes would be updated, silently creating a structural mismatch."
+  }
+]
