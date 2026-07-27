@@ -127,6 +127,8 @@ CLOUD режим (HTTP MCP, VPS):
 | `memory_list` | `limit?=20` | `[{ id, content, source, created_at }]` |
 | `memory_delete` | `id` | `{ status: "deleted" }` |
 
+**Установка без прав администратора:** `npx` или `bunx` — без глобальных пакетов, без `sudo`.
+
 **Post-MVP:** plugin-level автозахват (Claude extension), multi-user scoping, UI браузера памяти.
 
 ## Критерии приёмки
@@ -144,7 +146,8 @@ CLOUD режим (HTTP MCP, VPS):
 ### Local режим
 
 - [ ] Запуск через stdio без дополнительных сервисов: `bun run packages/memory-hub/src/mcp/server.ts`
-- [ ] gbrain PGLite инициализируется автоматически в `~/.universal-memory/brain/` при первом запуске
+- [ ] **Работает без прав администратора** — никакого `sudo`, никаких системных сервисов, никаких глобальных установок. Bun в `~/.bun/`, данные в `~/.universal-memory/brain/`
+- [ ] gbrain PGLite (Postgres-in-WASM) инициализируется автоматически в `~/.universal-memory/brain/` при первом запуске — без системной БД
 - [ ] Все 5 инструментов без знака работают в local режиме (capture, search, think, list, delete)
 - [ ] `memory_sign` в local режиме → понятная ошибка: "Signing only available in cloud mode"
 - [ ] Cloud недоступен → print error, не silent fallback
