@@ -1,0 +1,55 @@
+{
+  "reviewer": "test-reviewer",
+  "task": "9",
+  "round": 1,
+  "reviewed_at": "2026-07-27T00:00:00Z",
+  "verdict": "approved_with_minor_findings",
+  "findings": [
+    {
+      "id": "TR9-1",
+      "severity": "minor",
+      "file": "packages/eval/adapters/test_universal_memory.py",
+      "finding": "TestMcpClientToolParsing._client_with_mock_request() uses `lambda self, **kw: None` to bypass __init__ but the real __init__ takes positional `data_dir` arg. The patch works but the bypass pattern is fragile — prefer using `object.__new__` directly as done in _make_service().",
+      "action": "acceptable_as_is"
+    },
+    {
+      "id": "TR9-2",
+      "severity": "minor",
+      "file": "packages/eval/adapters/test_universal_memory.py",
+      "finding": "No test for the `close()` / `__exit__()` path of UniversalMemoryService. The context manager protocol is tested implicitly via `with UniversalMemoryService(...)` in run.py but not unit-tested. Low risk since it's a thin delegation to _client.close().",
+      "action": "accept"
+    },
+    {
+      "id": "TR9-3",
+      "severity": "low",
+      "file": "packages/eval/run.py",
+      "finding": "_extract_messages() is not directly tested. It's exercised via integration (run_eval) but isolated unit tests would catch edge cases like sessions with 0 messages, mixed speaker orders, or missing timestamp keys. Given this is eval harness code (not production), acceptable to leave as-is.",
+      "action": "accept"
+    },
+    {
+      "id": "TR9-4",
+      "severity": "low",
+      "file": "packages/eval/adapters/test_universal_memory.py",
+      "finding": "Test for `test_recall_only_checks_top_k` puts evidence at index 5 (0-based) which is position 6 in the list, correctly outside top-5. The assertion is correct. However, the test comment says 'position 6, out of top-5' which is correct — no action needed.",
+      "action": "pass"
+    },
+    {
+      "id": "TR9-5",
+      "severity": "major",
+      "file": "packages/eval/adapters/test_universal_memory.py",
+      "finding": "TestGetRelevantMemories.test_string_payload_calls_capture is in TestAddOne (correct class) but the test name in TestAddOne says 'calls_capture' — string payload flow is correct. However, there's no test for the case where `add_one()` receives a `capture()` call that returns a result WITHOUT an `id` key (e.g., MCP error response). The `_user_ids` tracking is silently skipped in this case, but the return value should still be `{ status: 'success' }` even on missing id. This is the existing behavior but deserves an explicit test.",
+      "action": "add_test"
+    }
+  ],
+  "coverage_assessment": {
+    "add_one_variants": "covered (str, list, empty, id tracking, tag inclusion)",
+    "clear_user_collection": "covered (known user, unknown user)",
+    "get_relevant_memories": "covered (returns string, contains question, tag filter, fallback, ru language)",
+    "mcp_client_parsing": "covered (json, empty, none, results unwrap)",
+    "metric_helpers": "covered (recall exact, partial, miss, top-k boundary, quality variants, date parsing)",
+    "dry_run_mode": "not directly tested — covered by smoke check",
+    "close_context_manager": "not tested",
+    "extract_messages": "not directly tested"
+  },
+  "overall": "25 tests covering all critical paths. Test quality is good — tests check behavior not implementation (MagicMock on interface boundary, not internal methods). Minor gap: missing capture-returns-no-id test. Acceptable for eval harness code."
+}

@@ -1,0 +1,50 @@
+{
+  "reviewer": "code-reviewer",
+  "task": "9",
+  "round": 1,
+  "reviewed_at": "2026-07-27T00:00:00Z",
+  "verdict": "approved_with_minor_findings",
+  "findings": [
+    {
+      "id": "CR9-1",
+      "severity": "minor",
+      "file": "packages/eval/adapters/universal_memory.py",
+      "line": "~160",
+      "finding": "_recv_line() imports `select` inside a hot loop on every byte-read iteration. The import is module-cached in Python so no real performance issue, but it's misleading style — import should be at module level.",
+      "action": "move"
+    },
+    {
+      "id": "CR9-2",
+      "severity": "minor",
+      "file": "packages/eval/adapters/universal_memory.py",
+      "line": "get_relevant_memories()",
+      "finding": "Tag-based user isolation is best-effort: memory_search returns global results sorted by score, not per-user. The tag filter is a post-hoc client-side filter. This is documented in the class docstring but should also be noted in get_relevant_memories() docstring to prevent future confusion.",
+      "action": "document"
+    },
+    {
+      "id": "CR9-3",
+      "severity": "low",
+      "file": "packages/eval/run.py",
+      "line": "_answer_quality()",
+      "finding": "_answer_quality() returns 1.0 for abstention answers regardless of whether search returned results (just 0.5 when results exist). This is correct for the no-results case but could slightly inflate AnswerQuality scores for abstention questions where results are returned. The current implementation is a known approximation (noted in docstring) — acceptable.",
+      "action": "accept"
+    },
+    {
+      "id": "CR9-4",
+      "severity": "low",
+      "file": "packages/eval/adapters/test_universal_memory.py",
+      "line": "bottom",
+      "finding": "`Any = object` alias at bottom of test file shadows the typing.Any that could be imported. This is not used in the test assertions but is confusing. Should be removed or replaced with `from typing import Any`.",
+      "action": "fix"
+    },
+    {
+      "id": "CR9-5",
+      "severity": "low",
+      "file": "adapters/fabric/CLAUDE.md",
+      "line": "all",
+      "finding": "E2E-4 verification section uses `fabric --pattern write_code` as example command, but Fabric's actual CLI uses `fabric -p <pattern>` or `fabric --pattern <name>`. Minor — should not block, but could confuse users trying the verification step.",
+      "action": "note"
+    }
+  ],
+  "summary": "Implementation is clean and well-structured. The MCP stdio client is robust with timeout, process-exit detection, and stderr draining. Dry-run mode for missing Bun is a good practical addition. Minor issues: module-level import for `select`, test file Any alias, Fabric CLI syntax note. All are low-severity. Core logic is correct."
+}
