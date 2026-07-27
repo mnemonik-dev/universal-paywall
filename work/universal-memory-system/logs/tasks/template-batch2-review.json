@@ -1,0 +1,144 @@
+{
+  "validator": "task-template-validator",
+  "batch": 2,
+  "tasks": [6, 7, 8, 9, 10],
+  "iteration": 1,
+  "overall_pass": false,
+  "summary": "Batch 2 has 4/5 tasks template-compliant. Task 7 has invalid reviewer name.",
+  "findings": [
+    {
+      "task": 7,
+      "severity": "major",
+      "section": "Frontmatter - reviewers field",
+      "description": "Task 7 (Docker Compose + nginx + HTTPS config) lists reviewer 'deploy-reviewer' which is not in the skill catalog. Valid reviewers should map to skills: code-reviewing, security-auditor, test-master, pre-deploy-qa.",
+      "fix": "Change reviewers field from [code-reviewer, security-auditor, deploy-reviewer] to [code-reviewer, security-auditor]. If deploy expertise is needed, add 'pre-deploy-qa' as a reviewer instead. Note: 'deploy-pipeline' is the skill, not 'deploy-reviewer'."
+    },
+    {
+      "task": 7,
+      "severity": "minor",
+      "section": "Template structure - missing TDD Anchor section",
+      "description": "Task 7 does not include a 'TDD Anchor' section. While deploy-pipeline tasks may not require TDD, the template should be consistent across all tasks. Either add an empty 'TDD Anchor' section with note '(Not applicable for infrastructure task)' or document that this section is N/A.",
+      "fix": "Add TDD Anchor section (even if empty) for template consistency: '## TDD Anchor\\n(Not applicable for infrastructure task)' or move to template documentation that some task types skip this section."
+    },
+    {
+      "task": 9,
+      "severity": "minor",
+      "section": "Template structure - missing TDD Anchor section",
+      "description": "Task 9 (RUMBA eval harness + client config docs) does not include a 'TDD Anchor' section. Evaluation/documentation tasks may follow different patterns than code implementation, but template should be consistent.",
+      "fix": "Add TDD Anchor section (even if empty) with note like '(Verification via Acceptance Criteria and E2E-4 scenario)' for consistency."
+    },
+    {
+      "task": 6,
+      "severity": "info",
+      "section": "Dependencies and context",
+      "description": "Task 6 depends_on: [1, 2] but tech-spec shows memory_sign/verify tools are implemented in Wave 4 (parallel with Wave 3). Verify that Task 1 and 2 provide necessary foundation (config.ts, MCP server setup) before memory_sign implementation.",
+      "fix": "Confirmed correct - Task 1 sets up config.ts and gbrain gateway (needed for MnemonicClient init), Task 2 sets up HTTP MCP server (needed for cloud mode where signing is available). Dependencies are correct."
+    },
+    {
+      "task": 8,
+      "severity": "info",
+      "section": "Dependencies check",
+      "description": "Task 8 (Unit + integration test suite) depends_on: [4, 5, 6, 7] which correctly reflects that tests should be written for code from Tasks 4-7 (all prior implementation tasks in Waves 3-5).",
+      "fix": "Dependencies verified correct."
+    },
+    {
+      "task": 10,
+      "severity": "info",
+      "section": "Audit wave pattern",
+      "description": "Task 10 correctly follows audit wave pattern: wave: 7, reviewers: [], verify: []. This is appropriate for code audit tasks.",
+      "fix": "No fix needed - pattern is correct."
+    },
+    {
+      "task": 6,
+      "severity": "info",
+      "section": "Frontmatter completeness",
+      "description": "Task 6 has all required frontmatter fields: status, depends_on, wave, skills, verify, reviewers, teammate_name. TDD Anchor section is concrete and testable.",
+      "fix": "No fix needed - compliant."
+    },
+    {
+      "task": 8,
+      "severity": "info",
+      "section": "Frontmatter completeness",
+      "description": "Task 8 has all required frontmatter fields and TDD Anchor section with concrete test file::test entries (config.ts::no_key_no_ollama_starts_bm25_only_mode, etc.).",
+      "fix": "No fix needed - compliant."
+    },
+    {
+      "task": 9,
+      "severity": "info",
+      "section": "AC/acceptance criteria",
+      "description": "Task 9 Acceptance Criteria are testable (cd packages/eval && python run.py exits 0, assertions on RecallAccuracy/AnswerQuality, config snippets written). Acceptable for evaluation task.",
+      "fix": "No fix needed - compliant."
+    }
+  ],
+  "task_compliance_matrix": {
+    "6": {
+      "frontmatter_complete": true,
+      "all_sections": true,
+      "tdd_anchor_concrete": true,
+      "acceptance_testable": true,
+      "dependencies_valid": true,
+      "skills_valid": true,
+      "audit_pattern_correct": "N/A",
+      "compliant": true
+    },
+    "7": {
+      "frontmatter_complete": false,
+      "all_sections": false,
+      "tdd_anchor_concrete": "N/A",
+      "acceptance_testable": true,
+      "dependencies_valid": true,
+      "skills_valid": true,
+      "audit_pattern_correct": "N/A",
+      "compliant": false,
+      "issues": ["invalid reviewer name (deploy-reviewer)", "missing TDD Anchor section"]
+    },
+    "8": {
+      "frontmatter_complete": true,
+      "all_sections": true,
+      "tdd_anchor_concrete": true,
+      "acceptance_testable": true,
+      "dependencies_valid": true,
+      "skills_valid": true,
+      "audit_pattern_correct": "N/A",
+      "compliant": true
+    },
+    "9": {
+      "frontmatter_complete": true,
+      "all_sections": false,
+      "tdd_anchor_concrete": "N/A",
+      "acceptance_testable": true,
+      "dependencies_valid": true,
+      "skills_valid": true,
+      "audit_pattern_correct": "N/A",
+      "compliant": false,
+      "issues": ["missing TDD Anchor section"]
+    },
+    "10": {
+      "frontmatter_complete": true,
+      "all_sections": true,
+      "tdd_anchor_concrete": "N/A",
+      "acceptance_testable": true,
+      "dependencies_valid": true,
+      "skills_valid": true,
+      "audit_pattern_correct": true,
+      "compliant": true
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "high",
+      "action": "Fix Task 7 reviewer field: remove 'deploy-reviewer', keep [code-reviewer, security-auditor] or add pre-deploy-qa.",
+      "impact": "Ensures consistent skill catalog usage across all tasks."
+    },
+    {
+      "priority": "medium",
+      "action": "Add TDD Anchor section to Task 7 and Task 9 (even if marked N/A), for template consistency.",
+      "impact": "Ensures all task files follow uniform structure."
+    },
+    {
+      "priority": "low",
+      "action": "Verify Task 10 audit report destination (work/universal-memory-system/audit-code.md) exists and is tracked in project docs.",
+      "impact": "Ensures audit findings are persisted and reviewed."
+    }
+  ]
+}
