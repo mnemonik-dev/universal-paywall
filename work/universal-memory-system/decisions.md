@@ -41,3 +41,28 @@
 **Verification:** `bun test -t "ingestion"` → 5 pass. `bun test` → 86 pass, 0 fail.
 
 **Deviations from spec:** pdf-parse v2 exports `PDFParse` class (not a default function like v1). The `(await import('pdf-parse')).default` pattern returns undefined in Bun's ESM interop for this CJS module. Used named export `{ PDFParse }` + class constructor pattern instead.
+
+## Task 4: Wire capture, search, list, delete in server.ts
+
+**What was done:**
+1. **Renamed `memory_clear` → `memory_delete`** in `server.ts` — tool definition, handler case, and description updated. The old `memory_clear` handler (clear all by user_id) is removed; `memory_delete` takes a specific `id` and returns `{ status: 'deleted' }`.
+2. **Added `memory_list` tool** to `server.ts` with `limit` default 20. Wired to `storage.list({ limit, userId })`.
+3. **Extended `StorageAdapter` interface** in `storage/index.ts` to add `list(opts)` and `delete(opts)` methods. Added `ListResult` type: `{ id, content, source?, created_at }`.
+4. **Implemented `LocalAdapter.list()`** using `engine.listPages({ limit, sort: 'updated_desc', sourceId? })` + mapping gbrain `Page` fields to `ListResult`. Defensive `created_at` fallback guards against null/undefined from older gbrain schema rows.
+5. **Implemented `LocalAdapter.delete()`** using `engine.getPage(id)` + `engine.deletePage(id)`. Not-found case throws `Error` with `code: 'not_found'` property. Server handler catches this and returns `{ error: 'not_found', id }` instead of crashing.
+6. **Added `CloudAdapter` stubs** for `list()` and `delete()` (throw "not yet implemented" with Task 5 note).
+7. **Added `IngestPipeline.add()` alias** for `dispatch()` — fixes pre-existing bug where `server.ts` called `ingest.add()` but `IngestPipeline` only exposed `dispatch()`.
+8. **Wrote 54 integration tests** across 4 new test files: `tools/capture.test.ts`, `tools/search.test.ts`, `tools/list.test.ts`, `tools/delete.test.ts`. All tests use mock `StorageAdapter` for speed (no PGLite startup cost).
+
+**Key decisions:**
+- **`memory_delete` error handling**: returns `{ error: 'not_found', id }` object (not MCP-level exception) — consistent with how `memory_verify` returns error objects. MCP clients can pattern-match on `result.error`.
+- **`list()` sort order**: `'updated_desc'` (most recently updated first) — matches tech-spec "most recent 20 entries" intent. `created_at` would be wrong if a memory is re-captured.
+- **`created_at` defensive fallback**: gbrain `Page.created_at` is typed as `Date` but could be null in older rows. Guard `p.created_at ? new Date(p.created_at).toISOString() : new Date().toISOString()` prevents 'Invalid Date' JSON strings.
+- **`delete()` two-step**: getPage then deletePage — gbrain's `deletePage()` does not return a "row existed" signal, so pre-flight `getPage()` is needed to distinguish "not found" from "success". Acceptable because delete is low-frequency.
+- **Mock-based tests over PGLite integration tests**: PGLite round-trip integration tests (capture → search, capture → delete → search empty) are scoped to Task 8 per tech-spec. Task 4 tests validate handler contracts via mock adapters.
+
+**Review findings applied:**
+- CR-4: defensive `created_at` fallback in `LocalAdapter.list()` (prevents 'Invalid Date' strings)
+- TR-5: strengthened `resolves.toBeDefined()` to `resolves.toMatchObject({ error: 'not_found' })` in delete.test.ts
+
+**Verification:** `bun test packages/memory-hub/ -t "capture|search|list|delete"` → 45 pass. `bun test packages/memory-hub/` → 160 pass, 0 fail.
