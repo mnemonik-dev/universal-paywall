@@ -1,0 +1,50 @@
+{
+  "reviewer": "code-reviewer",
+  "task": 6,
+  "round": 1,
+  "verdict": "approve_with_minor_findings",
+  "summary": "Implementation is clean and well-structured. The three key concerns are: (1) hash inconsistency risk between lookup and storage keys, (2) empty-content guard missing in signMemory(), (3) VerifyMemoryOutput type intersection is semantically loose.",
+  "findings": [
+    {
+      "id": "CR-1",
+      "severity": "major",
+      "file": "packages/memory-hub/src/tools/sign.ts",
+      "lines": "69-126",
+      "title": "Idempotency lookup uses SHA-256 but INSERT may store server's blake3 hash",
+      "description": "contentHashOf() produces a SHA-256 hex. The idempotency SELECT uses this SHA-256 hash. But the INSERT on line 113 stores signResult.contentHash (server blake3) when present. On a second call for the same content, the SELECT will look up the SHA-256 hash but the row was stored with the blake3 hash — the idempotency check will miss and you'll re-sign.",
+      "recommendation": "Always use SHA-256 as the dedup key in both the SELECT and the INSERT. Store the server's blake3 hash in a separate column (e.g. server_content_hash) for auditing if needed, but keep content_hash as the canonical SHA-256 lookup key throughout.",
+      "action_required": true
+    },
+    {
+      "id": "CR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/tools/sign.ts",
+      "lines": "59-67",
+      "title": "No empty-content guard before signing",
+      "description": "MnemonicClient.signMemory() throws UserError for empty content (seen in client.ts line 162). signMemory() in sign.ts does not validate content before passing it to adapter.sign(). This means the UserError surfaces as a generic 'Mnemonik signing failed' message rather than a clear 'content must not be empty' message.",
+      "recommendation": "Add an early guard: `if (!content || !content.trim()) return { error: 'content must not be empty' };`",
+      "action_required": true
+    },
+    {
+      "id": "CR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/tools/verify.ts",
+      "lines": "19",
+      "title": "VerifyMemoryOutput uses intersection type but VerifyResult is a discriminated union",
+      "description": "`VerifyResult & { error?: string }` creates a type that TypeScript cannot narrow correctly — narrowing on `status` won't correctly exclude the `error` field. The cast `as VerifyMemoryOutput` on lines 40, 43, 47 suppresses the real type mismatch.",
+      "recommendation": "Define VerifyMemoryOutput as a union: `type VerifyMemoryOutput = VerifyResult | { status: 'not_found'; error: string };` or wrap the result: `return { ...result };`",
+      "action_required": false,
+      "note": "Low practical impact since callers check `result.error` first, but worth fixing for correctness."
+    },
+    {
+      "id": "CR-4",
+      "severity": "low",
+      "file": "packages/memory-hub/src/adapters/mnemonik.ts",
+      "lines": "100-136",
+      "title": "createMnemonikAdapter overrides parameter has all-optional fields with no type guard",
+      "description": "The overrides object allows an empty `{}` call. The function body then falls back to env vars for all fields. This is fine but the type `{ jwt?: string; ... }` parameter combined with the default `= {}` means TypeScript infers `jwt` as `string | undefined` — calling code cannot rely on the compiler to catch missing required fields.",
+      "recommendation": "Document explicitly that this is intentional (env-var-first) or split into separate required/optional params. Current implementation is correct, just document the intent.",
+      "action_required": false
+    }
+  ]
+}

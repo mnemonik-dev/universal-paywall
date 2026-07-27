@@ -1,0 +1,49 @@
+{
+  "reviewer": "test-reviewer",
+  "task": 6,
+  "round": 1,
+  "verdict": "approve_with_minor_findings",
+  "summary": "Test coverage is solid — all TDD anchors from the task are covered. Three findings: (1) idempotency test does not verify the SELECT used SHA-256 hash, (2) the Keypair.fromJSON() call is never reached in adapter tests (stub identity json is not valid keypair), (3) missing test for content_hash consistency (the hash stored in DB should match the lookup hash).",
+  "findings": [
+    {
+      "id": "TR-1",
+      "severity": "major",
+      "file": "packages/memory-hub/src/tools/sign.test.ts",
+      "lines": "73-96",
+      "title": "Idempotency test does not verify the SELECT query used the correct hash",
+      "description": "The idempotency test mocks db.query to return a cached row on SELECT. But it does not assert that the hash passed to the SELECT is the SHA-256 of the content. If contentHashOf() is broken or uses a different hash, the mock still returns the cached row — the test passes even with a wrong hash.",
+      "recommendation": "Add an assertion that checks the param passed to the first db.query call equals contentHashOf(content). Use `import { contentHashOf } from './sign.js'` in the test and assert: `expect(db.query.mock.calls[0][1]).toContain(contentHashOf('already signed content'));`",
+      "action_required": true
+    },
+    {
+      "id": "TR-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/adapters/mnemonik.test.ts",
+      "lines": "18-26",
+      "title": "Expired JWT test passes stub identity that may not reach Keypair.fromJSON validation",
+      "description": "The test passes `identityJson: JSON.stringify([1, 2, 3, 4])` — a 4-element array, not a valid Keypair JSON (which requires 64 bytes). The test relies on parseJwtPayload throwing before Keypair.fromJSON is reached. This works correctly today but the test implicitly depends on parseJwtPayload() throwing before Keypair.fromJSON — if the order of checks in MnemonikAdapter constructor ever changes, the test may fail for the wrong reason.",
+      "recommendation": "Add a comment explaining why [1,2,3,4] is intentional: '// stub — parseJwtPayload throws before Keypair.fromJSON is reached'. Alternatively test with a realistic invalid keypair string to be more explicit.",
+      "action_required": false
+    },
+    {
+      "id": "TR-3",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/tools/sign.test.ts",
+      "lines": "119-148",
+      "title": "stores_attestation_in_db test verifies INSERT is called but not the hash value used",
+      "description": "The test checks that an INSERT SQL was called and checks params contains attestationId and contentHash string. But it does not verify that the hash stored in the DB is the same one used for the SELECT lookup (the idempotency key consistency property from CR-1).",
+      "recommendation": "Add a test: 'hash used for SELECT equals hash stored in INSERT when no server contentHash'. This would catch the CR-1 bug directly. Set up an adapter that returns no contentHash in SignMemoryResult and assert the INSERT param[0] equals contentHashOf(content).",
+      "action_required": true
+    },
+    {
+      "id": "TR-4",
+      "severity": "low",
+      "file": "packages/memory-hub/src/tools/verify.test.ts",
+      "lines": "all",
+      "title": "No test for empty attestationId input",
+      "description": "MnemonicClient.verify() throws UserError for empty attestationId. verifyMemory() would catch this in the try/catch and return an error object. A test for this edge case would confirm the guard works.",
+      "recommendation": "Add: it('returns error for empty attestationId', async () => { const result = await verifyMemory({ attestationId: '', adapter: makeAdapter({status:'not_found'}) }); expect(result.error).toBeTruthy(); }); Note: this requires adapter.verify to throw on empty string, which the SDK does.",
+      "action_required": false
+    }
+  ]
+}

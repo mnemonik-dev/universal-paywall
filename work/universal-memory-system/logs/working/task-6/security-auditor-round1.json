@@ -1,0 +1,53 @@
+{
+  "reviewer": "security-auditor",
+  "task": 6,
+  "round": 1,
+  "verdict": "approve_with_findings",
+  "summary": "No critical vulnerabilities. Two findings worth addressing: error messages may leak implementation details about the signing service, and the DB error fallthrough in sign.ts could silently bypass idempotency in degraded mode.",
+  "findings": [
+    {
+      "id": "SA-1",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/tools/sign.ts",
+      "lines": "102-107",
+      "title": "Error message from adapter.sign() leaks internal details to MCP callers",
+      "description": "When adapter.sign() throws, the raw error message is returned to the MCP caller: `'Mnemonik signing failed — service may be unavailable. Details: ${msg}'`. If the SDK throws with JWT contents or internal URL structures in the message, this reaches the client. The SDK's redactJWT() is applied to SDK error messages already, but third-party network errors (e.g. from fetch) may not be redacted.",
+      "recommendation": "Apply redactJWT() (from @mnemonik-xyz/sdk errors.ts) to `msg` before embedding in the returned error string. Import `redactJWT` from '@mnemonik-xyz/sdk' and use `redactJWT(msg)` in the error template.",
+      "action_required": true,
+      "cwe": "CWE-209"
+    },
+    {
+      "id": "SA-2",
+      "severity": "minor",
+      "file": "packages/memory-hub/src/tools/sign.ts",
+      "lines": "88-95",
+      "title": "DB query failure silently falls through to re-sign — idempotency bypass under degraded DB",
+      "description": "If the memory_attestations table SELECT fails (e.g. DB connection error), sign.ts logs a warning and falls through to sign again. This means a DB blip causes double-signing of the same content. In participate mode (Arweave+Solana), double-signing creates two on-chain records with user cost implications.",
+      "recommendation": "In participate mode (when mode='participate' is detectable), propagate the DB error rather than silently falling through. Add an optional `mode` field to SignMemoryInput or detect participate mode from the adapter. For local mode, fallthrough is acceptable (no cost). This is medium-priority — the current behaviour is still correct for local mode and safe for cloud (just creates a duplicate sign).",
+      "action_required": false,
+      "note": "The mode is private to MnemonikAdapter so detecting it from sign.ts requires interface extension. Deferring to Task 5/task lead decision."
+    },
+    {
+      "id": "SA-3",
+      "severity": "low",
+      "file": "packages/memory-hub/src/tools/verify.ts",
+      "lines": "41-47",
+      "title": "Error from adapter.verify() leaks internal details",
+      "description": "Same pattern as SA-1: `err.message` from verify() is embedded in the returned error string. The SDK redacts JWTs in its own errors but network-level errors from fetch() do not go through redactJWT.",
+      "recommendation": "Apply redactJWT(msg) before embedding in error strings — same fix as SA-1.",
+      "action_required": true,
+      "cwe": "CWE-209"
+    },
+    {
+      "id": "SA-4",
+      "severity": "low",
+      "file": "packages/memory-hub/src/adapters/mnemonik.ts",
+      "lines": "118-136",
+      "title": "createMnemonikAdapter warning log includes error details that may contain credential hints",
+      "description": "Line 134: `Details: ${msg}` in the stderr warning. The msg comes from MnemonikAdapter constructor which calls parseJwtPayload() — parseJwtPayload may include JWT segments in its error message. The SDK's redactJWT is applied in MnemonicError.constructor but parseJwtPayload error format may differ.",
+      "recommendation": "Apply redactJWT(msg) to the Details fragment in the startup warning string.",
+      "action_required": false,
+      "note": "parseJwtPayload errors are descriptive strings without raw JWT content (e.g. 'jwt: missing sub claim'), so risk is low. Apply redactJWT as defence-in-depth."
+    }
+  ]
+}
