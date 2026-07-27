@@ -1,5 +1,35 @@
 # Universal Memory System — Decisions Log
 
+## QA Fix Wave: MAJOR-1 + MAJOR-2 (post-Task-13)
+
+**What was done:** Fixed both blocking QA issues found in the pre-deploy QA report.
+
+### MAJOR-1 Fixed: memory_sign now accepts `{ id }` not `{ content }`
+
+**Change:** `tools/sign.ts` split into two functions:
+- `signContent({ content, tags, adapter, db })` — low-level primitive, used by `memory_capture` (which already has content in hand). Replaces the old `signMemory()` signature for the inline signing path.
+- `signMemory({ id, tags, storage, adapter, db })` — new MCP tool handler. Looks up content by id via `storage.getById(id)`, returns `{ error: "memory_not_found", id }` if not found, then delegates to `signContent()`.
+
+**StorageAdapter interface** extended with `getById(id: string): Promise<{ id: string; content: string } | null>`. Implemented in `LocalAdapter`, `CloudAdapter`, and `HybridAdapter` (local-first with cloud fallback in hybrid).
+
+**server.ts** changes:
+- `memory_sign` tool schema: `required: ["id"]`, property `id` (was `content`).
+- `memory_sign` handler: calls `signMemory({ id, storage, ... })`.
+- `memory_capture` handler: calls `signContent({ content, ... })` — no change to capture-inline-sign behavior.
+
+**Tests:** 7 new tests added to `sign.test.ts` covering: `memory_not_found` error, `adapter.sign` not called on missing id, content retrieved and signed correctly, tags passed through, idempotency via db cache when content already signed, local-mode cloud-only error propagation. Total: 376 tests pass (was 369).
+
+### MAJOR-2 Documented: memory_sync is post-MVP
+
+**Decision:** `memory_sync` is retained (it enables hybrid-mode push sync and is functional). It is not in the user-spec's 7-tool list. Added:
+- Comment in `server.ts` above the `memory_sync` tool definition: `// POST-MVP: not in user-spec's 7-tool list`.
+- Updated tool description to note "(Post-MVP feature — not in initial 7-tool spec.)".
+- This entry in decisions.md as the canonical record.
+
+**Rationale:** Removing `memory_sync` would break the HybridAdapter's primary reconciliation path. Keeping it with a clear annotation is the lowest-risk resolution.
+
+---
+
 ## Task 13: Pre-deploy QA
 
 **Status:** Done  
