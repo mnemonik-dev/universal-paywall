@@ -59,20 +59,28 @@ Our `PaymentPayload` type is already the right shape.
 5. **`/supported`** enumerates the `NETWORKS` registry × `exact`, plus the
    `signers` map (CAIP-2 pattern → relayer address).
 
-## Two decisions to make first
+## Decisions (resolved 2026-08-22)
 
-**Where the routes live.** `packages/facilitator` currently depends only on
-`@noble/hashes` and `viem`; `middleware` is standalone; `resource-adapter`
-depends on `facilitator`. Putting `/verify` and `/settle` in `facilitator` means
-`facilitator -> middleware`, which needs checking against that existing
-direction. Options: host the routes in `middleware` instead, or extract the
-verify/settle core into a shared internal module both can use.
+**Where the routes live: the facilitator's own server.** The facilitator ships
+as a standalone deployable speaking spec x402; integrating apps are thin
+resource servers pointing at its URL. Rationale: every app we integrate is a
+resource server, and the facilitator API exists precisely so resource servers
+in any language can delegate chain work without importing our TypeScript.
+Hosting the routes in `middleware` or `resource-adapter` would couple the
+universal surface to one runtime and framework. Cost accepted: extract the
+verify/settle core (`verifyEip3009Authorization`, `settleOnChain`) out of
+`middleware` into `facilitator` (or a small shared module) — chain
+verification/settlement is facilitator-domain logic; `middleware` keeps its
+embedded self-facilitating mode by importing that core. No
+`facilitator -> middleware` edge is introduced.
 
-**Auth on `/supported`.** `session-server.ts` gates every route after
-`/health` and `/.well-known/payment-receipt-key` behind `authorized(req, keys)`.
-`/verify` and `/settle` should stay authenticated. `/supported` is a discovery
-endpoint and probably should not be — decide deliberately rather than inherit
-the blanket gate.
+**Auth on `/supported`: public.** Third-party clients must discover
+networks × schemes before they hold any credentials, and `/supported` leaks
+nothing the 402 response does not already advertise. `/verify` and `/settle`
+stay behind per-app API keys on the existing `authorized(req, keys)` gate,
+which doubles as per-integrator identity for later rate limiting and
+accounting. Public surface: `/health`, `/.well-known/payment-receipt-key`,
+`/supported`.
 
 ## Non-scope
 
