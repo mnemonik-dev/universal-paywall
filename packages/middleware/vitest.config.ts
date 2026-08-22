@@ -1,6 +1,25 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const here = dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
+  resolve: {
+    alias: {
+      // The re-export shims resolve `@universal-paywall/facilitator/eip3009`
+      // through the exports map to the facilitator's dist/. Aliasing to the
+      // facilitator SOURCE here means the middleware suite runs on a cold
+      // checkout (no facilitator build needed) and never tests stale
+      // compiled output after facilitator src edits. `tsc --noEmit` and
+      // tsup still resolve dist, so a facilitator build is required for
+      // typecheck/build — but not for tests.
+      '@universal-paywall/facilitator/eip3009': resolve(
+        here,
+        '../facilitator/src/eip3009/index.ts',
+      ),
+    },
+  },
   test: {
     include: ['src/__tests__/**/*.test.ts'],
     // Forked-e2e (T10) spawns `anvil` in beforeAll (cold-CI: up to 15 s) and

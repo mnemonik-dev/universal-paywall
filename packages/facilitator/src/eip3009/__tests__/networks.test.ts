@@ -7,14 +7,14 @@ import { NETWORKS, normalizeNetworkId } from '../networks.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const T3_ARTEFACT_PATH = resolve(
   here,
-  '../../../../contracts/scripts/arc-testnet-usdc-domain.json',
+  '../../../../../contracts/scripts/arc-testnet-usdc-domain.json',
 );
 
-// On a cold checkout (T3 hasn't run yet) the artefact is absent and the
-// import of `../networks.js` above will already have thrown — so reaching
-// this line means the file IS present. We still guard the read so a future
-// race between T3 and T9 produces a descriptive skip rather than a raw
-// ENOENT crash.
+// `../networks.js` reads the committed generated module, so it loads even
+// when the contracts/ artefact is absent (Docker builds, published
+// packages). The artefact-vs-registry cross-checks below only make sense
+// when the JSON is present, so they skip descriptively instead of
+// crashing on ENOENT.
 const t3Available = existsSync(T3_ARTEFACT_PATH);
 const t3: { name: string; version: string } = t3Available
   ? (JSON.parse(readFileSync(T3_ARTEFACT_PATH, 'utf8')) as { name: string; version: string })

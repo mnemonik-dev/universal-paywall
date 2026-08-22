@@ -25,7 +25,8 @@ export { NETWORKS } from './networks.js';
 
 // OpaqueRelayerKey: the class is the public constructor agents use to wrap a
 // raw private key. The internal `getRelayerKeySecret` extract function is
-// NOT exported (settle.ts imports it directly from `./relayer-key.js`).
+// NOT exported from this package or the facilitator's `eip3009` subpath —
+// only the facilitator's own `settle.ts` imports it, by module path.
 export { OpaqueRelayerKey } from './relayer-key.js';
 
 export type {

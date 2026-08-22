@@ -6,6 +6,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./eip3009": {
+      "types": "./dist/eip3009/index.d.ts",
+      "import": "./dist/eip3009/index.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -26,10 +30,11 @@
     "up-session-facilitator": "./dist/session-cli.js"
   },
   "scripts": {
+    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "vitest run --passWithNoTests",
+    "test": "UP_SUPPRESS_T3_NOTES=1 vitest run --passWithNoTests",
     "e2e:anvil": "tsx scripts/e2e-anvil.ts"
   },
   "dependencies": {
@@ -37,9 +42,11 @@
     "viem": "^2.55.1"
   },
   "devDependencies": {
+    "pino": "^9.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "winston": "^3.11.0"
   }
 }
