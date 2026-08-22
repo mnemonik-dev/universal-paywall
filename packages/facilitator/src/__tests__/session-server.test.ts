@@ -226,3 +226,48 @@ describe('x402 facilitator routes (U1)', () => {
     ).resolves.toMatchObject({ status: 404 });
   });
 });
+
+describe('api-key gate — multi-key constant-time comparison', () => {
+  const fakeService = {
+    receiptKey: vi.fn(() => ({ key_id: 'key-1', algorithm: 'Ed25519', public_key_pem: 'pem' })),
+    getPaymentStatus: vi.fn((id: string) => ({ operation_id: id, status: 'settled' })),
+  };
+
+  async function probe(apiKey: string | undefined): Promise<number> {
+    const server = createSessionPaymentServer(fakeService as unknown as SessionPaymentService, {
+      apiKeys: ['first-key', 'second-key'],
+    });
+    const listener = server.listeners('request')[0] as (
+      req: IncomingMessage,
+      res: ServerResponse,
+    ) => void;
+    const req = Readable.from([]) as IncomingMessage;
+    req.method = 'GET';
+    req.url = '/v1/payments/op-1';
+    req.headers = apiKey === undefined ? {} : { 'x-api-key': apiKey };
+    return new Promise((resolve) => {
+      let status = 200;
+      const res = {
+        setHeader() {
+          return this;
+        },
+        writeHead(nextStatus: number) {
+          status = nextStatus;
+          return this;
+        },
+        end() {
+          resolve(status);
+          return this;
+        },
+      } as unknown as ServerResponse;
+      listener(req, res);
+    });
+  }
+
+  it('any configured key matches, unknown and missing keys do not', async () => {
+    await expect(probe('first-key')).resolves.toBe(200);
+    await expect(probe('second-key')).resolves.toBe(200);
+    await expect(probe('wrong-key')).resolves.toBe(401);
+    await expect(probe(undefined)).resolves.toBe(401);
+  });
+});

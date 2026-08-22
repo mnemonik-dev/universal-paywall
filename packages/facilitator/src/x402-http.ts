@@ -29,6 +29,7 @@
  * payer must mint a fresh nonce to retry (see replay-store.ts contract).
  */
 
+import { createHash } from 'node:crypto';
 import { createPublicClient, http } from 'viem';
 import { buildChain } from './chain.js';
 import {
@@ -124,7 +125,10 @@ type EnvelopeResult =
 /**
  * Fire-and-forget event hook for the money path. Fields are passed through
  * `scrubSecrets` before emission and a throwing logger never breaks a
- * request (mirrors the middleware D18 contract).
+ * request. Deliberate deviation from the middleware D18 catalog: payer
+ * addresses are emitted raw (they are public calldata the moment the
+ * settlement lands) and errors are reduced to name+message — key material
+ * is what must never leak, and scrubSecrets enforces that.
  */
 export type X402Logger = (event: string, fields: Record<string, unknown>) => void;
 
@@ -165,10 +169,8 @@ const BALANCE_OF_ABI = [
 ] as const;
 
 interface SettledEntry {
-  /** Binds the record to one exact envelope — see #fingerprint. */
-  fingerprint: string;
   validBeforeMs: number;
-  /** Set once the consuming verify passes; burned entries are never displaced. */
+  /** Set once the consuming verify passes; burned entries are terminal records. */
   nonceBurned: boolean;
   result: Promise<X402SettleResponse>;
 }
@@ -182,8 +184,9 @@ export class X402Facilitator {
   readonly #verify: typeof verifyEip3009Authorization;
   readonly #settle: typeof settleOnChain;
   readonly #logger: X402Logger | undefined;
-  /** Fingerprint-bound settlement records keyed by `${from}:${nonce}`. */
+  /** Settlement records keyed by sha256 of the exact envelope fingerprint. */
   readonly #settled = new Map<string, SettledEntry>();
+  #lastSweepMs = 0;
 
   constructor(opts: X402FacilitatorOptions) {
     this.#logger = opts.log;
@@ -272,27 +275,28 @@ export class X402Facilitator {
 
     this.#sweepSettled();
 
-    // Idempotency: keyed by (from, nonce) but honored ONLY for the exact
-    // envelope that settled — (from, nonce) become public on-chain data the
-    // moment a payment settles, so an unfingerprinted lookup would hand
-    // success:true to anyone replaying those identifiers with a forged
-    // signature or foreign requirements. The entry holds a PROMISE, so a
-    // duplicate arriving while the original is still mining awaits the real
-    // outcome instead of getting a false-terminal replay error.
-    const key = `${authorization.from.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
-    const fingerprint = fingerprintEnvelope(envelope);
+    // Idempotency: keyed by a digest of the EXACT envelope. Keying by
+    // (from, nonce) would be a payment bypass — both become public
+    // on-chain data at settlement — and even a fingerprint-guarded
+    // (from, nonce) key leaves a record-loss path where a forged in-flight
+    // entry forces a legitimate settle to run unrecorded. Keyed by
+    // envelope digest, every distinct envelope gets its own record: exact
+    // duplicates share the settlement PROMISE (a duplicate arriving while
+    // the original is still mining awaits the real outcome), and any
+    // (from, nonce) reuse across different envelopes is adjudicated by the
+    // consuming verify's synchronous nonce check, never by this map.
+    const key = createHash('sha256').update(fingerprintEnvelope(envelope)).digest('hex');
     const existing = this.#settled.get(key);
     if (existing !== undefined) {
-      if (existing.fingerprint === fingerprint) return existing.result;
-      // A DIFFERENT envelope reusing a known (from, nonce): never displace
-      // the recorded entry — run unrecorded and let the consuming verify
-      // adjudicate (invalid signature for forgeries, nonce_already_used ->
-      // invalid_transaction_state for genuine nonce reuse).
-      return this.#attemptSettle(envelope, network, payer, undefined);
+      // Expiry is enforced at lookup, not only by the sweep, so replay
+      // semantics do not flip at the sweep threshold: once the
+      // authorization expires the record is gone and the verify path
+      // answers (authorization_expired), same as after a sweep or restart.
+      if (existing.validBeforeMs > Date.now()) return existing.result;
+      this.#settled.delete(key);
     }
 
     const entry: SettledEntry = {
-      fingerprint,
       validBeforeMs: Number(authorization.validBefore) * 1000,
       nonceBurned: false,
       result: Promise.resolve() as unknown as Promise<X402SettleResponse>,
@@ -301,8 +305,8 @@ export class X402Facilitator {
     this.#settled.set(key, entry);
     const response = await entry.result;
     if (!entry.nonceBurned && this.#settled.get(key) === entry) {
-      // Verify-stage rejection: this attempt committed nothing, so the
-      // entry must not shadow a later well-formed envelope for the key.
+      // Verify-stage rejection: this attempt committed nothing — drop the
+      // record so the map holds only settlements that burned the nonce.
       this.#settled.delete(key);
     }
     return response;
@@ -400,10 +404,14 @@ export class X402Facilitator {
 
   /** Drop recorded settlements whose authorization has expired — a replay
    * after that degrades to invalid_transaction_state, and the on-chain
-   * authorization-already-used revert remains the double-charge backstop. */
+   * authorization-already-used revert remains the double-charge backstop.
+   * Size- AND time-gated so a large mostly-live map is not walked on
+   * every settle. */
   #sweepSettled(): void {
     if (this.#settled.size < SETTLED_SWEEP_THRESHOLD) return;
     const now = Date.now();
+    if (now - this.#lastSweepMs < 60_000) return;
+    this.#lastSweepMs = now;
     for (const [key, entry] of this.#settled) {
       if (entry.validBeforeMs <= now) this.#settled.delete(key);
     }
@@ -533,6 +541,7 @@ function fingerprintEnvelope(envelope: Extract<EnvelopeResult, { ok: true }>): s
     authorization.validAfter,
     authorization.validBefore,
     authorization.nonce.toLowerCase(),
+    envelope.payload.network,
     requirements.payTo.toLowerCase(),
     requirements.maxAmountRequired,
     requirements.asset.toLowerCase(),

@@ -402,12 +402,10 @@ describe('X402Facilitator — review-round hardening (round 3)', () => {
     const verify = vi.fn(async () => {
       throw new Error('rpc exploded');
     });
-    const facilitator = makeFacilitator({ verify });
     expect(await makeFacilitator({ verify }).verify(await makeEnvelope())).toMatchObject({
       isValid: false,
       invalidReason: 'unexpected_verify_error',
     });
-    void facilitator;
   });
 
   it('settle surfaces unexpected_settle_error when the core verify or settle throws', async () => {
@@ -480,5 +478,120 @@ describe('X402Facilitator — review-round hardening (round 3)', () => {
       success: false,
       errorReason: 'invalid_exact_evm_payload_authorization_valid_before',
     });
+  });
+});
+
+describe('X402Facilitator — fingerprint completeness (round 4)', () => {
+  it('REGRESSION: the honest signature replayed against attacker requirements never leaks the record', async () => {
+    // The realistic attack: signature, from, and nonce are all public
+    // calldata after settlement. Only the requirements differ. A
+    // fingerprint that ignored requirements would hand out the recorded
+    // success here.
+    const settle = okSettle();
+    const facilitator = makeFacilitator({ settle });
+    const honest = await makeEnvelope();
+    expect(await facilitator.settle(honest)).toMatchObject({ success: true });
+
+    const stolen = {
+      x402Version: 1,
+      paymentPayload: honest['paymentPayload'],
+      paymentRequirements: makeRequirements({
+        payTo: '0x9999999999999999999999999999999999999999',
+      }),
+    };
+    expect(await facilitator.settle(stolen)).toMatchObject({
+      success: false,
+      errorReason: 'invalid_exact_evm_payload_recipient_mismatch',
+    });
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a payload.network variant of a settled envelope is re-verified, not replayed from the record', async () => {
+    const settle = okSettle();
+    const facilitator = makeFacilitator({ settle });
+    const honest = await makeEnvelope();
+    expect(await facilitator.settle(honest)).toMatchObject({ success: true });
+
+    const payload = { ...(honest['paymentPayload'] as Record<string, unknown>) };
+    payload['network'] = 'bogus-network';
+    const variant = {
+      x402Version: 1,
+      paymentPayload: payload,
+      paymentRequirements: makeRequirements(),
+    };
+    expect(await facilitator.settle(variant)).toMatchObject({
+      success: false,
+      errorReason: 'invalid_network',
+    });
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('an expired record is not replayed: post-expiry retries fall through to verify', async () => {
+    vi.useFakeTimers();
+    try {
+      const settle = okSettle();
+      const facilitator = makeFacilitator({ settle });
+      const envelope = await makeEnvelope();
+      expect(await facilitator.settle(envelope)).toMatchObject({ success: true });
+      // Same envelope replayed after the authorization expired: the record
+      // is dropped at lookup and the verify path answers, uniformly with
+      // the post-sweep and post-restart cases.
+      vi.setSystemTime(Date.now() + 2 * 3600 * 1000);
+      expect(await facilitator.settle(envelope)).toMatchObject({
+        success: false,
+        errorReason: 'invalid_exact_evm_payload_authorization_valid_before',
+      });
+      expect(settle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a numeric-overflow validBefore is rejected before any state is touched', async () => {
+    // The window check runs before signature verification, so an unsigned
+    // shape-valid payload suffices.
+    const envelope = {
+      x402Version: 1,
+      paymentPayload: {
+        x402Version: 1,
+        scheme: 'exact',
+        network: arcTestnet.id,
+        payload: {
+          signature: ('0x' + '11'.repeat(65)) as `0x${string}`,
+          authorization: {
+            from: signer.address,
+            to: VAULT_ADDR,
+            value: '10000',
+            validAfter: '0',
+            validBefore: '9'.repeat(400),
+            nonce: freshNonce(),
+          },
+        },
+      },
+      paymentRequirements: makeRequirements(),
+    };
+    expect(await makeFacilitator().settle(envelope)).toMatchObject({
+      success: false,
+      errorReason: 'invalid_exact_evm_payload_authorization_valid_before',
+    });
+  });
+
+  it('a throwing logger never breaks the money path', async () => {
+    const settle = okSettle();
+    const facilitator = new X402Facilitator({
+      network: arcTestnet,
+      relayerKey: new OpaqueRelayerKey(RELAYER_PK),
+      relayerAddress: RELAYER_ADDR,
+      publicClient: {
+        getChainId: vi.fn(async () => arcTestnet.chainId),
+        readContract: vi.fn(async () => 10_000_000n),
+        waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' as const })),
+      },
+      log: () => {
+        throw new Error('logger exploded');
+      },
+      deps: { settle },
+    } as ConstructorParameters<typeof X402Facilitator>[0]);
+    expect(await facilitator.settle(await makeEnvelope())).toMatchObject({ success: true });
   });
 });
