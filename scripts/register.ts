@@ -34,18 +34,19 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { NETWORKS } from '../packages/middleware/src/index.js';
-// The class, the extractor, and the scrubber MUST come from the same module
-// instance: the secret lives in a module-scoped WeakMap, so an
-// OpaqueRelayerKey constructed by one copy of relayer-key.ts is invisible
-// to getRelayerKeySecret from another copy (e.g. the compiled dist that the
-// middleware re-export shim resolves to).
+// Everything is imported from the facilitator SOURCE modules so this CLI is
+// single-instance and needs no package build. The same-instance part is a
+// hard requirement, not a preference: the relayer secret lives in a
+// module-scoped WeakMap, so an OpaqueRelayerKey constructed by one copy of
+// relayer-key.ts is invisible to getRelayerKeySecret from another copy
+// (e.g. the compiled dist that the middleware re-export shims resolve to).
+import { NETWORKS } from '../packages/facilitator/src/eip3009/networks.js';
 import {
   OpaqueRelayerKey,
   getRelayerKeySecret,
   scrubSecrets,
 } from '../packages/facilitator/src/eip3009/relayer-key.js';
-import type { NetworkConfig } from '../packages/middleware/src/types.js';
+import type { NetworkConfig } from '../packages/facilitator/src/eip3009/types.js';
 
 const FACTORY_ABI = [
   {

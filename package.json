@@ -12,7 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build -w @universal-paywall/sdk --if-present && npm run build -w @universal-paywall/facilitator --if-present && npm run build --workspaces --if-present"
   },
   "engines": {
     "node": ">=20"
