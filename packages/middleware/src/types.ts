@@ -12,7 +12,7 @@
  * "Data Models → Middleware types".
  */
 
-import type { OpaqueRelayerKey } from '@universal-paywall/facilitator/eip3009';
+import type { OpaqueRelayerKeyShape as OpaqueRelayerKey } from '@universal-paywall/facilitator/eip3009';
 
 export type {
   ExactEvmPayload,

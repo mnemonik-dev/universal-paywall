@@ -91,6 +91,14 @@ unchanged; its five module test files moved with the code. The USDC-domain
 codegen (`scripts/generate-arc-testnet-usdc-domain.ts`) moved to the
 facilitator's prebuild.
 
+**Known issue for the route work (from the extraction security review):**
+`settle.ts` caches its per-network `WalletClient` keyed by network id only —
+the first relayer key seen for a network signs forever, and a different
+`relayerKey` passed later for the same network is silently ignored. Harmless
+in embedded middleware (one key per process); wrong once `POST /settle`
+serves multiple operators or a key rotation. Fix the cache key (network +
+account identity) as part of the endpoint implementation.
+
 ## Non-scope
 
 - **v2 migration.** Everything here is `x402Version: 1`, which the spec still

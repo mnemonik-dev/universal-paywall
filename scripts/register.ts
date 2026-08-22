@@ -18,8 +18,9 @@
  *   3 — unknown or disabled --network
  *
  * Per iteration-3 addendum §12, `getRelayerKeySecret` is imported from the
- * internal middleware module path; it is NOT re-exported from the public
- * `@universal-paywall/middleware` entry point.
+ * internal facilitator module path (its home since the U1 extraction); it
+ * is NOT exported from any public package entry point — neither
+ * `@universal-paywall/middleware` nor the `facilitator/eip3009` subpath.
  */
 
 import {
@@ -33,8 +34,17 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { NETWORKS, OpaqueRelayerKey } from '../packages/middleware/src/index.js';
-import { getRelayerKeySecret, scrubSecrets } from '../packages/middleware/src/relayer-key.js';
+import { NETWORKS } from '../packages/middleware/src/index.js';
+// The class, the extractor, and the scrubber MUST come from the same module
+// instance: the secret lives in a module-scoped WeakMap, so an
+// OpaqueRelayerKey constructed by one copy of relayer-key.ts is invisible
+// to getRelayerKeySecret from another copy (e.g. the compiled dist that the
+// middleware re-export shim resolves to).
+import {
+  OpaqueRelayerKey,
+  getRelayerKeySecret,
+  scrubSecrets,
+} from '../packages/facilitator/src/eip3009/relayer-key.js';
 import type { NetworkConfig } from '../packages/middleware/src/types.js';
 
 const FACTORY_ABI = [

@@ -37,6 +37,16 @@ interface ArcTestnetUsdcDomain {
 
 function main(): void {
   if (!existsSync(JSON_PATH)) {
+    // Outside the full monorepo (Docker image build, published-package
+    // consumers) the contracts/ tree is absent by design. The committed
+    // generated module is the shipped source of truth there — keep it and
+    // no-op instead of failing the build.
+    if (existsSync(OUT_PATH)) {
+      process.stdout.write(
+        `T3 USDC domain artefact not found at ${JSON_PATH}; keeping committed ${OUT_PATH}\n`,
+      );
+      return;
+    }
     throw new Error(
       `T3 USDC domain artefact missing at ${JSON_PATH} — run T3 first (or this script before publish).`,
     );
@@ -81,10 +91,28 @@ function main(): void {
     gasCostExceedsThreshold: parsed.gasCostExceedsThreshold ?? false,
     notes: Array.isArray(parsed.notes) ? parsed.notes : [],
   };
+  if (emitted.notes.some((n) => typeof n !== 'string')) {
+    throw new Error(`T3 USDC domain artefact at ${JSON_PATH} has non-string entries in notes[].`);
+  }
 
-  // Emit a prettier-stable object literal (single quotes, bare keys,
-  // trailing commas) so a prebuild refresh never dirties the committed file.
-  const q = (s: string): string => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  // Emit a prettier-stable object literal (bare keys, trailing commas,
+  // prettier's fewer-escapes quote choice) so a prebuild refresh never
+  // dirties the committed file. Control characters are unicode-escaped --
+  // a raw newline would otherwise emit an unterminated literal.
+  const q = (s: string): string => {
+    const escaped = s
+      .replace(/\\/g, '\\\\')
+      // eslint-disable-next-line no-control-regex
+      .replace(
+        /[\u0000-\u001f\u007f]/g,
+        (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+      );
+    const singles = (escaped.match(/'/g) ?? []).length;
+    const doubles = (escaped.match(/"/g) ?? []).length;
+    return singles > doubles
+      ? `"${escaped.replace(/"/g, '\\"')}"`
+      : `'${escaped.replace(/'/g, "\\'")}'`;
+  };
   const literalLines: string[] = ['{'];
   for (const [key, value] of Object.entries(emitted)) {
     if (Array.isArray(value)) {

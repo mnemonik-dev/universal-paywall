@@ -8,7 +8,6 @@
 export {
   MIN_RELAYER_USDC_BALANCE,
   NetworkMismatchError,
-  __resetSettleCacheForTests,
   settleOnChain,
 } from '@universal-paywall/facilitator/eip3009';
 export type {

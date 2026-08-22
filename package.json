@@ -11,7 +11,8 @@
     "lint": "eslint packages/middleware --ext .ts,.cts,.mts,.tsx",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build": "npm run build --workspaces --if-present"
   },
   "engines": {
     "node": ">=20"

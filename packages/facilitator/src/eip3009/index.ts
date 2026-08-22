@@ -17,7 +17,11 @@
 
 export { NETWORKS, normalizeNetworkId } from './networks.js';
 
-export { OpaqueRelayerKey, getRelayerKeySecret, scrubSecrets } from './relayer-key.js';
+// `getRelayerKeySecret` is deliberately NOT exported here: extraction of the
+// raw relayer key stays gated to `settle.ts` (and the repo-root register CLI),
+// both of which import `./relayer-key.js` by module path. Keeping it off the
+// published subpath preserves the D13 containment contract.
+export { OpaqueRelayerKey, scrubSecrets } from './relayer-key.js';
 
 export { NonceStore } from './replay-store.js';
 export type {
@@ -31,12 +35,9 @@ export type {
 export { verifyEip3009Authorization } from './verify.js';
 export type { VerifyOptions, VerifyReason, VerifyResult } from './verify.js';
 
-export {
-  MIN_RELAYER_USDC_BALANCE,
-  NetworkMismatchError,
-  __resetSettleCacheForTests,
-  settleOnChain,
-} from './settle.js';
+// `__resetSettleCacheForTests` is also NOT exported: the tests that need it
+// live in this package and import `../settle.js` directly.
+export { MIN_RELAYER_USDC_BALANCE, NetworkMismatchError, settleOnChain } from './settle.js';
 export type {
   PublicClientLike,
   SettleOptions,
