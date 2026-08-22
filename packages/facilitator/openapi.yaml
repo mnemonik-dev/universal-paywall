@@ -38,6 +38,39 @@ paths:
       responses:
         '200':
           description: Active Ed25519 receipt-verification key.
+  /supported:
+    get:
+      summary: x402 v1 discovery — payment kinds this deployment settles.
+      security: []
+      responses:
+        '200':
+          description: Kinds (network x scheme) plus the relayer signer map.
+  /verify:
+    post:
+      summary: x402 v1 verify — validate an exact/EIP-3009 payment without committing state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x402Version, paymentPayload, paymentRequirements]
+      responses:
+        '200':
+          description: VerifyResponse — isValid, payer, invalidReason on failure.
+  /settle:
+    post:
+      summary: x402 v1 settle — verify (consuming) then write transferWithAuthorization on-chain. Idempotent per authorization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x402Version, paymentPayload, paymentRequirements]
+      responses:
+        '200':
+          description: SettlementResponse — success, transaction, network, payer, errorReason on failure.
   /v1/quotes:
     post:
       summary: Validate and identify an immutable operation quote.

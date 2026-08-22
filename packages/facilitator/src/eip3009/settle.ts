@@ -104,6 +104,13 @@ export interface SettleOptions {
    * structurally to avoid leaking viem generics into the public surface.
    */
   publicClient: PublicClientLike;
+  /**
+   * Explicit network row to settle against, bypassing the NETWORKS
+   * registry lookup on `network`. Env-configured deployments (the hosted
+   * facilitator) use this; the wallet transport is built from the row's
+   * `rpcUrl` and the write targets its `usdcAddress`.
+   */
+  networkConfig?: NetworkConfig;
 }
 
 /**
@@ -135,10 +142,18 @@ export class NetworkMismatchError extends Error {
   }
 }
 
-// ─── Module-level cache (per-network WalletClient + chainId-pin flag) ─────────
+// ─── Module-level cache (per-relayer-key, per-network WalletClient) ──────────
 //
 // Per systemic-fixes §5, `settle.ts` is the sole owner of WalletClient
 // creation. `PublicClient` is NOT cached here — it's owned by core.ts.
+//
+// The outer WeakMap keys by `OpaqueRelayerKey` INSTANCE identity (U1
+// extraction review, finding F2): a cache keyed by network alone would let
+// the first key seen per network sign forever, silently ignoring a second
+// operator's key or a rotated key for the same network. Keying by the
+// opaque wrapper needs no secret extraction, and the WeakMap lets a
+// dropped key's wallets be collected. Two wrappers around the same secret
+// build two wallets — harmless duplication.
 //
 // On a race during cold-start init, both callers may build a wallet and
 // each call getChainId once; the assertion is idempotent.
@@ -149,15 +164,14 @@ interface WalletCacheEntry {
   chainIdPinned: boolean;
 }
 
-const WALLET_CACHE = new Map<string, WalletCacheEntry>();
+let WALLET_CACHE = new WeakMap<OpaqueRelayerKey, Map<string, WalletCacheEntry>>();
 
 /**
- * Test-only: reset the per-network WalletClient cache so chainId-pin
- * tests can assert "first call" behaviour deterministically. Not exported
- * via index.ts.
+ * Test-only: reset the WalletClient cache so chainId-pin tests can assert
+ * "first call" behaviour deterministically. Not exported via index.ts.
  */
 export function __resetSettleCacheForTests(): void {
-  WALLET_CACHE.clear();
+  WALLET_CACHE = new WeakMap();
 }
 
 function normalizePrivateKey(raw: string): `0x${string}` {
@@ -304,19 +318,23 @@ export async function settleOnChain(
   recoveredFrom: `0x${string}`,
   opts: SettleOptions,
 ): Promise<SettleResult> {
-  const network: NetworkConfig | undefined = (
-    NETWORKS as Record<string, NetworkConfig | undefined>
-  )[opts.network];
+  const network: NetworkConfig | undefined =
+    opts.networkConfig ?? (NETWORKS as Record<string, NetworkConfig | undefined>)[opts.network];
   if (network === undefined) {
     throw new Error(
       `settleOnChain: unknown network ${JSON.stringify(opts.network)} — not present in NETWORKS registry`,
     );
   }
 
-  let entry = WALLET_CACHE.get(network.id);
+  let perKey = WALLET_CACHE.get(opts.relayerKey);
+  if (perKey === undefined) {
+    perKey = new Map();
+    WALLET_CACHE.set(opts.relayerKey, perKey);
+  }
+  let entry = perKey.get(network.id);
   if (entry === undefined) {
     entry = buildWalletClient(network, opts.relayerKey);
-    WALLET_CACHE.set(network.id, entry);
+    perKey.set(network.id, entry);
   }
 
   // Chain ID pin — D14. Run only on first use of this network per process;

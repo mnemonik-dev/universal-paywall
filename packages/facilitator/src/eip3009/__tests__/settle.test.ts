@@ -472,3 +472,64 @@ describe('settleOnChain', () => {
     );
   });
 });
+
+describe('settleOnChain — per-key wallet cache + networkConfig (U1)', () => {
+  it('a second relayer key for the same network builds its own wallet', async () => {
+    const { createWalletClient } = await import('viem');
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => 10_000_000n),
+      waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
+    };
+    // makeOpts constructs a fresh OpaqueRelayerKey each call — two distinct
+    // key instances for the same network must never share a wallet (a
+    // network-only cache key would let the first key sign for both).
+    await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
+    await settleOnChain(makePayload(), SIGNER_ADDR, makeOpts({ publicClient }));
+    expect(vi.mocked(createWalletClient)).toHaveBeenCalledTimes(2);
+    // The chainId pin runs once per cache entry, so twice here.
+    expect(publicClient.getChainId).toHaveBeenCalledTimes(2);
+  });
+
+  it('the same key instance still reuses its wallet per network', async () => {
+    const { createWalletClient } = await import('viem');
+    const publicClient = {
+      getChainId: vi.fn(async () => arcTestnet.chainId),
+      readContract: vi.fn(async () => 10_000_000n),
+      waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
+    };
+    const opts = makeOpts({ publicClient });
+    await settleOnChain(makePayload(), SIGNER_ADDR, opts);
+    await settleOnChain(makePayload(), SIGNER_ADDR, opts);
+    expect(vi.mocked(createWalletClient)).toHaveBeenCalledTimes(1);
+  });
+
+  it('networkConfig override settles against a non-registry row', async () => {
+    const custom = {
+      ...arcTestnet,
+      id: 'eip155:31337',
+      alias: 'anvil-local',
+      chainId: 31337,
+      usdcAddress: '0x9999999999999999999999999999999999999999' as `0x${string}`,
+    };
+    const publicClient = {
+      getChainId: vi.fn(async () => custom.chainId),
+      readContract: vi.fn(async () => 10_000_000n),
+      waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
+    };
+    const opts = {
+      ...makeOpts({ publicClient }),
+      network: custom.id,
+      networkConfig: custom,
+    } as Parameters<typeof settleOnChain>[2];
+    const result = await settleOnChain(makePayload(), SIGNER_ADDR, opts);
+    expect(result).toEqual({ ok: true, txHash: TX_HASH, payer: SIGNER_ADDR });
+    // Both the balance read and the write target the override row's asset.
+    expect(publicClient.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({ address: custom.usdcAddress }),
+    );
+    expect(walletWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ address: custom.usdcAddress }),
+    );
+  });
+});

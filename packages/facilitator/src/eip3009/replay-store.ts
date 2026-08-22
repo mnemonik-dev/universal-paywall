@@ -102,6 +102,29 @@ export class NonceStore {
     inner.set(nonce, input.validBefore);
   }
 
+  /**
+   * Non-mutating twin of {@link checkAndInsert}: reports what
+   * checkAndInsert WOULD return without recording the nonce. This is the
+   * facilitator `POST /verify` primitive — the x402 spec requires /verify
+   * to commit no payment state, while `/settle` re-verifies with the
+   * consuming path and is where the nonce is actually burned. Lazy TTL
+   * eviction still runs (it only discards already-expired entries, which
+   * is an observational cleanup, not payment state).
+   */
+  check(input: CheckAndInsertInput): CheckAndInsertResult {
+    const from = input.from.toLowerCase();
+    const nonce = input.nonce.toLowerCase();
+    this.#evictExpired(from, input.now);
+    if (input.validBefore <= input.now) {
+      return { accepted: false, reason: 'authorization_expired' };
+    }
+    const inner = this.#store.get(from);
+    if (inner !== undefined && inner.has(nonce)) {
+      return { accepted: false, reason: 'nonce_already_used' };
+    }
+    return { accepted: true };
+  }
+
   checkAndInsert(input: CheckAndInsertInput): CheckAndInsertResult {
     const from = input.from.toLowerCase();
     const nonce = input.nonce.toLowerCase();

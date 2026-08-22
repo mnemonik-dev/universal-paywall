@@ -184,3 +184,31 @@ describe('NonceStore — primitives', () => {
     expect(store.size()).toBe(1);
   });
 });
+
+describe('NonceStore — check (non-mutating /verify peek)', () => {
+  it('check reports availability without recording the nonce', () => {
+    const store = new NonceStore();
+    const input = {
+      from: '0xAAA0000000000000000000000000000000000001',
+      nonce: '0x01',
+      validBefore: 2_000,
+      now: 1_000,
+    };
+    expect(store.check(input)).toEqual({ accepted: true });
+    expect(store.check(input)).toEqual({ accepted: true });
+    expect(store.checkAndInsert(input)).toEqual({ accepted: true });
+    expect(store.check(input)).toEqual({ accepted: false, reason: 'nonce_already_used' });
+  });
+
+  it('check refuses an already-dead authorization', () => {
+    const store = new NonceStore();
+    expect(
+      store.check({
+        from: '0xAAA0000000000000000000000000000000000001',
+        nonce: '0x02',
+        validBefore: 1_000,
+        now: 1_000,
+      }),
+    ).toEqual({ accepted: false, reason: 'authorization_expired' });
+  });
+});

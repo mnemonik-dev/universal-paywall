@@ -122,3 +122,107 @@ describe('session payment HTTP API', () => {
     });
   });
 });
+
+describe('x402 facilitator routes (U1)', () => {
+  const fakeService = {
+    receiptKey: vi.fn(() => ({ key_id: 'key-1', algorithm: 'Ed25519', public_key_pem: 'pem' })),
+  };
+  const fakeX402 = {
+    supported: vi.fn(() => ({
+      kinds: [{ x402Version: 1, scheme: 'exact', network: 'eip155:1' }],
+      signers: {},
+    })),
+    verify: vi.fn(async () => ({
+      isValid: true,
+      payer: '0x1111111111111111111111111111111111111111',
+    })),
+    settle: vi.fn(async () => ({
+      success: true,
+      payer: '0x1111111111111111111111111111111111111111',
+      transaction: `0x${'ab'.repeat(32)}`,
+      network: 'eip155:1',
+    })),
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  async function inject(
+    method: string,
+    url: string,
+    body?: unknown,
+    apiKey?: string,
+    withX402 = true,
+  ): Promise<{ status: number; body: unknown }> {
+    const server = createSessionPaymentServer(fakeService as unknown as SessionPaymentService, {
+      apiKeys: ['secret'],
+      ...(withX402
+        ? { x402: fakeX402 as unknown as import('../x402-http.js').X402Facilitator }
+        : {}),
+    });
+    const listener = server.listeners('request')[0] as (
+      req: IncomingMessage,
+      res: ServerResponse,
+    ) => void;
+    const encoded = body === undefined ? '' : JSON.stringify(body);
+    const req = Readable.from(encoded === '' ? [] : [Buffer.from(encoded)]) as IncomingMessage;
+    req.method = method;
+    req.url = url;
+    req.headers = apiKey === undefined ? {} : { 'x-api-key': apiKey };
+    return new Promise((resolve) => {
+      let status = 200;
+      const res = {
+        setHeader() {
+          return this;
+        },
+        writeHead(nextStatus: number) {
+          status = nextStatus;
+          return this;
+        },
+        end(chunk?: string) {
+          resolve({ status, body: chunk ? JSON.parse(chunk) : undefined });
+          return this;
+        },
+      } as unknown as ServerResponse;
+      listener(req, res);
+    });
+  }
+
+  it('GET /supported is public — no api key required', async () => {
+    await expect(inject('GET', '/supported')).resolves.toMatchObject({
+      status: 200,
+      body: { kinds: [{ x402Version: 1, scheme: 'exact', network: 'eip155:1' }] },
+    });
+    expect(fakeX402.supported).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /verify requires the api key and forwards the parsed body', async () => {
+    await expect(inject('POST', '/verify', { x402Version: 1 })).resolves.toMatchObject({
+      status: 401,
+    });
+    await expect(inject('POST', '/verify', { x402Version: 1 }, 'secret')).resolves.toMatchObject({
+      status: 200,
+      body: { isValid: true },
+    });
+    expect(fakeX402.verify).toHaveBeenCalledWith({ x402Version: 1 });
+  });
+
+  it('POST /settle requires the api key and returns the settlement response', async () => {
+    await expect(inject('POST', '/settle', { x402Version: 1 })).resolves.toMatchObject({
+      status: 401,
+    });
+    await expect(inject('POST', '/settle', { x402Version: 1 }, 'secret')).resolves.toMatchObject({
+      status: 200,
+      body: { success: true, network: 'eip155:1' },
+    });
+    expect(fakeX402.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the x402 option the routes stay unrouted', async () => {
+    await expect(inject('GET', '/supported', undefined, undefined, false)).resolves.toMatchObject({
+      status: 401,
+    });
+    await expect(
+      inject('POST', '/verify', { x402Version: 1 }, 'secret', false),
+    ).resolves.toMatchObject({ status: 404 });
+  });
+});

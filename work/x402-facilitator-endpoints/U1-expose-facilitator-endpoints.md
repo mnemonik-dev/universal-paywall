@@ -4,8 +4,8 @@ priority: P1
 size: M
 created: 2026-08-22
 related:
-  - "mnemonik-xyz/monorepo — work/x402-v2-conformance/scope.md (the consumer side)"
-  - "https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md §7"
+  - 'mnemonik-xyz/monorepo — work/x402-v2-conformance/scope.md (the consumer side)'
+  - 'https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md §7'
 ---
 
 # U1 — Expose the facilitator contract over HTTP
@@ -36,10 +36,10 @@ that already exists.
 
 ### The mapping is near 1:1
 
-| Existing | Signature | x402 response |
-| --- | --- | --- |
-| `verifyEip3009Authorization` (`packages/facilitator/src/eip3009/verify.ts:98`) | `(payload, opts) -> {ok:true, recoveredFrom}` \| `{ok:false, reason}` | `{isValid:true, payer}` \| `{isValid:false, invalidReason, payer}` |
-| `settleOnChain` (`packages/facilitator/src/eip3009/settle.ts:302`) | `(payload, recoveredFrom, opts) -> {ok:true, txHash, payer}` \| `{ok:false, reason}` | `{success:true, payer, transaction, network}` \| `{success:false, errorReason, payer, transaction, network}` |
+| Existing                                                                       | Signature                                                                            | x402 response                                                                                                |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `verifyEip3009Authorization` (`packages/facilitator/src/eip3009/verify.ts:98`) | `(payload, opts) -> {ok:true, recoveredFrom}` \| `{ok:false, reason}`                | `{isValid:true, payer}` \| `{isValid:false, invalidReason, payer}`                                           |
+| `settleOnChain` (`packages/facilitator/src/eip3009/settle.ts:302`)             | `(payload, recoveredFrom, opts) -> {ok:true, txHash, payer}` \| `{ok:false, reason}` | `{success:true, payer, transaction, network}` \| `{success:false, errorReason, payer, transaction, network}` |
 
 Request envelope for both is `{x402Version, paymentPayload, paymentRequirements}`.
 Our `PaymentPayload` type is already the right shape.
@@ -91,13 +91,21 @@ unchanged; its five module test files moved with the code. The USDC-domain
 codegen (`scripts/generate-arc-testnet-usdc-domain.ts`) moved to the
 facilitator's prebuild.
 
-**Known issue for the route work (from the extraction security review):**
-`settle.ts` caches its per-network `WalletClient` keyed by network id only —
-the first relayer key seen for a network signs forever, and a different
-`relayerKey` passed later for the same network is silently ignored. Harmless
-in embedded middleware (one key per process); wrong once `POST /settle`
-serves multiple operators or a key rotation. Fix the cache key (network +
-account identity) as part of the endpoint implementation.
+**Resolved during the endpoint work:** the extraction review's wallet-cache
+finding (cache keyed by network id only — first relayer key signed forever)
+is fixed: `settle.ts` now keys by `OpaqueRelayerKey` instance via a WeakMap,
+network id inside, with a two-keys-same-network regression test.
+
+**Endpoints landed.** `X402Facilitator` (`src/x402-http.ts`) implements the
+three routes over the eip3009 core with the `networkConfig` override (the
+hosted deployment is env-configured, not registry-bound): `/verify` uses the
+non-mutating replay peek (`consumeNonce: false` + `NonceStore.check`),
+`/settle` runs the consuming verify then `settleOnChain` and is idempotent
+per authorization via a recorded-success map, `/supported` advertises the
+configured network × `exact` plus the relayer signer map. Reason strings are
+the spec §9 codes. Routes are wired in `session-server.ts` (`/supported`
+public; `/verify` + `/settle` behind x-api-key) and configured from env in
+`session-cli.ts`.
 
 ## Non-scope
 
