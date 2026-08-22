@@ -55,6 +55,14 @@ export type {
 } from './session-service.js';
 export { createSessionPaymentServer } from './session-server.js';
 export type { SessionServerOptions } from './session-server.js';
+export { X402Facilitator } from './x402-http.js';
+export type {
+  X402ErrorReason,
+  X402FacilitatorOptions,
+  X402SettleResponse,
+  X402SupportedResponse,
+  X402VerifyResponse,
+} from './x402-http.js';
 export { build402Body, checkGrant, createPolicyReader } from './x402.js';
 export type {
   Build402Opts,

@@ -262,3 +262,71 @@ describe('verifyEip3009Authorization', () => {
     expect(result).toEqual({ ok: true, recoveredFrom: signer.address });
   });
 });
+
+describe('verifyEip3009Authorization — facilitator modes (U1)', () => {
+  it('consumeNonce:false verifies repeatedly without burning the nonce', async () => {
+    const payload = await makePayload();
+    const opts = { ...freshOpts(), consumeNonce: false };
+    expect(await verifyEip3009Authorization(payload, opts)).toEqual({
+      ok: true,
+      recoveredFrom: signer.address,
+    });
+    // Repeat peek: still valid — nothing was recorded.
+    expect(await verifyEip3009Authorization(payload, opts)).toEqual({
+      ok: true,
+      recoveredFrom: signer.address,
+    });
+    // The consuming pass (settle-time) still gets first use of the nonce...
+    const consuming = { ...opts, consumeNonce: true };
+    expect(await verifyEip3009Authorization(payload, consuming)).toEqual({
+      ok: true,
+      recoveredFrom: signer.address,
+    });
+    // ...and a peek afterwards reports the replay.
+    expect(await verifyEip3009Authorization(payload, opts)).toEqual({
+      ok: false,
+      reason: 'nonce_already_used',
+    });
+  });
+
+  it('networkConfig override verifies against a non-registry row', async () => {
+    const custom = {
+      ...arcTestnet,
+      id: 'eip155:31337',
+      alias: 'anvil-local',
+      chainId: 31337,
+    };
+    const payload = await makePayload({
+      network: custom.id,
+      domain: { chainId: custom.chainId },
+    });
+    const opts = { ...freshOpts(), expectedNetwork: custom.alias, networkConfig: custom };
+    expect(await verifyEip3009Authorization(payload, opts)).toEqual({
+      ok: true,
+      recoveredFrom: signer.address,
+    });
+    // The alias names the same row.
+    const byAlias = await makePayload({
+      network: custom.alias,
+      domain: { chainId: custom.chainId },
+      nonce: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    });
+    expect(await verifyEip3009Authorization(byAlias, opts)).toEqual({
+      ok: true,
+      recoveredFrom: signer.address,
+    });
+  });
+
+  it('networkConfig override rejects a payload naming another network', async () => {
+    const custom = { ...arcTestnet, id: 'eip155:31337', alias: 'anvil-local', chainId: 31337 };
+    const payload = await makePayload({
+      network: 'eip155:1',
+      domain: { chainId: custom.chainId },
+    });
+    const opts = { ...freshOpts(), networkConfig: custom };
+    expect(await verifyEip3009Authorization(payload, opts)).toEqual({
+      ok: false,
+      reason: 'network_mismatch',
+    });
+  });
+});

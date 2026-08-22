@@ -1,7 +1,9 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { OpaqueRelayerKey } from './eip3009/index.js';
 import { FilePaymentStore } from './payment-store.js';
 import { ReceiptSigner } from './receipt.js';
+import { X402Facilitator } from './x402-http.js';
 import { OnChainExactPayments, OnChainSessionPayments } from './session-chain.js';
 import { createSessionPaymentServer } from './session-server.js';
 import { SessionPaymentService } from './session-service.js';
@@ -65,7 +67,9 @@ function main(): void {
     fromBlock,
   });
   if (process.env['EXACT_PAYMENTS_ENABLED'] !== '1') {
-    throw new Error('invalid env: EXACT_PAYMENTS_ENABLED=1 is required for the Phase 1 exact-only rail');
+    throw new Error(
+      'invalid env: EXACT_PAYMENTS_ENABLED=1 is required for the Phase 1 exact-only rail',
+    );
   }
   const exact = new OnChainExactPayments({
     rpcUrl,
@@ -117,7 +121,37 @@ function main(): void {
     .filter(Boolean);
   if (apiKeys.length === 0)
     throw new Error('invalid env: SERVICE_API_KEYS must contain at least one key');
-  const server = createSessionPaymentServer(service, { apiKeys });
+  // x402 v1 facilitator API (U1): the deployment's single network as an
+  // explicit row — env-configured, independent of the NETWORKS registry.
+  // The zero addresses are the factory/vault fields verify/settle never read.
+  const networkLabel = env('NETWORK');
+  if (/^eip155:\d+$/.test(networkLabel) && networkLabel !== `eip155:${chainId}`) {
+    throw new Error(
+      `invalid env: NETWORK ${networkLabel} names a different chain than CHAIN_ID ${chainId}`,
+    );
+  }
+  const zeroAddress = `0x${'0'.repeat(40)}` as Hex;
+  const x402 = new X402Facilitator({
+    network: {
+      id: `eip155:${chainId}`,
+      alias: networkLabel,
+      chainId,
+      rpcUrl,
+      usdcAddress: asset,
+      usdcEip712Name: env('USDC_EIP712_NAME'),
+      usdcEip712Version: env('USDC_EIP712_VERSION'),
+      factoryAddress: zeroAddress,
+      vaultImplAddress: zeroAddress,
+      enabled: true,
+    },
+    relayerKey: new OpaqueRelayerKey(facilitatorKey),
+    relayerAddress: facilitatorAddress,
+    log: (event, fields) => {
+      // eslint-disable-next-line no-console
+      console.warn(JSON.stringify({ event, ...fields }));
+    },
+  });
+  const server = createSessionPaymentServer(service, { apiKeys, x402 });
   const port = parsePositiveInt(process.env['PORT'] ?? '8403', 'PORT', 65_535);
   server.listen(port, () => {
     // eslint-disable-next-line no-console

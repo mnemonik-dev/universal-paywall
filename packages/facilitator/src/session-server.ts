@@ -1,11 +1,20 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { PaymentServiceError, SessionPaymentService } from './session-service.js';
 import type { OperationBinding, RegisterSessionRequest, SettleRequest } from './session-types.js';
+import type { X402Facilitator } from './x402-http.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface SessionServerOptions {
   apiKeys: ReadonlyArray<string>;
+  /**
+   * x402 v1 facilitator API (U1). When provided, three spec routes are
+   * served alongside the /v1/* API: GET /supported (public — discovery must
+   * precede credentials, per the U1 decision), and POST /verify +
+   * POST /settle behind the same x-api-key gate as /v1/*.
+   */
+  x402?: X402Facilitator;
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -19,7 +28,18 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 function authorized(req: IncomingMessage, keys: ReadonlySet<string>): boolean {
   const header = req.headers['x-api-key'];
   const key = Array.isArray(header) ? header[0] : header;
-  return key !== undefined && keys.has(key);
+  if (key === undefined) return false;
+  // Constant-time comparison over digests: the gate now fronts a money
+  // endpoint, so a byte-by-byte string compare's timing must not leak key
+  // prefixes. Hashing first equalizes lengths for timingSafeEqual.
+  const candidate = createHash('sha256').update(key).digest();
+  let matched = false;
+  for (const known of keys) {
+    if (timingSafeEqual(candidate, createHash('sha256').update(known).digest())) {
+      matched = true;
+    }
+  }
+  return matched;
 }
 
 function readBody(req: IncomingMessage): Promise<unknown> {
@@ -74,7 +94,7 @@ export function createSessionPaymentServer(
 ): Server {
   const keys = new Set(opts.apiKeys);
   return createServer((req, res) => {
-    void handle(req, res, service, keys).catch((error: unknown) => {
+    void handle(req, res, service, keys, opts.x402).catch((error: unknown) => {
       if (error instanceof PaymentServiceError) {
         json(res, error.status, { error: error.code });
         return;
@@ -89,6 +109,7 @@ async function handle(
   res: ServerResponse,
   service: SessionPaymentService,
   keys: ReadonlySet<string>,
+  x402?: X402Facilitator,
 ): Promise<void> {
   setCorsHeaders(res);
   const url = new URL(req.url ?? '/', 'http://universal-paywall.local');
@@ -104,15 +125,27 @@ async function handle(
     json(res, 200, service.receiptKey());
     return;
   }
+  if (x402 !== undefined && req.method === 'GET' && url.pathname === '/supported') {
+    json(res, 200, x402.supported());
+    return;
+  }
   if (!authorized(req, keys)) {
     json(res, 401, { error: 'unauthorized' });
     return;
   }
 
+  if (x402 !== undefined && req.method === 'POST' && url.pathname === '/verify') {
+    json(res, 200, await x402.verify(await readBody(req)));
+    return;
+  }
+  if (x402 !== undefined && req.method === 'POST' && url.pathname === '/settle') {
+    json(res, 200, await x402.settle(await readBody(req)));
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname.startsWith('/v1/quotes/')) {
     const id = segment(url, 2);
-    if (id === undefined || id.length === 0)
-      throw new PaymentServiceError('quote_not_found', 404);
+    if (id === undefined || id.length === 0) throw new PaymentServiceError('quote_not_found', 404);
     json(res, 200, await service.getQuoteByOperationId(id));
     return;
   }

@@ -89,6 +89,23 @@ export interface VerifyOptions {
   publicClient: unknown;
   nonceStore: NonceStore;
   nowMs?: number;
+  /**
+   * Explicit network row to verify against, bypassing the NETWORKS
+   * registry lookup on `expectedNetwork`. Env-configured deployments (the
+   * hosted facilitator builds its network from ARC_RPC_URL / CHAIN_ID /
+   * USDC_* env vars) use this so they are not limited to registry rows.
+   * When set, `payload.network` must equal the row's `id` or `alias`.
+   */
+  networkConfig?: NetworkConfig;
+  /**
+   * When false, the replay store is consulted via the non-mutating
+   * `check` instead of `checkAndInsert` — verification reports replay
+   * status without burning the nonce. This is the facilitator
+   * `POST /verify` mode (spec: /verify commits no payment state);
+   * `/settle` re-verifies with the default consuming mode. Defaults to
+   * true (the embedded middleware verify-then-settle-immediately flow).
+   */
+  consumeNonce?: boolean;
 }
 
 function addressesEqual(a: string, b: string): boolean {
@@ -100,9 +117,9 @@ export async function verifyEip3009Authorization(
   opts: VerifyOptions,
 ): Promise<VerifyResult> {
   const nowMs = opts.nowMs ?? Date.now();
-  const network: NetworkConfig | undefined = (
-    NETWORKS as Record<string, NetworkConfig | undefined>
-  )[opts.expectedNetwork];
+  const network: NetworkConfig | undefined =
+    opts.networkConfig ??
+    (NETWORKS as Record<string, NetworkConfig | undefined>)[opts.expectedNetwork];
   if (network === undefined) {
     // Configuration error: caller passed a network we don't recognize.
     // Surface as network_mismatch — there is no "configured" domain to
@@ -162,14 +179,22 @@ export async function verifyEip3009Authorization(
     return { ok: false, reason: 'authorization_not_yet_valid' };
   }
 
-  const payloadCanonical = normalizeNetworkId(payload.network);
-  const expectedCanonical = normalizeNetworkId(opts.expectedNetwork);
-  if (
-    payloadCanonical === undefined ||
-    expectedCanonical === undefined ||
-    payloadCanonical !== expectedCanonical
-  ) {
-    return { ok: false, reason: 'network_mismatch' };
+  if (opts.networkConfig !== undefined) {
+    // Override mode: the row may not exist in the registry, so canonicalize
+    // against the row itself — the payload must name it by id or alias.
+    if (payload.network !== network.id && payload.network !== network.alias) {
+      return { ok: false, reason: 'network_mismatch' };
+    }
+  } else {
+    const payloadCanonical = normalizeNetworkId(payload.network);
+    const expectedCanonical = normalizeNetworkId(opts.expectedNetwork);
+    if (
+      payloadCanonical === undefined ||
+      expectedCanonical === undefined ||
+      payloadCanonical !== expectedCanonical
+    ) {
+      return { ok: false, reason: 'network_mismatch' };
+    }
   }
 
   // Synchronous TOCTOU-safe block — handled inside NonceStore.checkAndInsert,
@@ -178,12 +203,16 @@ export async function verifyEip3009Authorization(
   // defense-in-depth safety net: `validBefore <= now` is refused here too,
   // so a future regression that drops the 5s margin check above can't
   // sneak an already-dead authorization into the store.
-  const checkResult = opts.nonceStore.checkAndInsert({
+  const nonceInput = {
     from: authorization.from,
     nonce: authorization.nonce,
     validBefore: validBeforeMs,
     now: nowMs,
-  });
+  };
+  const checkResult =
+    opts.consumeNonce === false
+      ? opts.nonceStore.check(nonceInput)
+      : opts.nonceStore.checkAndInsert(nonceInput);
   if (!checkResult.accepted) {
     return { ok: false, reason: checkResult.reason };
   }

@@ -38,6 +38,95 @@ paths:
       responses:
         '200':
           description: Active Ed25519 receipt-verification key.
+  /supported:
+    get:
+      summary: x402 v1 discovery — payment kinds this deployment settles.
+      security: []
+      responses:
+        '200':
+          description: Kinds (network x scheme) plus the relayer signer map.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kinds, signers]
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      type: object
+                      required: [x402Version, scheme, network]
+                      properties:
+                        x402Version: { type: integer, enum: [1] }
+                        scheme: { type: string, enum: [exact] }
+                        network: { type: string }
+                  signers:
+                    type: object
+                    additionalProperties: { type: string }
+  /verify:
+    post:
+      summary: x402 v1 verify — validate an exact/EIP-3009 payment without committing state.
+      description: >
+        Domain failures return HTTP 200 with isValid:false and a spec
+        section-9 invalidReason (invalid_exact_evm_payload_*, invalid_network,
+        insufficient_funds, invalid_transaction_state, ...). 400 invalid_json,
+        401 unauthorized, 413 body_too_large use the {error} envelope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x402Version, paymentPayload, paymentRequirements]
+      responses:
+        '200':
+          description: VerifyResponse.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [isValid]
+                properties:
+                  isValid: { type: boolean }
+                  payer: { type: string }
+                  invalidReason: { type: string }
+        '400': { description: 'Malformed JSON body — {error: invalid_json}.' }
+        '401': { description: 'Missing or unknown x-api-key — {error: unauthorized}.' }
+        '413': { description: 'Body over 64KB — {error: body_too_large}.' }
+  /settle:
+    post:
+      summary: x402 v1 settle — verify (consuming) then write transferWithAuthorization on-chain. Idempotent per exact envelope.
+      description: >
+        The nonce burns at the consuming verify; a chain failure after that
+        point requires a fresh authorization to retry (the replay record
+        stays). A repeat of the exact settled envelope returns the recorded
+        outcome; a duplicate arriving while the original is mining awaits
+        the shared result. Errors use spec section-9 errorReason codes with
+        transaction set to the empty string.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x402Version, paymentPayload, paymentRequirements]
+      responses:
+        '200':
+          description: SettlementResponse.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, transaction, network]
+                properties:
+                  success: { type: boolean }
+                  transaction: { type: string }
+                  network: { type: string }
+                  payer: { type: string }
+                  errorReason: { type: string }
+        '400': { description: 'Malformed JSON body — {error: invalid_json}.' }
+        '401': { description: 'Missing or unknown x-api-key — {error: unauthorized}.' }
+        '413': { description: 'Body over 64KB — {error: body_too_large}.' }
   /v1/quotes:
     post:
       summary: Validate and identify an immutable operation quote.
