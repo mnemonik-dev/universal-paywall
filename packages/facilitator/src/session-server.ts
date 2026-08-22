@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { PaymentServiceError, SessionPaymentService } from './session-service.js';
 import type { OperationBinding, RegisterSessionRequest, SettleRequest } from './session-types.js';
@@ -27,7 +28,18 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 function authorized(req: IncomingMessage, keys: ReadonlySet<string>): boolean {
   const header = req.headers['x-api-key'];
   const key = Array.isArray(header) ? header[0] : header;
-  return key !== undefined && keys.has(key);
+  if (key === undefined) return false;
+  // Constant-time comparison over digests: the gate now fronts a money
+  // endpoint, so a byte-by-byte string compare's timing must not leak key
+  // prefixes. Hashing first equalizes lengths for timingSafeEqual.
+  const candidate = createHash('sha256').update(key).digest();
+  let matched = false;
+  for (const known of keys) {
+    if (timingSafeEqual(candidate, createHash('sha256').update(known).digest())) {
+      matched = true;
+    }
+  }
+  return matched;
 }
 
 function readBody(req: IncomingMessage): Promise<unknown> {

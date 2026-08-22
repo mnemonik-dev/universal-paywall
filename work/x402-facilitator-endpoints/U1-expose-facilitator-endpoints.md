@@ -107,6 +107,31 @@ the spec §9 codes. Routes are wired in `session-server.ts` (`/supported`
 public; `/verify` + `/settle` behind x-api-key) and configured from env in
 `session-cli.ts`.
 
+**Hardened after the endpoint review round (code critical + security
+major):** the idempotency record is fingerprint-bound to the exact settled
+envelope (signature + authorization + payTo/amount/asset/network) — a bare
+`(from, nonce)` key was a payment bypass, since those become public on-chain
+the moment a payment settles. The record holds the settlement _promise_, so
+a duplicate arriving mid-mining awaits the real outcome instead of a
+false-terminal error. Added alongside: a 24h authorization-validity cap
+(bounds NonceStore growth and the `Number(validBefore)` overflow), TTL
+eviction of the settled map on `validBefore`, an advisory payer-balance
+check on `/verify` (`insufficient_funds` — an unreadable balance never
+blocks; settlement stays the real gate), a scrubbed fire-and-forget event
+hook on the money path, constant-time API-key comparison, and a
+NETWORK-vs-CHAIN_ID startup guard in the CLI.
+
+**Operational notes (recorded, not blocking):** an API-key holder can spend
+relayer gas settling self-to-self transfers (`payTo` is unrestricted, no
+per-key quotas) until `relayer_no_balance`; pair deployment with relayer
+balance alerting and treat per-key quotas as follow-up work. The wildcard
+CORS policy advertises `X-API-Key`; unchanged from `/v1/*`, revisit when
+keys become per-integrator. `mine_timeout` maps to
+`unexpected_settle_error` even though the transaction may still mine — the
+on-chain authorization-used revert is the double-charge backstop. A
+restart clears the in-memory nonce and settled maps; the same backstop
+covers replays across restarts.
+
 ## Non-scope
 
 - **v2 migration.** Everything here is `x402Version: 1`, which the spec still

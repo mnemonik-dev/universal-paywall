@@ -31,14 +31,15 @@ function freshNonce(): `0x${string}` {
 }
 
 async function makePaymentPayload(
-  overrides: { value?: string; nonce?: `0x${string}` } = {},
+  overrides: { value?: string; nonce?: `0x${string}`; validBefore?: string } = {},
 ): Promise<Record<string, unknown>> {
   const authorization = {
     from: signer.address,
     to: VAULT_ADDR,
     value: overrides.value ?? '10000',
     validAfter: '0',
-    validBefore: '9999999999',
+    // One hour out: within the handler's 24h validity-window cap.
+    validBefore: overrides.validBefore ?? String(Math.floor(Date.now() / 1000) + 3600),
     nonce: overrides.nonce ?? freshNonce(),
   };
   const signature = await signer.signTypedData({
@@ -88,7 +89,7 @@ function makeRequirements(overrides: Record<string, unknown> = {}): Record<strin
 }
 
 async function makeEnvelope(
-  payloadOverrides: { value?: string; nonce?: `0x${string}` } = {},
+  payloadOverrides: { value?: string; nonce?: `0x${string}`; validBefore?: string } = {},
   requirementsOverrides: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
   return {
@@ -99,7 +100,11 @@ async function makeEnvelope(
 }
 
 function makeFacilitator(
-  opts: { settle?: ReturnType<typeof vi.fn>; verify?: ReturnType<typeof vi.fn> } = {},
+  opts: {
+    settle?: ReturnType<typeof vi.fn>;
+    verify?: ReturnType<typeof vi.fn>;
+    publicClient?: Record<string, unknown>;
+  } = {},
 ): X402Facilitator {
   const deps: Record<string, unknown> = {};
   if (opts.settle) deps['settle'] = opts.settle;
@@ -108,7 +113,7 @@ function makeFacilitator(
     network: arcTestnet,
     relayerKey: new OpaqueRelayerKey(RELAYER_PK),
     relayerAddress: RELAYER_ADDR,
-    publicClient: {
+    publicClient: opts.publicClient ?? {
       getChainId: vi.fn(async () => arcTestnet.chainId),
       readContract: vi.fn(async () => 10_000_000n),
       waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' as const })),
@@ -288,5 +293,192 @@ describe('X402Facilitator — /settle', () => {
       network: arcTestnet.id,
     });
     expect(settle).not.toHaveBeenCalled();
+  });
+});
+
+describe('X402Facilitator — review-round hardening (round 3)', () => {
+  it('REGRESSION: a forged replay of a settled (from, nonce) never succeeds', async () => {
+    const settle = okSettle();
+    const facilitator = makeFacilitator({ settle });
+    const honest = await makeEnvelope();
+    const honestPayload = honest['paymentPayload'] as Record<string, unknown>;
+    const honestAuth = (honestPayload['payload'] as Record<string, unknown>)[
+      'authorization'
+    ] as Record<string, unknown>;
+    expect(await facilitator.settle(honest)).toMatchObject({ success: true });
+
+    // Attacker knows (from, nonce) from the chain, forges the rest: garbage
+    // signature, their own payTo. The recorded success must not leak.
+    const forged = {
+      x402Version: 1,
+      paymentPayload: {
+        x402Version: 1,
+        scheme: 'exact',
+        network: arcTestnet.id,
+        payload: {
+          signature: ('0x' + 'ff'.repeat(65)) as `0x${string}`,
+          authorization: { ...honestAuth },
+        },
+      },
+      paymentRequirements: makeRequirements({
+        payTo: '0x9999999999999999999999999999999999999999',
+      }),
+    };
+    const response = await facilitator.settle(forged);
+    expect(response).toMatchObject({
+      success: false,
+      errorReason: 'invalid_exact_evm_payload_signature',
+    });
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate arriving while the first settle is mining awaits the real outcome', async () => {
+    let release: (value: { ok: true; txHash: `0x${string}`; payer: `0x${string}` }) => void;
+    const mining = new Promise((resolve) => {
+      release = resolve as typeof release;
+    });
+    const settle = vi.fn(() => mining);
+    const facilitator = makeFacilitator({ settle });
+    const envelope = await makeEnvelope();
+    const first = facilitator.settle(envelope);
+    const duplicate = facilitator.settle(envelope);
+    release!({ ok: true, txHash: TX_HASH, payer: signer.address });
+    const [a, b] = await Promise.all([first, duplicate]);
+    expect(a).toMatchObject({ success: true, transaction: TX_HASH });
+    expect(b).toEqual(a);
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('concurrent settles of the same payload reach the chain at most once', async () => {
+    const settle = okSettle();
+    const facilitator = makeFacilitator({ settle });
+    const envelope = await makeEnvelope();
+    const [a, b] = await Promise.all([facilitator.settle(envelope), facilitator.settle(envelope)]);
+    expect(a).toMatchObject({ success: true });
+    expect(b).toEqual(a);
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed chain write is recorded: the retry gets the same terminal error, one attempt total', async () => {
+    const settle = vi.fn(async () => ({ ok: false, reason: 'receipt_reverted' }));
+    const facilitator = makeFacilitator({ settle });
+    const envelope = await makeEnvelope();
+    const first = await facilitator.settle(envelope);
+    const retry = await facilitator.settle(envelope);
+    expect(first).toMatchObject({ success: false, errorReason: 'invalid_transaction_state' });
+    expect(retry).toEqual(first);
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a verify-stage rejection does not poison the idempotency key', async () => {
+    const settle = okSettle();
+    const facilitator = makeFacilitator({ settle });
+    const honest = await makeEnvelope();
+    const honestPayload = honest['paymentPayload'] as Record<string, unknown>;
+    const honestAuth = (honestPayload['payload'] as Record<string, unknown>)[
+      'authorization'
+    ] as Record<string, unknown>;
+    // Forgery first: same (from, nonce), garbage signature — fails verify.
+    const forged = {
+      x402Version: 1,
+      paymentPayload: {
+        x402Version: 1,
+        scheme: 'exact',
+        network: arcTestnet.id,
+        payload: {
+          signature: ('0x' + 'ff'.repeat(65)) as `0x${string}`,
+          authorization: { ...honestAuth },
+        },
+      },
+      paymentRequirements: makeRequirements(),
+    };
+    expect(await facilitator.settle(forged)).toMatchObject({ success: false });
+    // The honest envelope must still settle normally afterwards.
+    expect(await facilitator.settle(honest)).toMatchObject({ success: true });
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('verify surfaces unexpected_verify_error when the core verify throws', async () => {
+    const verify = vi.fn(async () => {
+      throw new Error('rpc exploded');
+    });
+    const facilitator = makeFacilitator({ verify });
+    expect(await makeFacilitator({ verify }).verify(await makeEnvelope())).toMatchObject({
+      isValid: false,
+      invalidReason: 'unexpected_verify_error',
+    });
+    void facilitator;
+  });
+
+  it('settle surfaces unexpected_settle_error when the core verify or settle throws', async () => {
+    const verify = vi.fn(async () => {
+      throw new Error('rpc exploded');
+    });
+    expect(await makeFacilitator({ verify }).settle(await makeEnvelope())).toMatchObject({
+      success: false,
+      errorReason: 'unexpected_settle_error',
+    });
+    const settle = vi.fn(async () => {
+      throw new Error('chain id pin failed');
+    });
+    expect(await makeFacilitator({ settle }).settle(await makeEnvelope())).toMatchObject({
+      success: false,
+      errorReason: 'unexpected_settle_error',
+    });
+  });
+
+  it('rejects a payload-level non-exact scheme as invalid_scheme', async () => {
+    const envelope = await makeEnvelope();
+    (envelope['paymentPayload'] as Record<string, unknown>)['scheme'] = 'stake';
+    expect(await makeFacilitator().verify(envelope)).toMatchObject({
+      isValid: false,
+      invalidReason: 'invalid_scheme',
+    });
+  });
+
+  it('accepts the network alias in requirements', async () => {
+    const facilitator = makeFacilitator();
+    const envelope = await makeEnvelope({}, { network: arcTestnet.alias });
+    expect(await facilitator.verify(envelope)).toMatchObject({ isValid: true });
+  });
+
+  it('reports insufficient_funds when the payer balance is below the authorized value', async () => {
+    const facilitator = makeFacilitator({
+      publicClient: {
+        getChainId: vi.fn(async () => arcTestnet.chainId),
+        readContract: vi.fn(async () => 5n),
+        waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' as const })),
+      },
+    });
+    expect(await facilitator.verify(await makeEnvelope())).toMatchObject({
+      isValid: false,
+      invalidReason: 'insufficient_funds',
+    });
+  });
+
+  it('an unreadable balance is advisory: verification still succeeds', async () => {
+    const facilitator = makeFacilitator({
+      publicClient: {
+        getChainId: vi.fn(async () => arcTestnet.chainId),
+        readContract: vi.fn(async () => {
+          throw new Error('rpc down');
+        }),
+        waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' as const })),
+      },
+    });
+    expect(await facilitator.verify(await makeEnvelope())).toMatchObject({ isValid: true });
+  });
+
+  it('rejects an authorization valid further out than the 24h window', async () => {
+    const farFuture = String(Math.floor(Date.now() / 1000) + 48 * 3600);
+    const envelope = await makeEnvelope({ validBefore: farFuture });
+    expect(await makeFacilitator().verify(envelope)).toMatchObject({
+      isValid: false,
+      invalidReason: 'invalid_exact_evm_payload_authorization_valid_before',
+    });
+    expect(await makeFacilitator().settle(envelope)).toMatchObject({
+      success: false,
+      errorReason: 'invalid_exact_evm_payload_authorization_valid_before',
+    });
   });
 });

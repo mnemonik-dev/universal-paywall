@@ -8,9 +8,11 @@
  *   POST /settle    → re-verify with the consuming path (this is where the
  *                     nonce is burned), then write
  *                     `USDC.transferWithAuthorization` on-chain. Idempotent
- *                     per authorization: a repeat of an already-settled
- *                     payload returns the recorded success instead of
- *                     double-charging.
+ *                     per authorization: a repeat of the EXACT settled
+ *                     envelope (fingerprint-bound — never just (from,
+ *                     nonce), which are public on-chain) returns the
+ *                     recorded outcome; duplicates arriving mid-mining
+ *                     await the shared settlement promise.
  *   GET  /supported → the kinds this deployment can actually settle (one
  *                     network × `exact`) plus the relayer signer map.
  *
@@ -29,7 +31,12 @@
 
 import { createPublicClient, http } from 'viem';
 import { buildChain } from './chain.js';
-import { NonceStore, settleOnChain, verifyEip3009Authorization } from './eip3009/index.js';
+import {
+  NonceStore,
+  scrubSecrets,
+  settleOnChain,
+  verifyEip3009Authorization,
+} from './eip3009/index.js';
 import type { OpaqueRelayerKey } from './eip3009/index.js';
 import type {
   NetworkConfig,
@@ -114,6 +121,13 @@ type EnvelopeResult =
   | { ok: true; payload: PaymentPayload; requirements: PaymentRequirements }
   | { ok: false; reason: X402ErrorReason; payer?: `0x${string}` | undefined };
 
+/**
+ * Fire-and-forget event hook for the money path. Fields are passed through
+ * `scrubSecrets` before emission and a throwing logger never breaks a
+ * request (mirrors the middleware D18 contract).
+ */
+export type X402Logger = (event: string, fields: Record<string, unknown>) => void;
+
 export interface X402FacilitatorOptions {
   /** The single network this deployment settles, built from env config. */
   network: NetworkConfig;
@@ -122,11 +136,41 @@ export interface X402FacilitatorOptions {
   relayerAddress: `0x${string}`;
   /** Injectable for tests; defaults to a viem client on network.rpcUrl. */
   publicClient?: PublicClientLike;
+  log?: X402Logger;
   /** Injectable for tests; default to the eip3009 core functions. */
   deps?: {
     verify?: typeof verifyEip3009Authorization;
     settle?: typeof settleOnChain;
   };
+}
+
+/**
+ * Authorizations may not be valid further into the future than this.
+ * Bounds NonceStore growth (an entry lives until `validBefore`) and
+ * rejects the `Number(validBefore) -> Infinity` degenerate case.
+ */
+const MAX_AUTHORIZATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
+
+/** #settled sweep only bothers walking the map once it reaches this size. */
+const SETTLED_SWEEP_THRESHOLD = 1024;
+
+const BALANCE_OF_ABI = [
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
+
+interface SettledEntry {
+  /** Binds the record to one exact envelope — see #fingerprint. */
+  fingerprint: string;
+  validBeforeMs: number;
+  /** Set once the consuming verify passes; burned entries are never displaced. */
+  nonceBurned: boolean;
+  result: Promise<X402SettleResponse>;
 }
 
 export class X402Facilitator {
@@ -137,10 +181,12 @@ export class X402Facilitator {
   readonly #nonceStore = new NonceStore();
   readonly #verify: typeof verifyEip3009Authorization;
   readonly #settle: typeof settleOnChain;
-  /** Recorded successes keyed by `${from}:${nonce}` for idempotent /settle. */
-  readonly #settled = new Map<string, X402SettleResponse>();
+  readonly #logger: X402Logger | undefined;
+  /** Fingerprint-bound settlement records keyed by `${from}:${nonce}`. */
+  readonly #settled = new Map<string, SettledEntry>();
 
   constructor(opts: X402FacilitatorOptions) {
+    this.#logger = opts.log;
     this.#network = opts.network;
     this.#relayerKey = opts.relayerKey;
     this.#relayerAddress = opts.relayerAddress;
@@ -167,14 +213,42 @@ export class X402Facilitator {
       return { isValid: false, invalidReason: envelope.reason, ...payerField(envelope.payer) };
     }
     const payer = envelope.payload.payload.authorization.from;
+    const windowReason = this.#checkValidityWindow(
+      envelope.payload.payload.authorization.validBefore,
+    );
+    if (windowReason !== undefined) {
+      return { isValid: false, invalidReason: windowReason, payer };
+    }
     let result;
     try {
       result = await this.#verify(envelope.payload, this.#verifyOptions(envelope, false));
-    } catch {
+    } catch (err) {
+      this.#log('x402_verify_error', { payer, error: describeError(err) });
       return { isValid: false, invalidReason: 'unexpected_verify_error', payer };
     }
-    if (result.ok) return { isValid: true, payer: result.recoveredFrom };
-    return { isValid: false, invalidReason: VERIFY_REASON_MAP[result.reason], payer };
+    if (!result.ok) {
+      return { isValid: false, invalidReason: VERIFY_REASON_MAP[result.reason], payer };
+    }
+    // Payer-balance pre-check: the canonical `insufficient_funds` meaning.
+    // Advisory — an unreadable balance never blocks verification (settlement
+    // is the real gate; the transfer reverts on-chain for a broke payer).
+    try {
+      const balance = await this.#publicClient.readContract({
+        address: this.#network.usdcAddress,
+        abi: BALANCE_OF_ABI,
+        functionName: 'balanceOf',
+        args: [result.recoveredFrom],
+      });
+      if (
+        typeof balance === 'bigint' &&
+        balance < BigInt(envelope.payload.payload.authorization.value)
+      ) {
+        return { isValid: false, invalidReason: 'insufficient_funds', payer };
+      }
+    } catch {
+      // Advisory read failed; fall through to the signature verdict.
+    }
+    return { isValid: true, payer: result.recoveredFrom };
   }
 
   async settle(body: unknown): Promise<X402SettleResponse> {
@@ -191,17 +265,66 @@ export class X402Facilitator {
     }
     const authorization = envelope.payload.payload.authorization;
     const payer = authorization.from;
-    const idempotencyKey = `${authorization.from.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
-    const recorded = this.#settled.get(idempotencyKey);
-    if (recorded !== undefined) return recorded;
+    const windowReason = this.#checkValidityWindow(authorization.validBefore);
+    if (windowReason !== undefined) {
+      return { success: false, errorReason: windowReason, transaction: '', network, payer };
+    }
 
-    // Consuming verify: this is the state-committing step — the nonce is
-    // burned here, so a concurrent or repeated settle of the same payload
-    // cannot reach the chain write twice.
+    this.#sweepSettled();
+
+    // Idempotency: keyed by (from, nonce) but honored ONLY for the exact
+    // envelope that settled — (from, nonce) become public on-chain data the
+    // moment a payment settles, so an unfingerprinted lookup would hand
+    // success:true to anyone replaying those identifiers with a forged
+    // signature or foreign requirements. The entry holds a PROMISE, so a
+    // duplicate arriving while the original is still mining awaits the real
+    // outcome instead of getting a false-terminal replay error.
+    const key = `${authorization.from.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+    const fingerprint = fingerprintEnvelope(envelope);
+    const existing = this.#settled.get(key);
+    if (existing !== undefined) {
+      if (existing.fingerprint === fingerprint) return existing.result;
+      // A DIFFERENT envelope reusing a known (from, nonce): never displace
+      // the recorded entry — run unrecorded and let the consuming verify
+      // adjudicate (invalid signature for forgeries, nonce_already_used ->
+      // invalid_transaction_state for genuine nonce reuse).
+      return this.#attemptSettle(envelope, network, payer, undefined);
+    }
+
+    const entry: SettledEntry = {
+      fingerprint,
+      validBeforeMs: Number(authorization.validBefore) * 1000,
+      nonceBurned: false,
+      result: Promise.resolve() as unknown as Promise<X402SettleResponse>,
+    };
+    entry.result = this.#attemptSettle(envelope, network, payer, entry);
+    this.#settled.set(key, entry);
+    const response = await entry.result;
+    if (!entry.nonceBurned && this.#settled.get(key) === entry) {
+      // Verify-stage rejection: this attempt committed nothing, so the
+      // entry must not shadow a later well-formed envelope for the key.
+      this.#settled.delete(key);
+    }
+    return response;
+  }
+
+  /**
+   * Consuming verify, then the on-chain write. Never throws. The nonce is
+   * burned inside the verify's synchronous checkAndInsert, so two
+   * concurrent attempts can never both reach the chain write — the loser
+   * fails with nonce_already_used before any transaction is broadcast.
+   */
+  async #attemptSettle(
+    envelope: Extract<EnvelopeResult, { ok: true }>,
+    network: string,
+    payer: `0x${string}`,
+    entry: SettledEntry | undefined,
+  ): Promise<X402SettleResponse> {
     let verifyResult;
     try {
       verifyResult = await this.#verify(envelope.payload, this.#verifyOptions(envelope, true));
-    } catch {
+    } catch (err) {
+      this.#log('x402_settle_error', { payer, stage: 'verify', error: describeError(err) });
       return {
         success: false,
         errorReason: 'unexpected_settle_error',
@@ -219,6 +342,7 @@ export class X402Facilitator {
         payer,
       };
     }
+    if (entry !== undefined) entry.nonceBurned = true;
 
     let settleResult;
     try {
@@ -228,8 +352,9 @@ export class X402Facilitator {
         relayerKey: this.#relayerKey,
         publicClient: this.#publicClient,
       });
-    } catch {
+    } catch (err) {
       // NetworkMismatchError (chainId pin) or an unclassified throw.
+      this.#log('x402_settle_error', { payer, stage: 'chain', error: describeError(err) });
       return {
         success: false,
         errorReason: 'unexpected_settle_error',
@@ -239,6 +364,7 @@ export class X402Facilitator {
       };
     }
     if (!settleResult.ok) {
+      this.#log('x402_settle_failed', { payer, reason: settleResult.reason });
       return {
         success: false,
         errorReason: SETTLE_REASON_MAP[settleResult.reason],
@@ -247,14 +373,49 @@ export class X402Facilitator {
         payer,
       };
     }
-    const response: X402SettleResponse = {
+    this.#log('x402_settled', { payer: settleResult.payer, transaction: settleResult.txHash });
+    return {
       success: true,
       payer: settleResult.payer,
       transaction: settleResult.txHash,
       network,
     };
-    this.#settled.set(idempotencyKey, response);
-    return response;
+  }
+
+  /**
+   * Far-future (or non-numeric-overflow) validBefore values are rejected:
+   * a replay-store entry lives until validBefore, so an unbounded window
+   * lets an API-key holder park entries that never expire.
+   */
+  #checkValidityWindow(validBefore: string): X402ErrorReason | undefined {
+    const validBeforeMs = Number(validBefore) * 1000;
+    if (
+      !Number.isFinite(validBeforeMs) ||
+      validBeforeMs > Date.now() + MAX_AUTHORIZATION_VALIDITY_MS
+    ) {
+      return 'invalid_exact_evm_payload_authorization_valid_before';
+    }
+    return undefined;
+  }
+
+  /** Drop recorded settlements whose authorization has expired — a replay
+   * after that degrades to invalid_transaction_state, and the on-chain
+   * authorization-already-used revert remains the double-charge backstop. */
+  #sweepSettled(): void {
+    if (this.#settled.size < SETTLED_SWEEP_THRESHOLD) return;
+    const now = Date.now();
+    for (const [key, entry] of this.#settled) {
+      if (entry.validBeforeMs <= now) this.#settled.delete(key);
+    }
+  }
+
+  #log(event: string, fields: Record<string, unknown>): void {
+    if (this.#logger === undefined) return;
+    try {
+      this.#logger(event, scrubSecrets(fields) as Record<string, unknown>);
+    } catch {
+      // Fire-and-forget: a broken logger never blocks the money path.
+    }
   }
 
   #verifyOptions(
@@ -352,4 +513,33 @@ export class X402Facilitator {
 
 function payerField(payer: `0x${string}` | undefined): { payer?: `0x${string}` } {
   return payer === undefined ? {} : { payer };
+}
+
+/**
+ * One exact envelope, one string. Every field is regex-validated by the
+ * decoder before this runs, so `|` cannot occur inside a component and the
+ * join is unambiguous. Addresses are lowercased; the signature binds the
+ * authorization content, and payTo/amount/asset/network bind the
+ * requirements the settlement was recorded against.
+ */
+function fingerprintEnvelope(envelope: Extract<EnvelopeResult, { ok: true }>): string {
+  const { signature, authorization } = envelope.payload.payload;
+  const requirements = envelope.requirements;
+  return [
+    signature.toLowerCase(),
+    authorization.from.toLowerCase(),
+    authorization.to.toLowerCase(),
+    authorization.value,
+    authorization.validAfter,
+    authorization.validBefore,
+    authorization.nonce.toLowerCase(),
+    requirements.payTo.toLowerCase(),
+    requirements.maxAmountRequired,
+    requirements.asset.toLowerCase(),
+    requirements.network,
+  ].join('|');
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }

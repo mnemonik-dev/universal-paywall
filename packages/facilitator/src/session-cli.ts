@@ -124,11 +124,17 @@ function main(): void {
   // x402 v1 facilitator API (U1): the deployment's single network as an
   // explicit row — env-configured, independent of the NETWORKS registry.
   // The zero addresses are the factory/vault fields verify/settle never read.
+  const networkLabel = env('NETWORK');
+  if (/^eip155:\d+$/.test(networkLabel) && networkLabel !== `eip155:${chainId}`) {
+    throw new Error(
+      `invalid env: NETWORK ${networkLabel} names a different chain than CHAIN_ID ${chainId}`,
+    );
+  }
   const zeroAddress = `0x${'0'.repeat(40)}` as Hex;
   const x402 = new X402Facilitator({
     network: {
       id: `eip155:${chainId}`,
-      alias: env('NETWORK'),
+      alias: networkLabel,
       chainId,
       rpcUrl,
       usdcAddress: asset,
@@ -140,6 +146,10 @@ function main(): void {
     },
     relayerKey: new OpaqueRelayerKey(facilitatorKey),
     relayerAddress: facilitatorAddress,
+    log: (event, fields) => {
+      // eslint-disable-next-line no-console
+      console.warn(JSON.stringify({ event, ...fields }));
+    },
   });
   const server = createSessionPaymentServer(service, { apiKeys, x402 });
   const port = parsePositiveInt(process.env['PORT'] ?? '8403', 'PORT', 65_535);
