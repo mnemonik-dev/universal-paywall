@@ -7,7 +7,7 @@ import { NETWORKS, normalizeNetworkId } from '../networks.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const T3_ARTEFACT_PATH = resolve(
   here,
-  '../../../../contracts/scripts/arc-testnet-usdc-domain.json',
+  '../../../../../contracts/scripts/arc-testnet-usdc-domain.json',
 );
 
 // On a cold checkout (T3 hasn't run yet) the artefact is absent and the

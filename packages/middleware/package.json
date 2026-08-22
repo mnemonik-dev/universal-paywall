@@ -18,7 +18,6 @@
   },
   "sideEffects": false,
   "scripts": {
-    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
@@ -32,6 +31,7 @@
     "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
+    "@universal-paywall/facilitator": "*",
     "viem": "^2.55.1"
   },
   "peerDependencies": {

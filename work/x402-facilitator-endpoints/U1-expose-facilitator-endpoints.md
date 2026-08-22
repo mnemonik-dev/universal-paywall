@@ -38,8 +38,8 @@ that already exists.
 
 | Existing | Signature | x402 response |
 | --- | --- | --- |
-| `verifyEip3009Authorization` (`packages/middleware/src/verify.ts:98`) | `(payload, opts) -> {ok:true, recoveredFrom}` \| `{ok:false, reason}` | `{isValid:true, payer}` \| `{isValid:false, invalidReason, payer}` |
-| `settleOnChain` (`packages/middleware/src/settle.ts:302`) | `(payload, recoveredFrom, opts) -> {ok:true, txHash, payer}` \| `{ok:false, reason}` | `{success:true, payer, transaction, network}` \| `{success:false, errorReason, payer, transaction, network}` |
+| `verifyEip3009Authorization` (`packages/facilitator/src/eip3009/verify.ts:98`) | `(payload, opts) -> {ok:true, recoveredFrom}` \| `{ok:false, reason}` | `{isValid:true, payer}` \| `{isValid:false, invalidReason, payer}` |
+| `settleOnChain` (`packages/facilitator/src/eip3009/settle.ts:302`) | `(payload, recoveredFrom, opts) -> {ok:true, txHash, payer}` \| `{ok:false, reason}` | `{success:true, payer, transaction, network}` \| `{success:false, errorReason, payer, transaction, network}` |
 
 Request envelope for both is `{x402Version, paymentPayload, paymentRequirements}`.
 Our `PaymentPayload` type is already the right shape.
@@ -81,6 +81,15 @@ stay behind per-app API keys on the existing `authorized(req, keys)` gate,
 which doubles as per-integrator identity for later rate limiting and
 accounting. Public surface: `/health`, `/.well-known/payment-receipt-key`,
 `/supported`.
+
+**Extraction landed.** The EIP-3009 core (`verify`, `settle`, `NETWORKS`,
+`relayer-key`, `replay-store`, wire types) now lives in
+`packages/facilitator/src/eip3009/`, exported as
+`@universal-paywall/facilitator/eip3009`. The old `middleware` module paths
+are re-export shims, so middleware's embedded mode and public API are
+unchanged; its five module test files moved with the code. The USDC-domain
+codegen (`scripts/generate-arc-testnet-usdc-domain.ts`) moved to the
+facilitator's prebuild.
 
 ## Non-scope
 
