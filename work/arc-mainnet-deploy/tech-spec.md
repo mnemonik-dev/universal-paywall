@@ -15,6 +15,57 @@ Standard Chartered.
 
 ---
 
+## 0. Complete Contract Address Reference
+
+All addresses in one place. Mainnet = Arc chain ID 5042. Testnet = Arc chain ID 5042002.
+
+### Universal Paywall Rail (our contracts)
+
+| Contract            | Mainnet address                              | Testnet address                              |
+|---------------------|----------------------------------------------|----------------------------------------------|
+| `StakeVaultFactory` | _pending deploy_                             | `0x028442a366fd124a9e953c90dae58afb8b8db9d8` |
+| `StakeVault` (impl) | _pending deploy_                             | `0x1c65f3ee224dfe4bd7b3ad873956ab238b0dfa45` |
+
+### Circle — Core Stablecoins
+
+| Token  | Mainnet address                              | Testnet address                              | Notes                         |
+|--------|----------------------------------------------|----------------------------------------------|-------------------------------|
+| USDC   | `0x3600000000000000000000000000000000000000` | `0x3600000000000000000000000000000000000000` | System contract, same address |
+| EURC   | `0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1` | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` |                               |
+| USYC   | `0x8a5D989Bbb96929F689B0200f435f53dA42bF490` | `0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C` | Yield-bearing stablecoin      |
+
+### Circle — Wrapped Assets
+
+| Token   | Mainnet address                              | Testnet address                              |
+|---------|----------------------------------------------|----------------------------------------------|
+| cirBTC  | `0x171A4217b86A807A64eB94757Db6849fb4bDbAA0` | `0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF` |
+| WETH    | `0x128cC466B61f542da60c70e3aA11c10e19B84EDB` | `0x2c4047028a72803939b6fb674D01bC059B5C4961` |
+
+### Circle — CCTP v2 (Domain 26)
+
+| Contract               | Mainnet address                              |
+|------------------------|----------------------------------------------|
+| TokenMessenger         | `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d` |
+| MessageTransmitter     | `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64` |
+| CrossChainTokenService | `0x431871229103b780868f8C6BB820cd16ECf942BC` |
+
+### Circle — Gateway (Programmable Wallets)
+
+| Contract      | Mainnet address                              |
+|---------------|----------------------------------------------|
+| GatewayWallet | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
+| GatewayMinter | `0x2222222d7164433c4C09B0b0D809a9b52C04C205` |
+
+### Standard EVM Infrastructure (same on mainnet and testnet)
+
+| Contract        | Address                                      |
+|-----------------|----------------------------------------------|
+| Permit2         | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| Multicall3      | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| CREATE2 Factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C` |
+
+---
+
 ## 1. Arc Mainnet Chain Parameters
 
 | Parameter          | Value                                         |
