@@ -1,0 +1,9 @@
+{
+  "name": "USDC",
+  "version": "2",
+  "decimals": 6,
+  "supportsEip3009": true,
+  "notes": [
+    "domain verified identical to testnet — USDC system contract (0x3600000000000000000000000000000000000000) is same address on both networks"
+  ]
+}

@@ -23,6 +23,7 @@
 
 import type { NetworkConfig } from './types.js';
 import { arcTestnetUsdcDomain } from './generated/arc-testnet-usdc-domain.js';
+import { arcMainnetUsdcDomain } from './generated/arc-mainnet-usdc-domain.js';
 
 if (Array.isArray(arcTestnetUsdcDomain.notes) && arcTestnetUsdcDomain.notes.length > 0) {
   // Surface T3 notes at module load so operators see them in their boot logs.
@@ -59,10 +60,8 @@ const arcMainnet: NetworkConfig = {
   chainId: 5042,
   rpcUrl: process.env['ARC_MAINNET_RPC_URL'] ?? 'https://rpc.mainnet.arc.io',
   usdcAddress: '0x3600000000000000000000000000000000000000',
-  // EIP-712 domain matches testnet (USDC system contract, same across both networks).
-  // Re-verify on-chain before enabling: run generate-arc-mainnet-usdc-domain.ts.
-  usdcEip712Name: 'USDC',
-  usdcEip712Version: '2',
+  usdcEip712Name: arcMainnetUsdcDomain.name,
+  usdcEip712Version: arcMainnetUsdcDomain.version,
   factoryAddress: '0x0000000000000000000000000000000000000000' /* deploy-script:factoryAddress */,
   vaultImplAddress: '0x0000000000000000000000000000000000000000' /* deploy-script:vaultImplAddress */,
   enabled: false, // flip to true after StakeVaultFactory deployed + addresses filled

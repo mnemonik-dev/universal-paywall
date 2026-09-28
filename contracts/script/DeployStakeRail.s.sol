@@ -16,14 +16,21 @@ import {StakeVaultFactory} from "../src/rail/StakeVaultFactory.sol";
  *      rail is a neutral public good. The only constructor arg is USDC.
  *
  *      Invocation (Arc Testnet):
+ *        ARC_RPC_URL=https://rpc.testnet.arc.io DEPLOYER_KEY=$DEPLOYER_KEY \
  *        forge script script/DeployStakeRail.s.sol:DeployStakeRail \
- *          --rpc-url $ARC_RPC_URL --broadcast --verify
+ *          --rpc-url $ARC_RPC_URL --broadcast --verify \
+ *          --verifier-url https://explorer.testnet.arc.io/api --chain-id 5042002
+ *      Invocation (Arc Mainnet):
+ *        ARC_MAINNET_RPC_URL=https://rpc.mainnet.arc.io DEPLOYER_KEY=$DEPLOYER_KEY \
+ *        forge script script/DeployStakeRail.s.sol:DeployStakeRail \
+ *          --rpc-url https://rpc.mainnet.arc.io --broadcast --verify \
+ *          --verifier-url https://explorer.arc.io/api --chain-id 5042
  *      Local smoke (anvil on chain 31337):
  *        anvil --chain-id 31337 --port 8545
  *        forge script script/DeployStakeRail.s.sol:DeployStakeRail \
  *          --rpc-url http://127.0.0.1:8545 --broadcast
  *      Required env: `DEPLOYER_KEY`.
- *      Optional env: `USDC_ADDRESS` (default: Arc Testnet USDC).
+ *      Optional env: `USDC_ADDRESS` (default: Arc USDC system contract).
  */
 contract DeployStakeRail is Script {
     address internal constant DEFAULT_ARC_TESTNET_USDC = 0x3600000000000000000000000000000000000000;
