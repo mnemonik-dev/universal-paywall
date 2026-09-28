@@ -45,14 +45,14 @@ describe('NETWORKS registry', () => {
     expect(NETWORKS['arc-testnet'].usdcEip712Version).toBe(t3.version);
   });
 
-  it('arc-mainnet placeholder uses chainId 0 and id eip155:0', () => {
-    expect(NETWORKS['arc-mainnet'].chainId).toBe(0);
-    expect(NETWORKS['arc-mainnet'].id).toBe('eip155:0');
+  it('arc-mainnet row uses chainId 5042 and id eip155:5042', () => {
+    expect(NETWORKS['arc-mainnet'].chainId).toBe(5042);
+    expect(NETWORKS['arc-mainnet'].id).toBe('eip155:5042');
     expect(NETWORKS['arc-mainnet'].enabled).toBe(false);
   });
 
-  it("arc-mainnet keys 'arc-mainnet' and 'eip155:0' are the same reference", () => {
-    expect(NETWORKS['arc-mainnet']).toBe(NETWORKS['eip155:0']);
+  it("arc-mainnet keys 'arc-mainnet' and 'eip155:5042' are the same reference", () => {
+    expect(NETWORKS['arc-mainnet']).toBe(NETWORKS['eip155:5042']);
   });
 });
 
@@ -62,9 +62,9 @@ describe('normalizeNetworkId', () => {
     expect(normalizeNetworkId('eip155:5042002')).toBe('eip155:5042002');
   });
 
-  it('returns canonical for both forms of arc-mainnet placeholder', () => {
-    expect(normalizeNetworkId('arc-mainnet')).toBe('eip155:0');
-    expect(normalizeNetworkId('eip155:0')).toBe('eip155:0');
+  it('returns canonical for both forms of arc-mainnet', () => {
+    expect(normalizeNetworkId('arc-mainnet')).toBe('eip155:5042');
+    expect(normalizeNetworkId('eip155:5042')).toBe('eip155:5042');
   });
 
   it('returns undefined for unknown id', () => {

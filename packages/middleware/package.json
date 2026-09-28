@@ -18,7 +18,7 @@
   },
   "sideEffects": false,
   "scripts": {
-    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts",
+    "prebuild": "tsx scripts/generate-arc-testnet-usdc-domain.ts && tsx scripts/generate-arc-mainnet-usdc-domain.ts",
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
